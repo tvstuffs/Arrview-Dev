@@ -11,7 +11,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // Canonical user-facing app version. Surfaced in the Settings page and the
 // /api/arrview/identify endpoint (the iOS app reads it from there).
-const APP_VERSION = '1.05';
+const APP_VERSION = '1.06';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -199,6 +199,27 @@ app.get('/api/sonarr/series', async (req, res) => {
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/series`, { headers, timeout: 15000 });
+    res.json(r.data);
+  } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
+});
+
+// Bound calendar requests and include series in one upstream call (no N+1).
+app.get('/api/sonarr/calendar', async (req, res) => {
+  const { start, end } = req.query;
+  const startTime = typeof start === 'string' ? Date.parse(start) : NaN;
+  const endTime = typeof end === 'string' ? Date.parse(end) : NaN;
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) ||
+      endTime <= startTime || endTime - startTime > 32 * 86400000) {
+    return res.status(400).json({ error: 'Provide a valid start/end interval of at most 32 days' });
+  }
+  try {
+    const { baseUrl, headers } = sonarrHeaders();
+    const r = await axios.get(`${baseUrl.replace(/\/$/, '')}/api/v3/calendar`, {
+      headers,
+      params: { start: new Date(startTime).toISOString(), end: new Date(endTime).toISOString(),
+        includeSeries: true, unmonitored: false },
+      timeout: 15000,
+    });
     res.json(r.data);
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });

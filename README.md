@@ -163,3 +163,21 @@ docker run -d --name arrview \
 ```
 
 The container serves the dashboard on `http://localhost:7777` and stores saved service settings in `/data/config.json`, which survives container restarts when the `./data` volume is mounted.
+
+## Calendar API (1.06 development)
+
+`GET /api/sonarr/calendar?start=<ISO-8601>&end=<ISO-8601>` returns monitored
+Sonarr episodes with embedded series metadata. Both bounds are required; the
+interval must be positive and at most 32 days. Requests forward to Sonarr v3 with
+`includeSeries=true` and `unmonitored=false`. Missing Sonarr configuration returns
+503; upstream failures are not converted into empty calendars.
+
+Run `node --test tests/calendar.test.js` for the isolated, loopback-only proxy
+contract suite (7 checks). `npm run build` verifies the unchanged web client.
+
+Human verification: compare the calendar response to Sonarr for the same time
+window; check empty results, invalid ranges, missing configuration, and upstream
+connection/authentication failures. Test a calendar-capable client in both proxy
+and Direct mode (Direct bypasses this server). Recheck existing series/episode
+routes. Live Sonarr, deployment, physical-device networking, and container builds
+were not verified by these automated checks.
