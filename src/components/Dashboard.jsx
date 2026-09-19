@@ -21,7 +21,7 @@ function Toast({ toasts }) {
   )
 }
 
-export default function Dashboard({ config, onReconfigure }) {
+export default function Dashboard({ config, onConfigSaved }) {
   const [activeTab, setActiveTab] = useState('downloads')
   const [serviceStatus, setServiceStatus] = useState({})
   const [showingConfig, setShowingConfig] = useState(false)
@@ -39,12 +39,8 @@ export default function Dashboard({ config, onReconfigure }) {
     await Promise.allSettled(
       services.map(async svc => {
         try {
-          const endpoint =
-            svc === 'sabnzbd'  ? '/api/sabnzbd/queue'    :
-            svc === 'sonarr'   ? '/api/sonarr/series'    :
-            svc === 'radarr'   ? '/api/radarr/movies'    :
-            svc === 'nzbhydra' ? '/api/nzbhydra/status'  : null
-          if (!endpoint) return
+          if (!['sabnzbd', 'sonarr', 'radarr', 'nzbhydra'].includes(svc)) return
+          const endpoint = `/api/${svc}/ping`
           const r = await fetch(endpoint)
           checks[svc] = r.ok ? 'online' : 'offline'
         } catch {
@@ -67,9 +63,8 @@ export default function Dashboard({ config, onReconfigure }) {
         initialConfig={config}
         onBack={() => setShowingConfig(false)}
         onSave={newConfig => {
-          onReconfigure()
-          // App will re-read config and re-render
-          window.location.reload()
+          onConfigSaved(newConfig)
+          setShowingConfig(false)
         }}
       />
     )
