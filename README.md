@@ -181,3 +181,21 @@ connection/authentication failures. Test a calendar-capable client in both proxy
 and Direct mode (Direct bypasses this server). Recheck existing series/episode
 routes. Live Sonarr, deployment, physical-device networking, and container builds
 were not verified by these automated checks.
+
+## Recent-import history API (1.07 development — 2026-09-19)
+
+`GET /api/radarr/history/recent-imports?page=1` supplies bounded metadata for
+recent-movie widgets. Only pages 1–3 are allowed. Every upstream request uses
+20 history records, `eventType=3` (downloadFolderImported), embedded movies and
+newest-first date ordering. The upstream response is capped at 512 KiB, redirects
+are refused, and only widget fields are returned. It never fetches the complete
+movie library. Existing `/api/radarr/movies` and calendar contracts are unchanged.
+
+Clients using this route need a server build containing it. An older server may
+return 404 or the SPA's HTML instead. Clients must preserve their previous cache
+and report the unsupported endpoint, not fall back to fetching the full library.
+The client limits results to 12 distinct currently downloaded movies within the
+bounded history window; purged history is not reconstructed from the library.
+
+Run `node --test tests/*.test.js` for the loopback proxy contracts. See
+[CHANGELOG.md](CHANGELOG.md) for the human verification plan and limitations.

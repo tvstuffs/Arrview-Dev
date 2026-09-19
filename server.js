@@ -11,7 +11,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // Canonical user-facing app version. Surfaced in the Settings page and the
 // /api/arrview/identify endpoint (the iOS app reads it from there).
-const APP_VERSION = '1.06';
+const APP_VERSION = '1.07';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -430,6 +430,60 @@ app.get('/api/radarr/movies', async (req, res) => {
     const r = await axios.get(`${baseUrl}/api/v3/movie`, { headers, timeout: 15000 });
     res.json(r.data);
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
+});
+
+// Widget metadata must never fetch the full movie library. Radarr's paged
+// history takes numeric eventType=3 (downloadFolderImported), newest first.
+// Bounds match the widget client: 20 records/page, at most three pages.
+app.get('/api/radarr/history/recent-imports', async (req, res) => {
+  const pageText = req.query.page ?? '1';
+  if (typeof pageText !== 'string' || !/^[1-3]$/.test(pageText)) {
+    return res.status(400).json({ error: 'page must be an integer from 1 to 3' });
+  }
+  const page = Number(pageText);
+  const pageSize = 20;
+  try {
+    const { baseUrl, headers } = radarrHeaders();
+    const response = await axios.get(`${baseUrl.replace(/\/+$/, '')}/api/v3/history`, {
+      headers,
+      params: { page, pageSize, eventType: 3, includeMovie: true, sortKey: 'date', sortDirection: 'descending' },
+      timeout: 10000,
+      maxContentLength: 512 * 1024,
+      maxRedirects: 0,
+      responseType: 'json',
+      transitional: { silentJSONParsing: false },
+    });
+    const history = response.data;
+    if (history?.page !== page || !Number.isSafeInteger(history.pageSize) ||
+        history.pageSize < 1 || history.pageSize > pageSize ||
+        !Number.isSafeInteger(history.totalRecords) || history.totalRecords < 0 ||
+        !Array.isArray(history.records) || history.records.length > history.pageSize ||
+        history.totalRecords < history.records.length ||
+        (history.records.length === 0 && history.totalRecords > (page - 1) * history.pageSize)) {
+      return res.status(502).json({ error: 'Invalid Radarr history page' });
+    }
+    // Deliberate allowlist: no filesystem paths, release metadata or overviews.
+    const records = history.records.map(record => {
+      const movie = record.movie;
+      return {
+        movieId: record.movieId, date: record.date, eventType: record.eventType,
+        movie: movie ? {
+          id: movie.id, title: movie.title, year: movie.year,
+          hasFile: movie.hasFile, movieFileId: movie.movieFileId,
+          movieFile: movie.movieFile ? { id: movie.movieFile.id, dateAdded: movie.movieFile.dateAdded } : null,
+          images: Array.isArray(movie.images) ? movie.images.filter(image => image.coverType === 'poster').slice(0, 1)
+            .map(image => ({ coverType: image.coverType, url: image.url, remoteUrl: image.remoteUrl })) : [],
+        } : null,
+      };
+    });
+    res.json({ page, pageSize: history.pageSize, totalRecords: history.totalRecords, records });
+  } catch (error) {
+    // Never expose an axios error/config, upstream paths or authentication material.
+    const code = error.response?.status;
+    // A 404 from Radarr is an upstream failure, not a missing ArrView route.
+    res.status(code === 404 ? 502 : (code >= 400 && code <= 599 ? code : 503))
+      .json({ error: 'Recent movie imports unavailable' });
+  }
 });
 
 app.post('/api/radarr/command', async (req, res) => {
