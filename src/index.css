@@ -24,7 +24,7 @@ body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
-  min-height: 100vh;
+  min-height: 100dvh;
   font-size: 14px;
   line-height: 1.5;
 }
@@ -274,7 +274,7 @@ label {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  height: 100dvh;
   gap: 12px;
   color: var(--text-secondary);
   font-size: 16px;
@@ -283,8 +283,8 @@ label {
 /* ── Toast notifications ───────────────────────────────── */
 .toast-container {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  right: calc(24px + env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -306,3 +306,6 @@ label {
 .toast-success { background: rgba(63,185,80,0.2);  border: 1px solid rgba(63,185,80,0.4);  color: var(--success); }
 .toast-error   { background: rgba(248,81,73,0.2);  border: 1px solid rgba(248,81,73,0.4);  color: var(--danger);  }
 .toast-info    { background: rgba(88,166,255,0.2); border: 1px solid rgba(88,166,255,0.4); color: var(--accent);  }
+
+.offline-state { flex-direction: column; text-align: center; padding: calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left)); }
+.offline-state h1 { font-size: 24px; }

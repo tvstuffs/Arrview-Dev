@@ -298,3 +298,82 @@ Hashed build assets under `/assets/` are immutable for one year. The HTML shell
 and mutable public files revalidate; API responses are not stored. Reverse proxies
 should preserve these headers. Missing file paths return 404, not the HTML shell.
 See CHANGELOG's 1.09 human test plan before promoting a dev image to release.
+
+## Home Screen app (1.10)
+
+Open **Settings → Add to Home Screen** for instructions for your device. On
+supported Chromium browsers an **Install ArrView** button appears when the browser
+makes installation available. Its absence is normal on Safari, after dismissal,
+or when the browser's installation criteria have not yet been met.
+
+- **iPhone/iPad:** in Safari, Share → Add to Home Screen → Add. Keep “Open as Web
+  App” enabled if offered. LAN HTTP works for Home Screen launch; HTTPS is needed
+  for the service worker/offline screen.
+- **Android:** in Chrome over HTTPS, menu → Install app (or Add to Home screen)
+  → Install. Over ordinary LAN HTTP, Add to Home screen creates a **browser
+  shortcut**, not a standalone app.
+- **Desktop:** use the browser's Install app control/menu where supported.
+
+The manifest, Apple touch icon and maskable Android icon are served locally.
+The existing SVG is the source of truth; `npm run icons` regenerates the 192/512,
+maskable 512 and Apple 180 px assets. Keep these generated PNGs in source control.
+
+### Offline behavior and updates
+
+A service worker registers **only on HTTPS or a browser-trusted loopback origin**
+(e.g. localhost). It caches the local shell/icons, never `/api/*`, media libraries,
+queues, configuration or keys. Navigations try the network first and show
+“Can’t reach your ArrView server” if unreachable; **Try again** probes `/api/health`
+and reopens the app when the server is back. First-ever offline launch cannot work:
+the site must have loaded successfully at least once on that origin. Ordinary LAN
+HTTP has no offline screen. HTTPS is not offline media support.
+
+Updates activate automatically; an open page may reload when a new worker takes
+control. Finish unsaved Settings edits before updating the container. External
+Sonarr/Radarr/service links intentionally open another browser surface; return to
+ArrView using its Home Screen icon. Existing tab/filter state is not persisted
+across app restarts. Full background/foreground refresh and mobile layout work are
+separate follow-ups, not features promised by this shell.
+
+The identity API now adds `capabilities: ["pwa", "ping", "health"]` alongside the
+unchanged `app`, `version` and `services` fields. `pwa` means the shell is provided;
+actual installation/offline behavior still depends on browser and origin security.
+
+### HTTPS options
+
+| Access | Home Screen behavior | Setup |
+|---|---|---|
+| Private LAN HTTP | iOS web-app launch; Android browser shortcut; no service worker | Existing container URL; no infrastructure change |
+| **Private Tailscale HTTPS (recommended)** | Standalone installation and offline screen on supported browsers | Install/sign in to Tailscale on server and devices, then run `tailscale serve --bg 7777` on the server. Use the HTTPS URL it prints; Serve may guide you to enable HTTPS certificates. No router port forwarding required. |
+| Existing private HTTPS reverse proxy | Same HTTPS behavior | Caddy, Nginx Proxy Manager or Traefik can terminate a trusted certificate and proxy to ArrView's port 7777. Preserve `/api`, SSE streaming and cache headers; deploy at the domain root, not a path prefix. |
+
+For the last option, Let's Encrypt (often via DNS validation) can provide a trusted
+certificate without making the app public. **ArrView 1.10 still has no built-in
+login and its configuration API contains service keys.** Keep the front door LAN-
+or tailnet-only, or protect it with an access-controlled gateway. Do not port-
+forward this unauthenticated container or enable Tailscale Funnel for it. The
+planned authentication sprint is the gate for public remote-access guidance.
+Browser gateway login does not imply compatibility with native API clients.
+
+Tailscale Serve is private to your tailnet (subject to its access policy); it is
+not Tailscale Funnel. Bonjour/mDNS discovery on the local network is unchanged
+and still uses the existing host-network advertisement. An HTTPS URL does not
+extend mDNS discovery across networks.
+
+### Development verification
+
+```sh
+npm ci
+npm test                     # Node contracts + React component tests
+npx playwright install chromium
+npm run test:e2e              # production build + isolated HTTPS browser fixture
+```
+
+Browser tests generate a temporary localhost certificate with OpenSSL and run only
+against fake loopback upstreams, never a configured live library. They cover HTTPS
+registration, API cache isolation, offline recovery, insecure HTTP behavior and
+the new install/offline UI at widths 305, 320, 360, 390, 402, 440, 466, 669, 834 and
+1280 px. This is **not** a claim that all existing tabs meet mobile touch/layout
+requirements. Actual iPhone/Android installation, notches/safe areas, app resume,
+native proxy/Direct regression and persistent-volume upgrades remain the human
+checks in CHANGELOG 1.10 before release promotion.

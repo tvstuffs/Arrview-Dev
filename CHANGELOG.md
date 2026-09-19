@@ -1,5 +1,87 @@
 # ArrView server development changelog
 
+## 1.10 — 2026-09-19 — Web parity W1: Home Screen shell
+
+- Added the standalone manifest, 192/512 icons, safely padded maskable icon and
+  Apple 180px icon generated from the existing SVG. Added theme/Apple metadata
+  and viewport-fit=cover. System fonts stay local.
+- Added vite-plugin-pwa with automatic updates and a custom shell-only worker.
+  APIs (including config, health, SSE and mutations) always use the network and
+  are never cached. Navigation is network-first with an explicit offline page,
+  not a stale dashboard; retry/online recovery probes health before reopening.
+  Initial config fetch failure now shows a retryable server-unavailable screen,
+  not misleading first-run setup.
+- Settings contains platform-aware Home Screen help, a Chromium Install button
+  when offered, and standalone status/external-link guidance. Ordinary LAN HTTP
+  still works, but cannot register a worker; Android gets a browser shortcut.
+- Replaced 100vh with 100dvh and added notch/home-indicator safe-area spacing to
+  shell, settings, loading/offline views and toasts. Full tab/modal touch/layout
+  overhaul, persisted state and background lifecycle work remain W2.
+- Version is 1.10; identify adds capabilities pwa/ping/health without removing
+  existing fields. Config schema, native apps and ArrViewCore are unchanged.
+- README covers LAN HTTP, private Tailscale Serve and existing private HTTPS
+  proxies, including the current no-auth boundary. External service links may
+  open the browser; tab/filter state is not retained across app restarts yet.
+- Added React component and real HTTPS Chromium test suites plus CI. Build/test
+  tooling uses Vite 6.4.3 and Vitest 4.1.11 to use the patched compatible releases;
+  package.json's application version remains 1.0.0. Production runtime dependencies
+  are not intentionally upgraded in this sprint.
+
+### Human test plan
+
+1. Upgrade a **test** container from 1.09 to the new dev image with the same /data
+   mount. Confirm URLs/keys survive, Settings/identify show 1.10, health is healthy,
+   and all configured services work. Repeat from the currently shipped container
+   if that is your baseline. No config schema migration should occur.
+2. On a **physical iPhone**, open the LAN HTTP URL in Safari, Settings → Add to
+   Home Screen, then Share → Add to Home Screen → Add. Launch the ArrView icon:
+   check name/icon, standalone appearance and return from external service links.
+   Repeat using private HTTPS; confirm the worker registers there, not LAN HTTP.
+3. On a **physical Android phone**, use Chrome with a trusted HTTPS URL (private
+   Tailscale Serve is suitable). Install via the offered button or Chrome menu;
+   confirm standalone launch and an unclipped circle/squircle icon. Dismiss an
+   install prompt and verify the manual instructions remain. On plain LAN HTTP,
+   verify the help describes a shortcut and it launches inside Chrome instead.
+4. After a successful HTTPS visit, disconnect from the server and relaunch/reload.
+   Expect “Can’t reach your ArrView server”, never old queues/libraries or setup.
+   Restore connectivity and use Try again: it should return to the dashboard.
+   Inspect browser Cache Storage: no /api URLs or config/key/media JSON. Test an
+   update while the app is open (finish unsaved settings first): new worker should
+   activate and refresh the page, with saved configuration retained.
+5. On a notched iPhone and Duo cover, check top controls below the notch and
+   toasts/settings actions above the home indicator, including landscape where
+   available. Check widths 305, 320, 360, 390, 402, 440, 466, 669, 834 and 1280;
+   install help and offline retry must fit and be tappable. Other tab/modal
+   mobile-layout defects are W2, not claimed fixed here.
+6. Background/foreground the installed app, reconnect Wi-Fi, then verify queues,
+   shows and movies refresh; use Refresh/reopen if needed. Existing lifecycle/SSE
+   limitations remain W2 and must not be mistaken for offline cached API data.
+7. On a physical device, regression-test native iOS **proxy mode** against this
+   server (identify, browsing, downloads, calendar), then **Direct mode** against
+   the same upstreams. Check LAN discovery/privacy. Simulator cannot establish
+   local-network-privacy correctness (Apple TN3179). Native/Core unchanged, so no
+   Apple build or native storage migration is introduced by this sprint.
+
+### Verified / not verified
+
+Production build and node syntax check passed. Node server contracts: **29/29**;
+React/Vitest components: **10/10**; Playwright Chromium 153 HTTPS fixture:
+**17/17**. Covers manifest/icon dimensions, identify compatibility, shell headers,
+real service-worker control, API read/write cache exclusion, offline navigation,
+reconnection, automatic worker update/reload, settings-save regression, insecure
+HTTP no-worker behavior, and install/offline layout at all ten widths. New install
+and retry controls meet 44px in the tested touch profile; this does not certify
+all existing controls. Narrow 305/466px screenshots and maskable icon visually
+inspected. First browser run had a retry-test race with automatic online recovery;
+corrected the test and reran successfully. No live service data was used.
+
+Physical iPhone/Android install sheets and launcher behavior, Safari/WebKit,
+real safe-area insets/folding, VoiceOver/TalkBack, Tailscale/proxy setup, installed
+app suspend/resume, live native proxy/Direct/LAN and real volume upgrade remain
+**not verified**. Local Docker daemon is unavailable; remote build/publication
+results are recorded separately after CI. Existing dependency audit findings in
+runtime/transitive packages remain outside W1; no claim of W4 hardening.
+
 ## 1.09 — 2026-09-19 — Web parity W0
 
 - History sizes now use SABnzbd `bytes` converted to MB, falling back to `mb`.

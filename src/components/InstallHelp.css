@@ -1,0 +1,4 @@
+.install-help { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.install-help h2 { font-size: 18px; }
+.install-help p { overflow-wrap: anywhere; }
+.install-help .btn { align-self: flex-start; min-height: 44px; white-space: normal; }

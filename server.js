@@ -11,7 +11,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // Canonical user-facing app version. Surfaced in the Settings page and the
 // /api/arrview/identify endpoint (the iOS app reads it from there).
-const APP_VERSION = '1.09';
+const APP_VERSION = '1.10';
 
 app.use(express.json());
 // API responses and mutable shell files must always reach the server.
@@ -94,6 +94,7 @@ app.get('/api/arrview/identify', (req, res) => {
   res.json({
     app: 'arrview',
     version: APP_VERSION,
+    capabilities: ['pwa', 'ping', 'health'],
     services,
   });
 });

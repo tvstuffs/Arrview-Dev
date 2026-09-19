@@ -11,3 +11,7 @@ demo/
 # Agent instructions with local paths — never commit in this public repo
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Browser test artifacts
+test-results/
+playwright-report/

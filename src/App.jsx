@@ -1,17 +1,27 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import ConfigPage from './components/ConfigPage.jsx'
 import Dashboard from './components/Dashboard.jsx'
 
 export default function App() {
   const [config, setConfig] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [unavailable, setUnavailable] = useState(false)
 
-  useEffect(() => {
-    fetch('/api/config')
-      .then(r => r.json())
-      .then(data => { setConfig(data); setLoading(false) })
-      .catch(() => { setConfig({}); setLoading(false) })
+  const loadConfig = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetch('/api/config', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
+      if (!response.ok) throw new Error('Server unavailable')
+      setConfig(await response.json())
+      setUnavailable(false)
+    } catch {
+      setUnavailable(true)
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  useEffect(() => { loadConfig() }, [loadConfig])
 
   if (loading) {
     return (
@@ -19,6 +29,16 @@ export default function App() {
         <span className="spinner" />
         Loading…
       </div>
+    )
+  }
+
+  if (unavailable) {
+    return (
+      <main className="loading-screen offline-state">
+        <h1>Can’t reach your ArrView server</h1>
+        <p>Check your connection and that the server is running, then try again.</p>
+        <button className="btn btn-primary btn-lg" onClick={loadConfig}>Try again</button>
+      </main>
     )
   }
 
