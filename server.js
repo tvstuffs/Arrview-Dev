@@ -11,7 +11,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // Canonical user-facing app version. Surfaced in the Settings page and the
 // /api/arrview/identify endpoint (the iOS app reads it from there).
-const APP_VERSION = '1.07';
+const APP_VERSION = '1.08';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -539,6 +539,26 @@ app.delete('/api/radarr/moviefile/:id', async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     const msg = e.response?.data?.message || e.response?.data || e.message;
+    res.status(e.response?.status || 503).json({ error: String(msg) });
+  }
+});
+
+// Remove a movie from Radarr's library; deleteFiles=true also deletes its folder.
+// Radarr spells the exclusion flag addImportExclusion — Sonarr's
+// addImportListExclusion is silently ignored here, so don't copy the series route.
+app.delete('/api/radarr/movie/:id', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid movie id' });
+  try {
+    const { baseUrl, headers } = radarrHeaders();
+    const deleteFiles = req.query.deleteFiles === 'true';
+    await axios.delete(`${baseUrl.replace(/\/+$/, '')}/api/v3/movie/${req.params.id}`, {
+      headers,
+      params: { deleteFiles, addImportExclusion: false },
+      timeout: 15000,
+    });
+    res.json({ success: true });
+  } catch (e) {
+    const msg = e.response?.data?.message || e.message;
     res.status(e.response?.status || 503).json({ error: String(msg) });
   }
 });
