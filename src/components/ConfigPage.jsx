@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './ConfigPage.css'
+import InstallHelp from './InstallHelp.jsx'
 
 const SERVICES = [
   {
@@ -201,6 +202,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
             />
           ))}
         </div>
+
+        <InstallHelp />
 
         {error && <div className="error-banner">{error}</div>}
 

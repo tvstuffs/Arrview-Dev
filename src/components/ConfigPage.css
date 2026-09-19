@@ -1,9 +1,9 @@
 .config-page {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 48px 24px 80px;
+  padding: calc(48px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(80px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
   background: var(--bg-primary);
 }
 

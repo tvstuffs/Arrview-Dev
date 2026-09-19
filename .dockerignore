@@ -15,3 +15,9 @@ dist
 .github
 .DS_Store
 *.md
+
+test-results
+playwright-report
+tests
+playwright.config.cjs
+vitest.config.mjs

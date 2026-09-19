@@ -1,7 +1,7 @@
 .dashboard {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* ── Top bar ────────────────────────────────────────────── */
@@ -9,8 +9,9 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 20px;
-  height: 52px;
+  padding: 0 calc(20px + env(safe-area-inset-right)) 0 calc(20px + env(safe-area-inset-left));
+  height: calc(52px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   position: sticky;
@@ -65,12 +66,12 @@
 .tabbar {
   display: flex;
   gap: 2px;
-  padding: 0 20px;
+  padding: 0 calc(20px + env(safe-area-inset-right)) 0 calc(20px + env(safe-area-inset-left));
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   position: sticky;
-  top: 52px;
+  top: calc(52px + env(safe-area-inset-top));
   z-index: 99;
 }
 .tab-btn {
@@ -93,5 +94,5 @@
 .dashboard-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 20px calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
 }
