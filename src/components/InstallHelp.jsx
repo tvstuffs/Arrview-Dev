@@ -30,7 +30,7 @@ export default function InstallHelp() {
       {!installed && canInstall && <button className="btn btn-primary" onClick={install}>Install ArrView</button>}
       {message && <p role="status">{message}</p>}
       {!secure && <p className="text-secondary">Offline startup is unavailable on this HTTP address. HTTPS enables the offline screen; it does not make your media available offline.</p>}
-      {installed && <p className="text-secondary">Links to Sonarr, Radarr and other services may open your browser. Return to ArrView using its Home Screen icon. If the app restarts, it returns to the default tab.</p>}
+      {installed && <p className="text-secondary">Links to Sonarr, Radarr and other services may open your browser. Return to ArrView using its Home Screen icon. Your last tab and browsing preferences are restored when the app restarts.</p>}
     </section>
   )
 }

@@ -1,5 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import './DownloadsTab.css'
+import { useVisiblePolling } from '../hooks/lifecycle'
+import ConfirmSheet from './ConfirmSheet'
+import { checkedFetch } from '../actions'
 import NzbSearchModal from './NzbSearchModal'
 
 function formatBytes(mb) {
@@ -27,11 +30,11 @@ function QueueItem({ slot, onPause, onResume, onDelete }) {
         <div className="queue-item-name truncate" title={slot.filename}>{slot.filename}</div>
         <div className="queue-item-actions">
           {isPaused ? (
-            <button className="btn btn-success btn-sm" onClick={() => onResume(slot.nzo_id)} title="Resume">▶</button>
+            <button className="btn btn-success btn-sm" onClick={() => onResume(slot.nzo_id)} aria-label="Resume" title="Resume">▶</button>
           ) : (
-            <button className="btn btn-secondary btn-sm" onClick={() => onPause(slot.nzo_id)} title="Pause">⏸</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => onPause(slot.nzo_id)} aria-label="Pause" title="Pause">⏸</button>
           )}
-          <button className="btn btn-danger btn-sm" onClick={() => onDelete(slot.nzo_id)} title="Delete">✕</button>
+          <button className="btn btn-danger btn-sm" onClick={() => onDelete(slot.nzo_id)} aria-label="Delete" title="Delete">✕</button>
         </div>
       </div>
 
@@ -68,12 +71,12 @@ function HistoryItem({ item }) {
   )
 }
 
-export default function DownloadsTab({ onToast }) {
+export default function DownloadsTab({ onToast, canSearch = true }) {
   const [queue, setQueue] = useState(null)
   const [history, setHistory] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [countdown, setCountdown] = useState(10)
+  const [removeSlot, setRemoveSlot] = useState(null)
   const [showSearch, setShowSearch] = useState(false)
 
   const fetchData = useCallback(async () => {
@@ -92,16 +95,10 @@ export default function DownloadsTab({ onToast }) {
       setError(e.message)
     } finally {
       setLoading(false)
-      setCountdown(10)
     }
   }, [])
 
-  useEffect(() => {
-    fetchData()
-    const dataInterval = setInterval(fetchData, 10000)
-    const cdInterval = setInterval(() => setCountdown(c => c > 0 ? c - 1 : 10), 1000)
-    return () => { clearInterval(dataInterval); clearInterval(cdInterval) }
-  }, [fetchData])
+  useVisiblePolling(fetchData, 10000)
 
   async function postAction(mode, nzo_id) {
     try {
@@ -123,19 +120,10 @@ export default function DownloadsTab({ onToast }) {
   async function handlePause(id) { await postAction('pause', id) }
   async function handleResume(id) { await postAction('resume', id) }
   async function handleDelete(id) {
-    try {
-      const r = await fetch('/api/sabnzbd/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'queue', name: 'delete', value: id }),
-      })
-      const data = await r.json()
-      if (data.error) throw new Error(data.error)
-      onToast('Item removed from queue', 'info')
-      fetchData()
-    } catch (e) {
-      onToast(`Error: ${e.message}`, 'error')
-    }
+    await checkedFetch('/api/sabnzbd/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'queue', name: 'delete', value: id }) })
+    onToast('Item removed from the SABnzbd queue', 'info')
+    fetchData()
   }
 
   if (loading) {
@@ -165,6 +153,9 @@ export default function DownloadsTab({ onToast }) {
 
   return (
     <div className="downloads-tab">
+      {removeSlot && <ConfirmSheet title="Remove download?" description={`Remove “${removeSlot.filename}” from the SABnzbd queue. This does not remove it from Sonarr or Radarr.`}
+        actions={[{ label: 'Remove from SABnzbd Queue', run: () => handleDelete(removeSlot.nzo_id) }]}
+        onClose={() => setRemoveSlot(null)} />}
       {showSearch && (
         <NzbSearchModal onClose={() => setShowSearch(false)} onToast={onToast} />
       )}
@@ -190,13 +181,13 @@ export default function DownloadsTab({ onToast }) {
           <span className="stat-value">{slots.length}</span>
         </div>
         <div className="statsbar-actions ml-auto">
-          <button className="btn btn-primary btn-sm" onClick={() => setShowSearch(true)}>🔎 Search NZBs</button>
+          {canSearch && <button className="btn btn-primary btn-sm" onClick={() => setShowSearch(true)}>🔎 Search NZBs</button>}
           {isDownloading
             ? <button className="btn btn-secondary btn-sm" onClick={handlePauseAll}>⏸ Pause All</button>
             : <button className="btn btn-success btn-sm" onClick={handleResumeAll}>▶ Resume All</button>
           }
-          <button className="btn btn-ghost btn-sm" onClick={fetchData} title={`Refreshes in ${countdown}s`}>
-            🔄 {countdown}s
+          <button className="btn btn-ghost btn-sm" onClick={fetchData} aria-label="Refresh downloads" title="Refresh downloads">
+            🔄 Refresh
           </button>
         </div>
       </div>
@@ -217,7 +208,7 @@ export default function DownloadsTab({ onToast }) {
                 slot={slot}
                 onPause={handlePause}
                 onResume={handleResume}
-                onDelete={handleDelete}
+                onDelete={() => setRemoveSlot(slot)}
               />
             ))}
           </div>

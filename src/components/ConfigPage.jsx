@@ -66,19 +66,19 @@ function ServiceCard({ service, values, onChange, onTest }) {
 
       <div className="service-fields">
         <div className="field-group">
-          <label>Server URL</label>
+          <label htmlFor={`${service.id}-url`}>Server URL</label>
           <input
-            type="url"
+            id={`${service.id}-url`} type="url"
             placeholder={service.placeholder}
             value={values.url || ''}
             onChange={e => onChange(service.id, 'url', e.target.value)}
           />
         </div>
         <div className="field-group">
-          <label>API Key</label>
+          <label htmlFor={`${service.id}-key`}>API Key</label>
           <div className="input-group">
             <input
-              type="password"
+              id={`${service.id}-key`} type="password"
               placeholder="Enter API key…"
               value={values.apikey || ''}
               onChange={e => onChange(service.id, 'apikey', e.target.value)}

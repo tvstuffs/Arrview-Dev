@@ -50,10 +50,19 @@ test('W0 web foundation contract', async t => {
     fs.renameSync(path.join(root, 'config.json'), path.join(root, 'saved.json'));
     const response = await fetch(base + '/api/health');
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { status: 'ok', version: '1.10' });
+    assert.deepEqual(await response.json(), { status: 'ok', version: '1.10.1' });
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(hits.length, 0);
     fs.renameSync(path.join(root, 'saved.json'), path.join(root, 'config.json'));
+  });
+  await t.test('event stream announces retry and can disconnect cleanly', async () => {
+    const controller = new AbortController();
+    const response = await fetch(base + '/api/events', { signal: controller.signal });
+    assert.equal(response.headers.get('content-type'), 'text/event-stream');
+    const reader = response.body.getReader();
+    const chunk = await reader.read();
+    assert.match(new TextDecoder().decode(chunk.value), /retry: 5000/);
+    await reader.cancel(); controller.abort();
   });
   await t.test('pings use status/version/caps and forward credentials, never libraries', async () => {
     for (const service of Object.keys(config)) {

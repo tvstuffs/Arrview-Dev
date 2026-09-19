@@ -1,3 +1,4 @@
+import Sheet from './Sheet'
 import { useState, useEffect, useRef } from 'react'
 import './AddMediaModal.css'
 
@@ -14,10 +15,12 @@ function getPoster(item) {
 function ResultCard({ item, selected, onSelect, type }) {
   const poster = getPoster(item)
   const alreadyAdded = !!item.id
-  const isSelected = selected?.tvdbId === item.tvdbId || selected?.tmdbId === item.tmdbId
+  const isSelected = selected && (type === 'show' ? selected.tvdbId === item.tvdbId : selected.tmdbId === item.tmdbId)
 
   return (
     <div
+      role="button" tabIndex={alreadyAdded ? -1 : 0} aria-disabled={alreadyAdded} aria-label={`Select ${item.title}`}
+      onKeyDown={e => { if (!alreadyAdded && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(item) } }}
       className={`result-card ${isSelected ? 'selected' : ''} ${alreadyAdded ? 'already-added' : ''}`}
       onClick={() => !alreadyAdded && onSelect(item)}
     >
@@ -146,14 +149,8 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
   const canAdd = selected && qualityProfileId && rootFolderPath
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <Sheet title={`Add ${label}`} onClose={onClose} busy={adding}>
       <div className="modal-panel" onClick={e => e.stopPropagation()}>
-
-        {/* Header */}
-        <div className="modal-header">
-          <h2>Add {label}</h2>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
 
         {/* Search */}
         <div className="modal-search">
@@ -205,9 +202,9 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
 
             <div className="config-fields">
               <div className="config-row">
-                <label>Quality Profile</label>
+                <label htmlFor="quality-profile">Quality Profile</label>
                 <select
-                  value={qualityProfileId}
+                  id="quality-profile" value={qualityProfileId}
                   onChange={e => setQualityProfileId(e.target.value)}
                 >
                   {qualityProfiles.map(p => (
@@ -218,9 +215,9 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
               </div>
 
               <div className="config-row">
-                <label>Root Folder</label>
+                <label htmlFor="root-folder">Root Folder</label>
                 <select
-                  value={rootFolderPath}
+                  id="root-folder" value={rootFolderPath}
                   onChange={e => setRootFolderPath(e.target.value)}
                 >
                   {rootFolders.map(f => (
@@ -253,7 +250,7 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
             {addError && <div className="error-banner">{addError}</div>}
 
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+              <button className="btn btn-secondary" disabled={adding} onClick={onClose}>Cancel</button>
               <button
                 className="btn btn-primary"
                 onClick={handleAdd}
@@ -268,6 +265,6 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
           </div>
         )}
       </div>
-    </div>
+    </Sheet>
   )
 }
