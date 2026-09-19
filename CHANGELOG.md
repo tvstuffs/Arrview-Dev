@@ -1,5 +1,94 @@
 # ArrView server development changelog
 
+## 1.10.1 — 2026-09-19 — Web parity W2: mobile layout and lifecycle
+
+Completes W2's nine areas in the container development repo. Version 1.10.1 leaves
+1.11 available for the planned authentication sprint. No native iOS/tvOS/Core
+changes and no server config schema changes; the server adds only an SSE retry
+hint alongside its version bump.
+
+- Service-gated bottom navigation below 640px, existing top navigation above;
+  Search and Settings are reachable without modal-only navigation.
+- At least 44px touch controls, accessible icon names/form labels, wrapping rows
+  and action controls, responsive movie grid, and toasts above the bottom bar.
+- Shared native-dialog sheets for add-media, interactive release search, NZB
+  search and confirmations. Scrollable body, reachable header Close, focus trap,
+  Escape and focus return. Desktop retains centred panels.
+- Confirmation wording distinguishes Delete and Unmonitor from Delete and Remove
+  from Sonarr, and preserves Remove/Keep Files. SAB queue deletion also confirms.
+  Partial episode-file or monitor failure is reported, not a false success.
+  No new whole-series unmonitor or Radarr management features are added (W3).
+- Versioned local view preferences: tab, library search/filter/sort, expanded
+  show/seasons, release options and NZB query. No API/config/key/result caching.
+  Denied/corrupt storage is tolerated; removed services get a valid fallback tab.
+- Single shared EventSource; health/download/library/episode polls pause hidden
+  and resume with immediate fetch. Movies get a 60-second safety poll. Network
+  reconnection catches up; per-second countdowns removed. Command-status checks
+  suspend and clean up on unmount. Server emits retry: 5000.
+- System light/dark colors, matching theme-color metadata and offline appearance.
+
+### Human test plan
+
+1. Upgrade a test container from **1.10** (and from the currently shipped image
+   where applicable) using the existing /data mount. Confirm service credentials
+   remain, health is healthy, identify/Settings show 1.10.1, and all libraries load.
+   Configure the old image before upgrading; there is no config-schema migration.
+   Only browser view preferences are new; native app credentials remain untouched.
+2. On physical iPhone/iPad and Android, use browser and installed Home Screen app.
+   Check widths 305, 320, 360, 390, 402, 440, 466, 669, 834, 1280; sweep through
+   450–750px and confirm bottom/top navigation switches at 640 without losing
+   selection. Check Duo cover/folding and a short 320×568 viewport, portrait and
+   landscape, real notches/home indicator and the on-screen keyboard. Repeat narrow
+   layouts with enlarged text. Expected: controls accessible, no horizontal scroll,
+   sheets scroll without losing Close, bottom navigation/toasts do not hide actions.
+3. Browse Downloads, expand Shows/seasons, search Movies, open add-media and
+   interactive/NZB results. Try touch, keyboard Tab/Shift-Tab/Escape, VoiceOver and
+   TalkBack. Expect labelled actions, contained dialog focus and focus returned on
+   close. Change system light/dark while open; text and controls remain readable.
+4. Change tab, filters, sort and expanded show/season; reload or relaunch the
+   installed app. Expect them restored. Remove a configured service and verify its
+   old saved tab falls back to an available tab. Clear/deny browser storage: app
+   should still work. HTTP and HTTPS origins have separate preferences. Inspect
+   localStorage/Cache Storage: view preferences/shell only, no API keys or data.
+5. Open Movies or Shows, background the app and change data upstream. Return:
+   expect one reconnected SSE stream and refreshed active data. In browser Network
+   tools check hidden-page polling stops, visible Movies polls every 60 seconds,
+   and dropping/recovering the event connection triggers refresh. Test offline/
+   online return and W1's offline screen. Real OS suspension is not proven by a
+   synthetic visibility test; verify on both physical platforms.
+6. Using **disposable media only**, open each destructive sheet and Cancel first:
+   no upstream mutation or success toast. Then test episode/season Delete and
+   Unmonitor, Remove from Sonarr/Keep Files, Delete and Remove from Sonarr, and
+   SAB queue removal. Verify exactly the named consequence. Interrupt an upstream
+   operation: sheet/error must describe failure or partial completion, not success.
+   Check Sonarr monitoring after any partial delete/unmonitor error before retrying.
+7. Regression-check native iOS **proxy mode** against the dev server, then
+   **Direct mode** against the same services: browsing, downloads, calendar and
+   discovery. Core/native unchanged, but backend behavior must be smoke-tested in
+   both modes. Physical LAN/privacy check required: Simulator does not implement
+   local-network privacy (TN3179). No Apple builds were needed for this web-only UI.
+
+### Verification / not verified
+
+Production Vite build and server syntax/diff checks pass. Automated results:
+**30/30 Node server checks**, **18/18 React/component checks**, **33/33 Chromium
+browser checks** using fake loopback services. Includes SSE retry framing,
+visibility/timer cleanup, reconnect and in-flight catch-up, command disposal,
+partial destructive failures, storage fallback, single real event-stream ownership,
+all populated tabs and sheets at all ten widths, 44px touch targets, short viewport,
+keyboard focus, cancelled-mutation regression, system theme and enlarged text.
+W1 offline/API cache isolation and worker-update checks remain passing. Narrow
+305px light/466px dark Shows and 305px Add sheet screenshots visually inspected.
+Early iterations corrected modal markup, a test's ambiguous season selector,
+Node 26's native localStorage collision in the unit harness, and touch sizing in
+narrow layouts. Final runs above passed; earlier failures are not counted as passes.
+
+**Not verified:** live destructive operations/services, physical iPhone/Android
+install/relaunch and OS suspend/resume, actual notches/folding/keyboard, Safari/
+WebKit, VoiceOver/TalkBack, native proxy/Direct/LAN and real container volume
+upgrade. Local Docker daemon remains unavailable; CI/image publication recorded
+separately. The full native iOS size matrix is not claimed: native UI is unchanged.
+
 ## 1.10 — 2026-09-19 — Web parity W1: Home Screen shell
 
 - Added the standalone manifest, 192/512 icons, safely padded maskable icon and

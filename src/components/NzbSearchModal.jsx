@@ -1,3 +1,5 @@
+import Sheet from './Sheet'
+import { usePreference, textPreference } from '../hooks/usePreference'
 import { useState, useRef, useCallback } from 'react'
 import './NzbSearchModal.css'
 
@@ -20,8 +22,8 @@ function formatAge(pubDate) {
   return `${(days / 365).toFixed(1)}y ago`
 }
 
-export default function NzbSearchModal({ onClose, onToast }) {
-  const [query, setQuery]       = useState('')
+export default function NzbSearchModal({ onClose, onToast, embedded = false, canDownload = true }) {
+  const [query, setQuery]       = usePreference('search.query', '', textPreference)
   const [results, setResults]   = useState(null)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState(null)
@@ -48,7 +50,7 @@ export default function NzbSearchModal({ onClose, onToast }) {
 
   function handleKeyDown(e) {
     if (e.key === 'Enter') search(query)
-    if (e.key === 'Escape') onClose()
+    if (e.key === 'Escape') onClose?.()
   }
 
   async function handleDownload(result) {
@@ -71,14 +73,8 @@ export default function NzbSearchModal({ onClose, onToast }) {
     }
   }
 
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+  const content = (
       <div className="nzb-search-panel">
-        <div className="nzb-search-header">
-          <h2 className="nzb-search-title">🔎 Search NZBHydra</h2>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-
         <div className="nzb-search-bar">
           <input
             ref={inputRef}
@@ -128,6 +124,7 @@ export default function NzbSearchModal({ onClose, onToast }) {
             </div>
           )}
 
+          {!canDownload && <p className="text-secondary">Configure SABnzbd in Settings to download results.</p>}
           {results && results.length > 0 && (
             <div className="nzb-results">
               <div className="nzb-results-count text-xs text-muted">
@@ -151,7 +148,7 @@ export default function NzbSearchModal({ onClose, onToast }) {
                     <button
                       className={`btn btn-sm ${isSent ? 'btn-success' : 'btn-primary'}`}
                       onClick={() => !isSent && handleDownload(r)}
-                      disabled={isSending || isSent}
+                      disabled={!canDownload || isSending || isSent}
                       title={isSent ? 'Added to SABnzbd' : 'Send to SABnzbd'}
                     >
                       {isSending ? <span className="spinner" /> : isSent ? '✓ Added' : '⬇ Download'}
@@ -163,6 +160,6 @@ export default function NzbSearchModal({ onClose, onToast }) {
           )}
         </div>
       </div>
-    </div>
   )
+  return embedded ? content : <Sheet title="Search NZBHydra" onClose={onClose}>{content}</Sheet>
 }

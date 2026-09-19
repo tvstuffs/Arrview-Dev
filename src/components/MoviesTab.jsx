@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import './MoviesTab.css'
+import { usePreference, textPreference, oneOf } from '../hooks/usePreference'
+import { useVisiblePolling, useServerEvents } from '../hooks/lifecycle'
 import AddMediaModal from './AddMediaModal.jsx'
 
 const MOVIE_STATUS = {
@@ -84,9 +86,9 @@ export default function MoviesTab({ onToast }) {
   const [movies, setMovies] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all')
-  const [sort, setSort] = useState('alpha')
+  const [search, setSearch] = usePreference('movies.search', '', textPreference)
+  const [filter, setFilter] = usePreference('movies.filter', 'all', oneOf(['all','downloaded','missing','monitored']))
+  const [sort, setSort] = usePreference('movies.sort', 'alpha', oneOf(['alpha','year','added']))
   const [showAddModal, setShowAddModal] = useState(false)
 
   const fetchMovies = useCallback(async () => {
@@ -103,15 +105,8 @@ export default function MoviesTab({ onToast }) {
     }
   }, [])
 
-  useEffect(() => { fetchMovies() }, [fetchMovies])
-
-  // Subscribe to Radarr webhook events for immediate refresh
-  useEffect(() => {
-    const source = new EventSource('/api/events')
-    source.addEventListener('radarr', () => fetchMovies())
-    source.onerror = () => {}
-    return () => source.close()
-  }, [fetchMovies])
+  useVisiblePolling(fetchMovies, 60000)
+  useServerEvents('radarr', fetchMovies)
 
   if (loading) {
     return <div className="empty-state"><span className="spinner" /><span>Loading movies…</span></div>
@@ -192,7 +187,7 @@ export default function MoviesTab({ onToast }) {
         <div className="search-input">
           <input
             type="text"
-            placeholder="Search movies…"
+            aria-label="Search movies" placeholder="Search movies…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -207,7 +202,7 @@ export default function MoviesTab({ onToast }) {
           ))}
         </div>
         <select
-          className="sort-select"
+          aria-label="Sort results" className="sort-select"
           value={sort}
           onChange={e => setSort(e.target.value)}
         >

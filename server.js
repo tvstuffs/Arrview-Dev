@@ -11,7 +11,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // Canonical user-facing app version. Surfaced in the Settings page and the
 // /api/arrview/identify endpoint (the iOS app reads it from there).
-const APP_VERSION = '1.10';
+const APP_VERSION = '1.10.1';
 
 app.use(express.json());
 // API responses and mutable shell files must always reach the server.
@@ -734,6 +734,7 @@ app.get('/api/events', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection',    'keep-alive');
   res.flushHeaders();
+  res.write('retry: 5000\n\n');
 
   // Keep-alive ping every 25s to prevent proxy/browser timeouts
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);

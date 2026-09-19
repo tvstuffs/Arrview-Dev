@@ -2,9 +2,9 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 12px;
-  width: 860px;
-  max-width: calc(100vw - 40px);
-  max-height: 85vh;
+  width: 100%;
+  max-width: 860px;
+  max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;
   overflow: hidden;

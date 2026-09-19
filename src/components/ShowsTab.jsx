@@ -1,5 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import './ShowsTab.css'
+import ConfirmSheet from './ConfirmSheet'
+import { useCommandPolling } from '../hooks/useCommandPolling'
+import { deleteAndUnmonitor, checkedFetch } from '../actions'
+import { usePreference, textPreference, oneOf, idList } from '../hooks/usePreference'
+import { useServerEvents, useVisiblePolling } from '../hooks/lifecycle'
 import AddMediaModal from './AddMediaModal.jsx'
 import EpisodeSearchModal from './EpisodeSearchModal.jsx'
 
@@ -7,26 +12,6 @@ const STATUS_BADGE = {
   continuing: 'badge-success',
   ended:      'badge-muted',
   upcoming:   'badge-accent',
-}
-
-// Poll a Sonarr command until it completes, then call onDone(status, result)
-async function pollCommand(commandId, onDone, intervalMs = 3000, maxMs = 90000) {
-  const deadline = Date.now() + maxMs
-  async function check() {
-    if (Date.now() > deadline) { onDone('timeout', null); return }
-    try {
-      const r = await fetch(`/api/sonarr/command/${commandId}`)
-      const data = await r.json()
-      if (data.status === 'completed' || data.status === 'failed') {
-        onDone(data.status, data.result)
-      } else {
-        setTimeout(check, intervalMs)
-      }
-    } catch {
-      setTimeout(check, intervalMs)
-    }
-  }
-  setTimeout(check, intervalMs)
 }
 
 // Sum episode counts from main seasons only (exclude season 0 / specials)
@@ -44,37 +29,17 @@ function mainSeasonCounts(show) {
 
 
 
-function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted }) {
+function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted, onRefresh }) {
   const [showInfo, setShowInfo]         = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [deleting, setDeleting]         = useState(false)
   const downloaded = ep.hasFile
   const airDate = ep.airDateUtc ? new Date(ep.airDateUtc) : null
   const hasAired = airDate && airDate < new Date()
   const isMissing = !downloaded && hasAired
 
   async function handleDelete() {
-    setDeleting(true)
-    try {
-      // 1. Delete the file from disk
-      const delRes = await fetch(`/api/sonarr/episodefile/${ep.episodeFileId}`, { method: 'DELETE' })
-      if (!delRes.ok) {
-        const d = await delRes.json()
-        throw new Error(d.error || 'Delete failed')
-      }
-      // 2. Unmonitor the episode so it won't be re-downloaded automatically
-      await fetch('/api/sonarr/episode/monitor', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ episodeIds: [ep.id], monitored: false }),
-      })
-      onDeleted()
-    } catch (e) {
-      onDeleted(e.message)
-    } finally {
-      setDeleting(false)
-      setConfirmDelete(false)
-    }
+    try { await deleteAndUnmonitor([ep]); onDeleted() }
+    catch (error) { onDeleted(error.message); throw error }
   }
 
   return (
@@ -88,7 +53,7 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted }) {
           <button
             className={`btn-ep-info ${showInfo ? 'active' : ''}`}
             onClick={e => { e.stopPropagation(); setShowInfo(v => !v) }}
-            title="Show episode description"
+            aria-label="Show episode description" title="Show episode description"
           >ℹ</button>
         )}
         <div className="ep-right">
@@ -100,29 +65,8 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted }) {
           {downloaded ? (
             <>
               <span className="badge badge-success text-xs">✓</span>
-              {confirmDelete ? (
-                <>
-                  <button
-                    className="btn btn-danger btn-xs"
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    title="Confirm delete from disk and unmonitor"
-                  >
-                    {deleting ? <span className="spinner" style={{width:10,height:10}} /> : '✓ Confirm'}
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-xs"
-                    onClick={() => setConfirmDelete(false)}
-                    disabled={deleting}
-                  >Cancel</button>
-                </>
-              ) : (
-                <button
-                  className="btn btn-ghost btn-xs"
-                  onClick={() => setConfirmDelete(true)}
-                  title="Delete from disk and unmonitor"
-                >🗑</button>
-              )}
+              <button className="btn btn-ghost btn-xs" onClick={() => setConfirmDelete(true)}
+                aria-label={`Delete and unmonitor ${ep.title}`} title="Delete from disk and unmonitor">🗑</button>
             </>
           ) : !hasAired ? (
             <span className="badge badge-muted text-xs">Upcoming</span>
@@ -131,13 +75,17 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted }) {
               <button className="btn btn-accent btn-xs" onClick={() => onSearch(ep.id)}>
                 ⬇ Download
               </button>
-              <button className="btn btn-secondary btn-xs" onClick={() => onInteractiveSearch(ep)} title="Interactive search — pick a release manually">
+              <button className="btn btn-secondary btn-xs" onClick={() => onInteractiveSearch(ep)} aria-label="Interactive search — pick a release manually" title="Interactive search — pick a release manually">
                 🔍
               </button>
             </>
           )}
         </div>
       </div>
+      {confirmDelete && <ConfirmSheet title="Delete episode file?"
+        description={`Delete “${ep.title}” from disk and unmonitor it in Sonarr. The episode stays in your library.`}
+        actions={[{ label: 'Delete and Unmonitor', run: handleDelete }]}
+        onClose={() => { setConfirmDelete(false); onRefresh() }} />}
       {showInfo && ep.overview && (
         <div className="ep-overview">{ep.overview}</div>
       )}
@@ -145,18 +93,15 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted }) {
   )
 }
 
-function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemoved }) {
-  const [expanded, setExpanded] = useState(false)
-  const [expandedSeasons, setExpandedSeasons] = useState(new Set())
+function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, onToggle }) {
+  const pollCommand = useCommandPolling()
+  const [expandedSeasons, setExpandedSeasons] = usePreference(`show.${show.id}.seasons`, [], idList)
   const [episodes, setEpisodes] = useState(null)
   const [loadingEps, setLoadingEps] = useState(false)
   const [searching, setSearching] = useState(false)
   const [interactiveEp, setInteractiveEp] = useState(null)
-  const [deletingSeason, setDeletingSeason] = useState(null)
   const [confirmSeasonDelete, setConfirmSeasonDelete] = useState(null)
   const [confirmRemoveSeries, setConfirmRemoveSeries] = useState(false)
-  const [deleteSeriesFiles, setDeleteSeriesFiles] = useState(false)
-  const [removingSeries, setRemovingSeries] = useState(false)
 
   const { total, onDisk } = mainSeasonCounts(show)
   const missing = Math.max(0, total - onDisk)
@@ -178,21 +123,10 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
     setLoadingEps(false)
   }
 
-  // Poll episodes every 15s while expanded (fallback if webhook not configured)
-  useEffect(() => {
-    if (!expanded) return
-    loadEpisodes()
-    const interval = setInterval(fetchEpisodes, 15000)
-    return () => clearInterval(interval)
-  }, [expanded, fetchEpisodes])
-
-  // Immediate refresh when a webhook event arrives for this series
-  useEffect(() => {
-    if (!sonarrEvent || !expanded) return
-    if (sonarrEvent.seriesId == null || sonarrEvent.seriesId === show.id) {
-      fetchEpisodes()
-    }
-  }, [sonarrEvent])
+  useVisiblePolling(loadEpisodes, 15000, expanded)
+  useServerEvents('sonarr', event => {
+    if (!event || event.seriesId == null || event.seriesId === show.id) fetchEpisodes()
+  }, expanded)
 
   async function searchMissing() {
     setSearching(true)
@@ -251,44 +185,17 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
 
   async function deleteSeasonFiles(sn) {
     const eps = (episodes || []).filter(e => e.seasonNumber === sn && e.hasFile)
-    if (!eps.length) return
-    setDeletingSeason(sn)
+    if (!eps.length) throw new Error('No downloaded files remain. Check episode monitoring in Sonarr.')
     try {
-      // Delete all episode files in the season
-      await Promise.all(eps.map(ep =>
-        fetch(`/api/sonarr/episodefile/${ep.episodeFileId}`, { method: 'DELETE' })
-      ))
-      // Unmonitor all episodes in the season
-      await fetch('/api/sonarr/episode/monitor', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ episodeIds: eps.map(e => e.id), monitored: false }),
-      })
-      onToast(`Season ${sn}: ${eps.length} episode${eps.length !== 1 ? 's' : ''} deleted and unmonitored`, 'info')
-      fetchEpisodes()
-    } catch (e) {
-      onToast(`Season delete failed: ${e.message}`, 'error')
-    } finally {
-      setDeletingSeason(null)
-      setConfirmSeasonDelete(null)
-    }
+      await deleteAndUnmonitor(eps)
+      onToast(`Season ${sn}: files deleted and episodes unmonitored in Sonarr`, 'info')
+    } finally { await fetchEpisodes() }
   }
 
-  async function removeSeries() {
-    setRemovingSeries(true)
-    try {
-      const url = `/api/sonarr/series/${show.id}?deleteFiles=${deleteSeriesFiles}`
-      const r = await fetch(url, { method: 'DELETE' })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error || 'Remove failed')
-      onToast(`"${show.title}" removed${deleteSeriesFiles ? ' and files deleted' : ''}`, 'info')
-      onRemoved()
-    } catch (e) {
-      onToast(`Remove failed: ${e.message}`, 'error')
-    } finally {
-      setRemovingSeries(false)
-      setConfirmRemoveSeries(false)
-    }
+  async function removeSeries(deleteFiles) {
+    await checkedFetch(`/api/sonarr/series/${show.id}?deleteFiles=${deleteFiles}`, { method: 'DELETE' })
+    onToast(`“${show.title}” removed from Sonarr${deleteFiles ? ' and files deleted' : '; files kept'}`, 'info')
+    onRemoved()
   }
 
   // Group episodes by season
@@ -306,11 +213,7 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
   const seasons = Object.keys(seasonMap).map(Number).sort((a, b) => b - a)
 
   function toggleSeason(sn) {
-    setExpandedSeasons(prev => {
-      const next = new Set(prev)
-      next.has(sn) ? next.delete(sn) : next.add(sn)
-      return next
-    })
+    setExpandedSeasons(prev => prev.includes(sn) ? prev.filter(value => value !== sn) : [...prev, sn])
   }
 
   return (
@@ -324,8 +227,8 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
           onToast={onToast}
         />
       )}
-      <div className="show-card-main" onClick={() => setExpanded(prev => !prev)}>
-        <div className="show-info">
+      <div className="show-card-main">
+        <button className="show-info show-toggle" onClick={onToggle} aria-expanded={expanded} aria-label={`Episodes for ${show.title}`}>
           <div className="show-title font-semibold truncate" title={show.title}>{show.title}</div>
           <div className="show-meta">
             {show.year && <span className="text-xs text-muted">{show.year}</span>}
@@ -343,13 +246,13 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
               {missing > 0 && <span className="missing-badge">{missing} missing</span>}
             </span>
           </div>
-        </div>
+        </button>
         {missing > 0 && (
           <button
             className="btn btn-success btn-sm"
             onClick={e => { e.stopPropagation(); searchMissing() }}
             disabled={searching}
-            title="Search for all missing episodes"
+            aria-label="Search for all missing episodes" title="Search for all missing episodes"
           >
             {searching ? <span className="spinner" style={{width:12,height:12}} /> : '⬇'} Search Missing
           </button>
@@ -364,40 +267,20 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
             title="Open in Sonarr"
           >Open in Sonarr ↗</a>
         )}
-        {confirmRemoveSeries ? (
-          <div className="series-remove-confirm" onClick={e => e.stopPropagation()}>
-            <label className="text-xs" style={{display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}>
-              <input
-                type="checkbox"
-                checked={deleteSeriesFiles}
-                onChange={e => setDeleteSeriesFiles(e.target.checked)}
-                disabled={removingSeries}
-              />
-              Delete files
-            </label>
-            <button
-              className="btn btn-danger btn-xs"
-              onClick={e => { e.stopPropagation(); removeSeries() }}
-              disabled={removingSeries}
-            >
-              {removingSeries ? <span className="spinner" style={{width:10,height:10}} /> : '✓ Confirm'}
-            </button>
-            <button
-              className="btn btn-secondary btn-xs"
-              onClick={e => { e.stopPropagation(); setConfirmRemoveSeries(false); setDeleteSeriesFiles(false) }}
-              disabled={removingSeries}
-            >Cancel</button>
-          </div>
-        ) : (
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={e => { e.stopPropagation(); setConfirmRemoveSeries(true) }}
-            title="Remove series from Sonarr"
-          >🗑 Remove</button>
-        )}
+        <button className="btn btn-ghost btn-sm" onClick={() => setConfirmRemoveSeries(true)}
+          aria-label={`Remove ${show.title} from Sonarr`}>🗑 Remove</button>
         <span className="expand-icon">{expanded ? '▲' : '▼'}</span>
       </div>
 
+      {confirmRemoveSeries && <ConfirmSheet title="Remove series from Sonarr?"
+        description={`“${show.title}” will leave Sonarr. Choose whether to keep its files or delete them from disk.`}
+        actions={[{ label: 'Remove from Sonarr — Keep Files', run: () => removeSeries(false) },
+          { label: 'Delete and Remove from Sonarr', run: () => removeSeries(true) }]}
+        onClose={() => setConfirmRemoveSeries(false)} />}
+      {confirmSeasonDelete !== null && <ConfirmSheet title={`Delete Season ${confirmSeasonDelete} files?`}
+        description={`Delete downloaded Season ${confirmSeasonDelete} files of “${show.title}” and unmonitor those episodes in Sonarr. The series stays in your library.`}
+        actions={[{ label: 'Delete and Unmonitor', run: () => deleteSeasonFiles(confirmSeasonDelete) }]}
+        onClose={() => { setConfirmSeasonDelete(null); fetchEpisodes() }} />}
       {expanded && (
         <div className="show-episodes">
           {loadingEps ? (
@@ -412,16 +295,16 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
               const eps = seasonMap[sn]
               const dlCount = eps.filter(e => e.hasFile).length
               const missingCount = eps.filter(e => !e.hasFile && e.airDateUtc && new Date(e.airDateUtc) < new Date()).length
-              const isSeasonOpen = expandedSeasons.has(sn)
+              const isSeasonOpen = expandedSeasons.includes(sn)
               return (
                 <div key={sn} className="season-block">
                   <div
-                    className="season-header season-header-clickable"
-                    onClick={() => toggleSeason(sn)}
+                    className="season-header"
                   >
-                    <span className="season-expand-icon">{isSeasonOpen ? '▾' : '▸'}</span>
-                    <span className="font-semibold">Season {sn}</span>
-                    <span className="text-xs text-muted">{dlCount}/{eps.length} episodes</span>
+                    <button className="season-toggle" aria-label={`Season ${sn}`} aria-expanded={isSeasonOpen} onClick={() => toggleSeason(sn)}>
+                      <span aria-hidden="true">{isSeasonOpen ? '▾' : '▸'}</span> Season {sn}
+                      <span className="text-xs text-muted"> {dlCount}/{eps.length} episodes</span>
+                    </button>
                     {missingCount > 0 && (
                       <button
                         className="btn btn-success btn-xs"
@@ -459,30 +342,8 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
                     )}
                     {dlCount > 0 && (
                       <div className="season-header-right" onClick={e => e.stopPropagation()}>
-                        {confirmSeasonDelete === sn ? (
-                          <>
-                            <button
-                              className="btn btn-danger btn-xs"
-                              onClick={e => { e.stopPropagation(); deleteSeasonFiles(sn) }}
-                              disabled={deletingSeason === sn}
-                            >
-                              {deletingSeason === sn
-                                ? <span className="spinner" style={{width:10,height:10}} />
-                                : `✓ Delete ${dlCount} file${dlCount !== 1 ? 's' : ''}`}
-                            </button>
-                            <button
-                              className="btn btn-secondary btn-xs"
-                              onClick={e => { e.stopPropagation(); setConfirmSeasonDelete(null) }}
-                              disabled={deletingSeason === sn}
-                            >Cancel</button>
-                          </>
-                        ) : (
-                          <button
-                            className="btn btn-ghost btn-xs"
-                            onClick={e => { e.stopPropagation(); setConfirmSeasonDelete(sn) }}
-                            title={`Delete all ${dlCount} downloaded episode${dlCount !== 1 ? 's' : ''} in Season ${sn}`}
-                          >🗑 Remove</button>
-                        )}
+                        <button className="btn btn-ghost btn-xs" onClick={() => setConfirmSeasonDelete(sn)}
+                          aria-label={`Delete downloaded files in Season ${sn}`}>🗑 Remove</button>
                       </div>
                     )}
                   </div>
@@ -492,6 +353,7 @@ function ShowCard({ show, onToast, sonarrEvent, sonarrUrl, nzbhydraUrl, onRemove
                       ep={ep}
                       onSearch={searchEpisode}
                       onInteractiveSearch={setInteractiveEp}
+                      onRefresh={fetchEpisodes}
                       onDeleted={err => {
                         if (err) onToast(`Delete failed: ${err}`, 'error')
                         else { onToast('Episode deleted and unmonitored', 'info'); fetchEpisodes() }
@@ -512,11 +374,10 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
   const [series, setSeries] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all')
-  const [sort, setSort] = useState('alpha')
-  const [countdown, setCountdown] = useState(30)
-  const [sonarrEvent, setSonarrEvent] = useState(null)
+  const [search, setSearch] = usePreference('shows.search', '', textPreference)
+  const [filter, setFilter] = usePreference('shows.filter', 'all', oneOf(['all','missing','continuing','ended']))
+  const [sort, setSort] = usePreference('shows.sort', 'alpha', oneOf(['alpha','missing','year']))
+  const [expandedId, setExpandedId] = usePreference('shows.expanded', null, value => value === null || Number.isSafeInteger(value))
   const [showAddModal, setShowAddModal] = useState(false)
 
   const fetchSeries = useCallback(async () => {
@@ -530,29 +391,11 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
       setError(e.message)
     } finally {
       setLoading(false)
-      setCountdown(30)
     }
   }, [])
 
-  useEffect(() => {
-    fetchSeries()
-    const dataInterval = setInterval(fetchSeries, 30000)
-    const cdInterval   = setInterval(() => setCountdown(c => c > 0 ? c - 1 : 30), 1000)
-    return () => { clearInterval(dataInterval); clearInterval(cdInterval) }
-  }, [fetchSeries])
-
-  // Subscribe to server-sent events from Sonarr webhooks
-  useEffect(() => {
-    const source = new EventSource('/api/events')
-    source.addEventListener('sonarr', e => {
-      const event = JSON.parse(e.data)
-      setSonarrEvent({ ...event, _ts: Date.now() })
-      fetchSeries() // refresh counts immediately
-      setCountdown(30)
-    })
-    source.onerror = () => {} // silently reconnect
-    return () => source.close()
-  }, [fetchSeries])
+  useVisiblePolling(fetchSeries, 30000)
+  useServerEvents('sonarr', fetchSeries)
 
   if (loading) {
     return <div className="empty-state"><span className="spinner" /><span>Loading shows…</span></div>
@@ -628,7 +471,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
         <div className="search-input">
           <input
             type="text"
-            placeholder="Search shows…"
+            aria-label="Search shows" placeholder="Search shows…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -643,7 +486,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
           ))}
         </div>
         <select
-          className="sort-select"
+          aria-label="Sort results" className="sort-select"
           value={sort}
           onChange={e => setSort(e.target.value)}
         >
@@ -651,8 +494,8 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
           <option value="missing">Most Missing</option>
           <option value="year">Newest First</option>
         </select>
-        <button className="btn btn-ghost btn-sm" onClick={fetchSeries} title={`Refreshes in ${countdown}s`}>
-          🔄 {countdown}s
+        <button className="btn btn-ghost btn-sm" onClick={fetchSeries} aria-label="Refresh shows" title="Refresh shows">
+          🔄 Refresh
         </button>
       </div>
 
@@ -665,7 +508,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
       ) : (
         <div className="shows-list">
           {filtered.map(show => (
-            <ShowCard key={show.id} show={show} onToast={onToast} sonarrEvent={sonarrEvent} sonarrUrl={sonarrUrl} nzbhydraUrl={nzbhydraUrl} onRemoved={fetchSeries} />
+            <ShowCard key={show.id} show={show} onToast={onToast} expanded={expandedId === show.id} onToggle={() => setExpandedId(expandedId === show.id ? null : show.id)} sonarrUrl={sonarrUrl} nzbhydraUrl={nzbhydraUrl} onRemoved={fetchSeries} />
           ))}
         </div>
       )}

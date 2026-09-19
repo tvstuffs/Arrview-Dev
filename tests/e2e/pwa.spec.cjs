@@ -24,7 +24,7 @@ test('manifest, icons, mutable headers and backward-compatible identity', async 
   expect(manifest.icons.find(icon => icon.purpose === 'maskable').sizes).toBe('512x512')
   expect((await request.get('/sw.js')).headers()['cache-control']).toBe('no-cache')
   const identity = await (await request.get('/api/arrview/identify')).json()
-  expect(identity).toMatchObject({ app: 'arrview', version: '1.10', capabilities: ['pwa', 'ping', 'health'], services: { sonarr: true, radarr: true, sabnzbd: true, nzbhydra: true } })
+  expect(identity).toMatchObject({ app: 'arrview', version: '1.10.1', capabilities: ['pwa', 'ping', 'health'], services: { sonarr: true, radarr: true, sabnzbd: true, nzbhydra: true } })
 })
 
 test('HTTPS worker controls page, caches only shell and never API reads or writes', async ({ page, context }) => {
@@ -85,7 +85,7 @@ test('cached navigation does not show stale dashboard while offline', async ({ p
 test('settings save keeps active tab and does not reload document', async ({ page }) => {
   await controlled(page)
   await page.getByRole('button', { name: 'Movies', exact: false }).click()
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Add to Home Screen' })).toBeVisible()
   const navigationCount = await page.evaluate(() => performance.getEntriesByType('navigation').length)
   await page.evaluate(() => { window.fixtureDocumentMarker = 'same-document' })
@@ -100,7 +100,7 @@ for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1280]) {
     const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true })
     const page = await context.newPage()
     await page.goto('https://localhost:18778/')
-    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
     // Offer a fixture Chromium prompt to measure the new touch control.
     await page.evaluate(() => {
       const event = new Event('beforeinstallprompt', { cancelable: true })
@@ -131,7 +131,7 @@ test('insecure HTTP has no worker and explains Android shortcut', async ({ brows
   await page.goto('http://arrview.test:18779')
   expect(await page.evaluate(() => window.isSecureContext)).toBe(false)
   expect(await page.evaluate(() => 'serviceWorker' in navigator)).toBe(false)
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByText(/creates a shortcut that opens in Chrome/)).toBeVisible()
   await expect(page.getByText(/Offline startup is unavailable/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Install ArrView' })).toHaveCount(0)

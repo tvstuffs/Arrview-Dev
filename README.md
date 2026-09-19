@@ -377,3 +377,44 @@ the new install/offline UI at widths 305, 320, 360, 390, 402, 440, 466, 669, 834
 requirements. Actual iPhone/Android installation, notches/safe areas, app resume,
 native proxy/Direct regression and persistent-volume upgrades remain the human
 checks in CHANGELOG 1.10 before release promotion.
+
+## Mobile dashboard (1.10.1 / W2)
+
+Below 640px the main navigation is a fixed bottom bar: Downloads, Shows, Movies,
+Search and Settings. Service tabs appear only when configured; NZB search requires
+Hydra, and sending a result requires SABnzbd. Wider windows keep top navigation.
+Touch controls are at least 44px; sheets keep a reachable Close button, trap
+keyboard focus, support Escape, and return focus to the triggering control.
+Episode rows/actions wrap, and mobile toasts sit above the bottom bar. Appearance
+follows the system's light/dark preference, including theme-color and offline UI.
+
+View preferences are stored **locally in that browser/origin** under
+`arrview.ui.v1.*`: last tab, library search/filter/sort, expanded show/seasons,
+release sorting/rejected filter, and NZB search text. Search results, media data,
+API keys and service configuration are not stored there. Browser storage denial
+or corrupted preferences falls back safely; clearing site data resets these
+preferences. Moving from HTTP to HTTPS starts a separate browser preference set.
+Changing/removing a service cannot restore an unavailable tab into a blank page.
+This supersedes W1's note that the default tab always returns after relaunch.
+
+One shared server-events connection is open while the dashboard is visible. It
+closes while hidden; periodic health, download, show/episode and movie refreshes
+pause too. Returning refetches the active view and reconnects. Movies also refresh
+every 60 seconds while visible. Sonarr command-status checks pause while hidden
+and are disposed when their card/tab closes. The server supplies a five-second
+SSE retry hint. A dropped/reopened stream triggers a catch-up fetch. This is not a
+background-download engine and does not guarantee mobile OS background execution.
+
+Existing destructive actions now share explicit confirmations: deleting episode
+or season files and unmonitoring them, removing a series from Sonarr while keeping
+or deleting files, and removing a SABnzbd queue item. Partial file/unmonitor
+failures are reported rather than claiming success. W2 does **not** add whole-
+series Delete and Unmonitor or new Radarr management actions; W3 feature work
+remains separate. Confirm only against disposable media during testing.
+
+The test fixture now contains queues, shows/episodes, movies and search results.
+Responsive tests cover the full current UI at 305, 320, 360, 390, 402, 440, 466,
+669, 834 and 1280px, including sheets, touch target sizes, preference restoration,
+keyboard focus, light/dark and simulated visibility transitions. Physical Safari/
+Android installation, keyboard/notch behavior and real suspend/resume still need
+the human checks in CHANGELOG 1.10.1.

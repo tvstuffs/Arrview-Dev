@@ -1,3 +1,5 @@
+import Sheet from './Sheet'
+import { usePreference, oneOf } from '../hooks/usePreference'
 import { useState, useEffect } from 'react'
 import './EpisodeSearchModal.css'
 
@@ -25,8 +27,8 @@ export default function EpisodeSearchModal({ episode, seriesTitle, nzbhydraUrl, 
   const [error, setError]       = useState(null)
   const [grabbing, setGrabbing] = useState({})
   const [grabbed, setGrabbed]   = useState({})
-  const [sortBy, setSortBy]     = useState('age')
-  const [showRejected, setShowRejected] = useState(true)
+  const [sortBy, setSortBy]     = usePreference('releases.sort', 'age', oneOf(['age','size','indexer']))
+  const [showRejected, setShowRejected] = usePreference('releases.rejected', true, value => typeof value === 'boolean')
 
   const epLabel = `S${String(episode.seasonNumber).padStart(2,'0')}E${String(episode.episodeNumber).padStart(2,'0')}`
 
@@ -108,18 +110,9 @@ export default function EpisodeSearchModal({ episode, seriesTitle, nzbhydraUrl, 
   const displayList = showRejected ? allResults : sorted(approved)
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <Sheet title={'Interactive Search'} onClose={onClose}>
       <div className="ep-search-panel">
-        <div className="ep-search-header">
-          <div>
-            <h2 className="ep-search-title">Interactive Search</h2>
-            <div className="ep-search-subtitle">
-              {seriesTitle} &mdash; {epLabel}{episode.title ? ` · ${episode.title}` : ''}
-            </div>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-
+        <p className="ep-search-subtitle sheet-subtitle">{seriesTitle} — {epLabel}{episode.title ? ` · ${episode.title}` : ''}</p>
         {loading && (
           <div className="ep-search-empty">
             <span className="spinner" />
@@ -147,7 +140,7 @@ export default function EpisodeSearchModal({ episode, seriesTitle, nzbhydraUrl, 
                   Show rejected
                 </label>
                 <select
-                  className="sort-select"
+                  aria-label="Sort results" className="sort-select"
                   value={sortBy}
                   onChange={e => setSortBy(e.target.value)}
                 >
@@ -194,7 +187,7 @@ export default function EpisodeSearchModal({ episode, seriesTitle, nzbhydraUrl, 
           </>
         )}
       </div>
-    </div>
+    </Sheet>
   )
 }
 
