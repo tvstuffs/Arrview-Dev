@@ -1,6 +1,6 @@
 services:
   arrview:
-    image: ghcr.io/tvstuffs/arrview:latest
+    image: ghcr.io/tvstuffs/arrview:${ARRVIEW_TAG:-latest}
     container_name: arrview
     restart: unless-stopped
     # Host networking lets the container's Bonjour/mDNS advertisement reach the

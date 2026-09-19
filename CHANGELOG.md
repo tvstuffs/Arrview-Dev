@@ -78,3 +78,28 @@ empty/deleted entries, oversized/malformed bodies, errors and blocked redirects.
 Live Radarr, Docker builds/deployment, physical widget memory/network privacy and
 end-to-end overnight widget refresh were not tested. Frontend and storage are
 unchanged, so no frontend build or migration test was added for this route.
+
+## Amendment 2026-09-19 — Docker channels and multi-platform publishing
+
+Infrastructure only; application version unchanged. Repository-aware GHCR
+publishing isolates `dev` and `latest`, uses channel-specific full-commit tags,
+and builds both linux/amd64 and linux/arm64. Release v* tags publish versioned
+images without moving latest. Compose accepts ARRVIEW_TAG (default latest).
+The identical workflow is safe to promote between Dev and release repositories.
+
+Human test plan: follow README's "Docker channels and ARM64" verification plan:
+verify channel digest isolation, both manifest architectures, startup/service
+connections and config persistence on both host architectures, physical-device
+Bonjour/proxy and Direct regression, and switching back to latest. Application
+storage and Apple code are unchanged, so no Apple rebuild or schema-migration
+check is required for this infrastructure change alone.
+
+Verification results are recorded below after local checks. GHCR publication,
+ARM64/AMD64 container builds and live runtime/device checks are not yet verified.
+
+Local verification: Actionlint 1.7.12 passed both workflows; 10 evaluated
+repository/ref/event cases passed the channel isolation checks. Both Compose
+files parsed as YAML with the expected ARRVIEW_TAG/default-latest template;
+workflow byte equality and both architecture targets were checked. No Docker
+daemon or Compose CLI is available here, so these are static checks, not image
+builds, Compose execution or runtime tests. No image was pushed or deployed.

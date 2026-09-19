@@ -199,3 +199,85 @@ bounded history window; purged history is not reconstructed from the library.
 
 Run `node --test tests/*.test.js` for the loopback proxy contracts. See
 [CHANGELOG.md](CHANGELOG.md) for the human verification plan and limitations.
+
+## Docker channels and ARM64 — 2026-09-19
+
+The publishing workflow builds `linux/amd64` and `linux/arm64` under the same
+`ghcr.io/tvstuffs/arrview` package. Docker selects the matching architecture;
+32-bit ARM is not included. These channels become available after the updated
+workflows have been pushed and successfully run.
+
+| Source / event | Published tags |
+| --- | --- |
+| `Arrview-Dev` main push | `dev`, `dev-sha-<full-commit>` |
+| `Arrview-Dev` manual branch run | `dev`, `dev-sha-<full-commit>` |
+| `ArrView` main push / manual main run | `latest`, `release-sha-<full-commit>` |
+| `ArrView` `v*` tag | Exact Git tag (for example `v1.05`), `release-sha-<full-commit>`; does not move `latest` |
+
+Dev tag pushes and release feature-branch manual runs do not publish. Forks are
+blocked from publishing by the job condition. Both repositories use the same
+repository-aware workflow so promoting it cannot swap channel responsibilities.
+Commit tags identify source revisions; pin an image digest if you need immutable
+image bytes, since rebuilding the same commit can pick up updated base layers.
+
+### Choose a deployment channel
+
+The Compose file defaults to the supported release (`latest`). To use development
+builds, create or update `.env` beside your deployment's `docker-compose.yml`:
+
+```dotenv
+ARRVIEW_TAG=dev
+```
+
+Use `ARRVIEW_TAG=latest` for supported releases, or an existing version/commit tag
+to pin a build. Then, from that directory, run:
+
+```sh
+docker compose pull arrview
+docker compose up -d arrview
+```
+
+A new image publication does not update running containers automatically. These
+commands switch one installation; to run both channels at once, use separate
+Compose projects/directories, container names, host ports (`PORT` with host
+networking), and data folders. Do not share writable configuration between them.
+Keep your existing data when updating one installation; no config migration is
+introduced by this workflow change.
+
+### Publishing setup
+
+In the GitHub `arrview` package settings, under **Manage Actions access**, grant
+both source repositories **Write** access. The workflows use their built-in
+`GITHUB_TOKEN`; no new personal access token is needed. Package visibility must
+be **Public** for anonymous pulls, or deployment hosts must authenticate.
+
+Land the workflow in Dev first and verify `dev` before publishing the release
+workflow. Do not promote unrelated development application changes just to enable
+ARM support. Once the workflow is on Dev's default branch, GitHub Actions →
+**Publish Docker image to GHCR** → **Run workflow** can select a feature branch
+that also contains this updated workflow. This intentionally replaces `dev` with
+that branch's build. Ordinary feature-branch pushes do not publish.
+
+### Human verification plan
+
+1. Record the current `latest` digest, run Dev publishing, and confirm `dev` has
+   appeared while `latest` is unchanged. Confirm the expected `dev-sha-*` tag.
+2. Run `docker buildx imagetools inspect ghcr.io/tvstuffs/arrview:dev`; verify
+   `linux/amd64` and `linux/arm64` manifests. Additional attestation manifests
+   are normal. Repeat for `latest` after release publication.
+3. On an ARM64 Docker host and an AMD64 host, pull/recreate a test installation.
+   Confirm startup, dashboard, server identification and configured service
+   connections. Save configuration, recreate the container and confirm it remains.
+4. Exercise the Apple app in proxy mode against the test container, then check
+   Direct mode still works. Use a physical device for LAN/Bonjour discovery;
+   the iOS Simulator cannot verify local-network privacy.
+5. Publish the approved release-main workflow and verify only `latest` and its
+   `release-sha-*` tag move, not `dev`. A release `v*` tag should publish that
+   version without moving either channel.
+6. Switch the test installation back to `ARRVIEW_TAG=latest`, pull and recreate;
+   verify the supported version starts with the existing configuration.
+
+No application routes, storage schema, Core dependency or Apple builds change in
+this infrastructure update. Real GHCR publication, both architecture builds,
+live-service runtime behavior, physical discovery and rollback must be verified
+before claiming this rollout is complete.
