@@ -63,7 +63,7 @@ function HistoryItem({ item }) {
     <div className="history-item">
       <div className="truncate" style={{flex:1}} title={item.name}>{item.name}</div>
       <span className={`badge badge-${statusClass} text-xs`}>{item.status}</span>
-      <span className="text-xs text-muted">{formatBytes(item.mb)}</span>
+      <span className="text-xs text-muted">{formatBytes(item.bytes != null ? Number(item.bytes) / (1024 * 1024) : item.mb)}</span>
     </div>
   )
 }

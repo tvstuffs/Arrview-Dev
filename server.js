@@ -11,10 +11,60 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // Canonical user-facing app version. Surfaced in the Settings page and the
 // /api/arrview/identify endpoint (the iOS app reads it from there).
-const APP_VERSION = '1.08';
+const APP_VERSION = '1.09';
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'dist')));
+// API responses and mutable shell files must always reach the server.
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+const distPath = path.join(__dirname, 'dist');
+app.use('/assets', express.static(path.join(distPath, 'assets'), {
+  maxAge: '1y', immutable: true,
+}));
+app.use(express.static(distPath, {
+  setHeaders(res) { res.setHeader('Cache-Control', 'no-cache'); },
+}));
+
+// Process liveness, deliberately independent of optional upstream services.
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', version: APP_VERSION });
+});
+
+// Lightweight connectivity checks: never request queues or media libraries.
+app.get('/api/:service/ping', async (req, res) => {
+  const { service } = req.params;
+  if (!['sonarr', 'radarr', 'sabnzbd', 'nzbhydra'].includes(service)) {
+    return res.status(404).json({ error: 'Unknown service' });
+  }
+  const { url, apikey } = loadConfig()[service] || {};
+  if (!url || !apikey) return res.status(503).json({ error: 'Service not configured' });
+  try {
+    if (service === 'sabnzbd') {
+      const data = await sabRequest({ mode: 'version' });
+      if (!data?.version || data.status === false) throw new Error('Invalid version response');
+    } else {
+      const baseUrl = url.replace(/\/+$/, '');
+      const isHydra = service === 'nzbhydra';
+      const response = await axios.get(`${baseUrl}${isHydra ? '/api' : '/api/v3/system/status'}`, {
+        headers: isHydra ? {} : { 'X-Api-Key': apikey },
+        params: isHydra ? { t: 'caps', o: 'json', apikey } : {},
+        timeout: 10000,
+        maxRedirects: 0,
+      });
+      // Some services return a login page or API error with HTTP 200.
+      const data = response.data;
+      if (isHydra ? (!data?.caps || data.error) : !data?.version) {
+        throw new Error('Invalid service response');
+      }
+    }
+    res.json({ status: 'ok' });
+  } catch (_) {
+    // Do not return upstream URLs, credentials or Axios request details.
+    res.status(503).json({ error: 'Service unavailable' });
+  }
+});
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -735,6 +785,11 @@ app.post('/api/webhooks/radarr', (req, res) => {
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 
 app.get('*', (req, res) => {
+  const isApi = req.path === '/api' || req.path.startsWith('/api/');
+  res.setHeader('Cache-Control', isApi ? 'no-store' : 'no-cache');
+  if (isApi || path.extname(req.path)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);

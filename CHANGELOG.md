@@ -1,5 +1,65 @@
 # ArrView server development changelog
 
+## 1.09 — 2026-09-19 — Web parity W0
+
+- History sizes now use SABnzbd `bytes` converted to MB, falling back to `mb`.
+  Queue size handling is unchanged.
+- Removed Google Fonts; the dashboard uses the system font stack.
+- Built `/assets/*` get one-year immutable caching; the HTML shell, manifest,
+  service worker and other public files revalidate. Missing files and unknown
+  API routes return 404 instead of the SPA shell. API responses use no-store.
+- Added `/api/{sonarr,radarr,sabnzbd,nzbhydra}/ping`, using system/status,
+  mode=version and t=caps respectively. Health pills now use these checks.
+  Missing configuration or upstream failure returns 503 with a generic error.
+- Settings re-fetch saved configuration and update React state without a page
+  reload, retaining the active dashboard tab. Failed re-fetch stays in Settings
+  with an error. Hydra-only configuration is now recognised by App as configured.
+- Added `/api/health` and Docker HEALTHCHECK. Health is process liveness, not
+  upstream availability: an unconfigured server can be healthy.
+- No config schema, native app or ArrViewCore changes. Home Screen installation,
+  service worker, mobile layout and feature parity remain W1+ work.
+
+### Human test plan
+
+1. Upgrade a test container from 1.08 to this dev build with the **same existing
+   /data mount**. Confirm all saved URLs/keys remain usable; Settings and identify
+   report 1.09, `/api/health` returns 200, and Docker reports healthy. Stop an
+   upstream: its pill should turn offline within 60 seconds, while container
+   health remains healthy. Restore it and confirm the pill recovers.
+2. In browser Network tools, verify pills call only the four `/ping` routes,
+   not library/queue routes. Normal tab data requests still occur. Test valid and
+   invalid keys, SAB root/subdirectory installs, and NZBHydra caps responses.
+3. Open Downloads history: a bytes-only 1073741824 entry displays 1.0 GB; legacy
+   mb-only 512 displays 512 MB; zero displays 0 MB. Queue totals must be unchanged.
+4. From Movies or Shows, save changed settings. Expect POST config followed by
+   GET config, no document reload, the same active tab and refreshed service links.
+   Reopen Settings to confirm persistence. Test first-run save, adding/removing a
+   service, and a failed post-save GET: stay in Settings with an error and retry.
+5. Clear browser cache and load the dashboard. No Google Fonts requests should
+   appear. Check text/readability on desktop and mobile. Hashed assets should have
+   max-age=31536000 and immutable; index.html and SPA navigation no-cache; API
+   no-store. Missing .webmanifest/.js files must return 404, not HTML 200.
+6. On a physical iPhone, smoke-test iOS **proxy** browsing, downloads and calendar
+   against the dev server, then **Direct** mode against the same services. Direct
+   implementation is unchanged; it is a separate regression check. Confirm LAN
+   access/discovery still works; Simulator cannot prove local-network privacy.
+
+### Verification / not verified
+
+`npm run build` passed (Vite 5.4.21; existing CJS API deprecation warning).
+`node --check server.js` passed. `node --test tests/*.test.js`: **29 passed,
+0 failed**, including four parent contracts. New W0 fixture coverage exercises
+liveness without config, ping targets/auth/error sanitization, HTTP-200 API errors,
+missing services, cache headers, SPA navigation and missing-file/API 404s.
+
+Local Docker build/runtime could not run because the Docker daemon is stopped.
+Browser runtime reported no connected browsers, so interactive settings/history
+checks and font appearance are **not verified**. Live upstreams, physical-device
+proxy/Direct/LAN checks and container upgrade persistence are **not verified**.
+No Apple builds were needed: native apps/Core are unchanged. PWA installation,
+Android HTTPS/HTTP shortcut behavior, safe-area and lifecycle checks belong to
+W1/W2, which this version does not implement.
+
 ## 1.08 — 2026-09-19 — Remove movie from Radarr
 
 Adds `DELETE /api/radarr/movie/:id?deleteFiles=true|false` → Radarr

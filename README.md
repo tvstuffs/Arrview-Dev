@@ -281,3 +281,20 @@ No application routes, storage schema, Core dependency or Apple builds change in
 this infrastructure update. Real GHCR publication, both architecture builds,
 live-service runtime behavior, physical discovery and rollback must be verified
 before claiming this rollout is complete.
+
+## Server health and caching (1.09)
+
+`GET /api/health` returns `{"status":"ok","version":"1.09"}` when the
+ArrView process is responding, even before setup or when an upstream is offline.
+The Docker image checks it on loopback using the configured `PORT` every 30 seconds.
+This is liveness, not a guarantee that all configured services are reachable.
+
+`GET /api/<service>/ping` checks Sonarr, Radarr, SABnzbd or NZBHydra using their
+lightweight status/version/capabilities APIs. Service names are `sonarr`, `radarr`,
+`sabnzbd`, `nzbhydra`; success is `{"status":"ok"}`, unavailable/unconfigured is
+HTTP 503, and unknown services are HTTP 404. The dashboard polls these for pills.
+
+Hashed build assets under `/assets/` are immutable for one year. The HTML shell
+and mutable public files revalidate; API responses are not stored. Reverse proxies
+should preserve these headers. Missing file paths return 404, not the HTML shell.
+See CHANGELOG's 1.09 human test plan before promoting a dev image to release.

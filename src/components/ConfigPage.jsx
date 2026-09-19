@@ -167,8 +167,10 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
         body: JSON.stringify(cleanConfig),
       })
       const data = await r.json()
-      if (data.success) onSave(cleanConfig)
-      else throw new Error('Save failed')
+      if (!r.ok || !data.success) throw new Error('Save failed')
+      const saved = await fetch('/api/config', { cache: 'no-store' })
+      if (!saved.ok) throw new Error('Settings saved, but could not reload them. Please retry.')
+      await onSave(await saved.json())
     } catch (e) {
       setError(e.message)
     } finally {

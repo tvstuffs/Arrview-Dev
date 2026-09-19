@@ -26,7 +26,8 @@ export default function App() {
     config &&
     ((config.sabnzbd?.url && config.sabnzbd?.apikey) ||
      (config.sonarr?.url   && config.sonarr?.apikey)  ||
-     (config.radarr?.url   && config.radarr?.apikey))
+     (config.radarr?.url   && config.radarr?.apikey) ||
+     (config.nzbhydra?.url && config.nzbhydra?.apikey))
 
   if (!isConfigured) {
     return (
@@ -40,7 +41,7 @@ export default function App() {
   return (
     <Dashboard
       config={config}
-      onReconfigure={() => setConfig({})}
+      onConfigSaved={setConfig}
     />
   )
 }
