@@ -82,6 +82,19 @@ test('cached navigation does not show stale dashboard while offline', async ({ p
   await expect(page.getByText('Bytes history')).toHaveCount(0)
 })
 
+test('online recovery tolerates networking becoming usable after the event', async ({ page }) => {
+  await page.goto('/offline.html')
+  await page.evaluate(() => {
+    const originalFetch = window.fetch.bind(window)
+    let failures = 2
+    window.fetch = (...args) => failures-- > 0
+      ? Promise.reject(new TypeError('Network still recovering'))
+      : originalFetch(...args)
+    window.dispatchEvent(new Event('online'))
+  })
+  await expect(page.getByText('Bytes history')).toBeVisible({ timeout: 10000 })
+})
+
 test('settings save keeps active tab and does not reload document', async ({ page }) => {
   await controlled(page)
   await page.getByRole('button', { name: 'Movies', exact: false }).click()

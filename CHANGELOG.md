@@ -27,6 +27,10 @@ hint alongside its version bump.
   suspend and clean up on unmount. Server emits retry: 5000.
 - System light/dark colors, matching theme-color metadata and offline appearance.
 
+Post-merge CI exposed an online-event/network-readiness race in the W1 offline
+page. A bounded recovery retry now tolerates transient failures after the online
+event; a browser regression simulates delayed network availability.
+
 ### Human test plan
 
 1. Upgrade a test container from **1.10** (and from the currently shipped image
@@ -71,7 +75,7 @@ hint alongside its version bump.
 ### Verification / not verified
 
 Production Vite build and server syntax/diff checks pass. Automated results:
-**30/30 Node server checks**, **18/18 React/component checks**, **33/33 Chromium
+**30/30 Node server checks**, **18/18 React/component checks**, **34/34 Chromium
 browser checks** using fake loopback services. Includes SSE retry framing,
 visibility/timer cleanup, reconnect and in-flight catch-up, command disposal,
 partial destructive failures, storage fallback, single real event-stream ownership,
