@@ -16,3 +16,13 @@ export async function deleteAndUnmonitor(episodes) {
   }
   if (deleted.length !== episodes.length) throw new Error(`${deleted.length} of ${episodes.length} files deleted and unmonitored. Some deletes failed; close this sheet to refresh before retrying.`)
 }
+
+export async function deleteMovieAndUnmonitor(movie) {
+  const fileId = movie.movieFile?.id || movie.movieFileId
+  if (movie.hasFile && !fileId) throw new Error('Movie file details are unavailable. Refresh before deleting.')
+  if (movie.hasFile) await checkedFetch(`/api/radarr/moviefile/${fileId}`, { method: 'DELETE' })
+  try {
+    await checkedFetch('/api/radarr/movie/monitor', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movieIds: [movie.id], monitored: false }) })
+  } catch { throw new Error('The file was deleted or was already absent, but Radarr could not unmonitor the movie. Close to refresh and check monitoring before retrying.') }
+}

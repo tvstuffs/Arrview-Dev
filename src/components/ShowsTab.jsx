@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react'
+import { Poster, MonitorToggle } from './MediaControls'
+import { useState, useCallback, useEffect } from 'react'
 import './ShowsTab.css'
 import ConfirmSheet from './ConfirmSheet'
 import { useCommandPolling } from '../hooks/useCommandPolling'
@@ -217,7 +218,7 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
   }
 
   return (
-    <div className={`show-card card ${expanded ? 'expanded' : ''}`}>
+    <div id={`show-${show.id}`} className={`show-card card ${expanded ? 'expanded' : ''}`}>
       {interactiveEp && (
         <EpisodeSearchModal
           episode={interactiveEp}
@@ -228,6 +229,8 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
         />
       )}
       <div className="show-card-main">
+        <Poster media={show} />
+        <MonitorToggle media={show} service="sonarr" onChanged={onRemoved} onToast={onToast} />
         <button className="show-info show-toggle" onClick={onToggle} aria-expanded={expanded} aria-label={`Episodes for ${show.title}`}>
           <div className="show-title font-semibold truncate" title={show.title}>{show.title}</div>
           <div className="show-meta">
@@ -370,7 +373,7 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
   )
 }
 
-export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
+export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, selectedShow, onSelected }) {
   const [series, setSeries] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -379,6 +382,14 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
   const [sort, setSort] = usePreference('shows.sort', 'alpha', oneOf(['alpha','missing','year']))
   const [expandedId, setExpandedId] = usePreference('shows.expanded', null, value => value === null || Number.isSafeInteger(value))
   const [showAddModal, setShowAddModal] = useState(false)
+
+  useEffect(() => {
+    if (selectedShow != null && series) {
+      setExpandedId(selectedShow); setSearch(''); setFilter('all')
+      requestAnimationFrame(() => document.getElementById(`show-${selectedShow}`)?.scrollIntoView({ block: 'start' }))
+      onSelected?.()
+    }
+  }, [selectedShow, series])
 
   const fetchSeries = useCallback(async () => {
     try {
@@ -441,6 +452,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl }) {
     <div className="shows-tab">
       {/* Stats */}
       <div className="shows-stats card">
+        <button className="btn btn-secondary" onClick={onUpcoming}>Upcoming</button>
         <div className="stat-chip">
           <span className="stat-chip-value">{series.length}</span>
           <span className="stat-chip-label">Shows</span>

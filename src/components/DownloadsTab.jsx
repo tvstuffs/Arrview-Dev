@@ -72,6 +72,8 @@ function HistoryItem({ item }) {
 }
 
 export default function DownloadsTab({ onToast, canSearch = true }) {
+  const [historyLimit, setHistoryLimit] = useState(15)
+  const [historyTotal, setHistoryTotal] = useState(null)
   const [queue, setQueue] = useState(null)
   const [history, setHistory] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -83,11 +85,13 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
     try {
       const [qRes, hRes] = await Promise.all([
         fetch('/api/sabnzbd/queue'),
-        fetch('/api/sabnzbd/history'),
+        fetch(`/api/sabnzbd/history?limit=${historyLimit}`),
       ])
       if (!qRes.ok) throw new Error((await qRes.json()).error)
       const qData = await qRes.json()
-      const hData = hRes.ok ? await hRes.json() : null
+      if (!hRes.ok) throw new Error('Could not load download history')
+      const hData = await hRes.json()
+      setHistoryTotal(Number.isFinite(Number(hData?.history?.noofslots)) ? Number(hData.history.noofslots) : null)
       setQueue(qData.queue)
       setHistory(hData?.history?.slots || [])
       setError(null)
@@ -96,9 +100,9 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [historyLimit])
 
-  useVisiblePolling(fetchData, 10000)
+  useVisiblePolling(fetchData, queue?.status === 'Downloading' ? 2000 : 10000, true, historyLimit)
 
   async function postAction(mode, nzo_id) {
     try {
@@ -163,7 +167,7 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
       {/* Queue stats bar */}
       <div className="queue-statsbar card">
         <div className="stat-group">
-          <span className="stat-label">Status</span>
+          <span className="stat-label">Status <span className="badge badge-success" title="Refreshes every 2 seconds downloading; every 10 seconds idle">Live</span></span>
           <span className={`badge ${isDownloading ? 'badge-success' : 'badge-muted'}`}>
             {queue?.status || 'Unknown'}
           </span>
@@ -227,6 +231,7 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
               </div>
             ))}
           </div>
+          {historyLimit < 1000 && (historyTotal != null ? history.length < historyTotal : history.length >= historyLimit) && <button className="btn btn-secondary" onClick={() => setHistoryLimit(limit => Math.min(1000, limit + 15))}>Load more</button>}
         </section>
       )}
     </div>

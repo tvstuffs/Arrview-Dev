@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import UpcomingTab from './UpcomingTab'
 import DownloadsTab from './DownloadsTab.jsx'
 import ShowsTab from './ShowsTab.jsx'
 import MoviesTab from './MoviesTab.jsx'
@@ -11,6 +12,7 @@ import './Dashboard.css'
 const TABS = [
   { id: 'downloads', label: 'Downloads', icon: '📥', service: 'sabnzbd' },
   { id: 'shows', label: 'Shows', icon: '📺', service: 'sonarr' },
+  { id: 'upcoming', label: 'Upcoming', icon: '📅', service: 'sonarr' },
   { id: 'movies', label: 'Movies', icon: '🎬', service: 'radarr' },
   { id: 'search', label: 'Search', icon: '🔎', service: 'nzbhydra' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
@@ -25,6 +27,7 @@ function DashboardContent({ config, onConfigSaved }) {
   const tabs = TABS.filter(tab => !tab.service || (config[tab.service]?.url && config[tab.service]?.apikey))
   const activeTab = tabs.some(tab => tab.id === savedTab) ? savedTab : tabs[0].id
   const previousTab = useRef(activeTab === 'settings' ? tabs[0].id : activeTab)
+  const [selectedShow, setSelectedShow] = useState(null)
   const [serviceStatus, setServiceStatus] = useState({})
   const [toasts, setToasts] = useState([])
   function navigate(tab) { if (activeTab !== 'settings') previousTab.current = activeTab; setActiveTab(tab) }
@@ -74,7 +77,8 @@ function DashboardContent({ config, onConfigSaved }) {
       {activeTab === 'settings' && <ConfigPage initialConfig={config} onBack={returnFromSettings}
         onSave={next => { onConfigSaved(next); returnFromSettings() }} />}
       {activeTab === 'downloads' && <DownloadsTab onToast={addToast} canSearch={Boolean(config.nzbhydra)} />}
-      {activeTab === 'shows' && <ShowsTab onToast={addToast} sonarrUrl={config.sonarr?.url} nzbhydraUrl={config.nzbhydra?.url} />}
+      {activeTab === 'upcoming' && <UpcomingTab onShow={id => { setSelectedShow(id); navigate('shows') }} />}
+      {activeTab === 'shows' && <ShowsTab selectedShow={selectedShow} onSelected={() => setSelectedShow(null)} onUpcoming={() => navigate('upcoming')} onToast={addToast} sonarrUrl={config.sonarr?.url} nzbhydraUrl={config.nzbhydra?.url} />}
       {activeTab === 'movies' && <MoviesTab onToast={addToast} />}
       {activeTab === 'search' && <NzbSearchModal embedded onToast={addToast} canDownload={Boolean(config.sabnzbd)} />}
     </main>

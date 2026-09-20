@@ -11,7 +11,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // Canonical user-facing app version. Surfaced in the Settings page and the
 // /api/arrview/identify endpoint (the iOS app reads it from there).
-const APP_VERSION = '1.10.1';
+const APP_VERSION = '1.10.2';
 
 app.use(express.json());
 // API responses and mutable shell files must always reach the server.
@@ -94,7 +94,7 @@ app.get('/api/arrview/identify', (req, res) => {
   res.json({
     app: 'arrview',
     version: APP_VERSION,
-    capabilities: ['pwa', 'ping', 'health'],
+    capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit'],
     services,
   });
 });
@@ -216,7 +216,9 @@ app.get('/api/sabnzbd/queue', async (req, res) => {
 });
 
 app.get('/api/sabnzbd/history', async (req, res) => {
-  try { res.json(await sabRequest({ mode: 'history', limit: 15 })); }
+  const limit = req.query.limit === undefined ? 15 : Number(req.query.limit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) return res.status(400).json({ error: 'limit must be an integer from 1 to 1000' });
+  try { res.json(await sabRequest({ mode: 'history', limit })); }
   catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
@@ -448,6 +450,19 @@ app.post('/api/sonarr/series', async (req, res) => {
     const msg = e.response?.data?.message || e.response?.data?.[0]?.errorMessage || e.message;
     res.status(e.response?.status || 503).json({ error: msg });
   }
+});
+
+// Read the current resource so changing monitoring preserves Sonarr metadata.
+app.put('/api/sonarr/series/:id', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id) || typeof req.body.monitored !== 'boolean')
+    return res.status(400).json({ error: 'A numeric series id and boolean monitored are required' });
+  try {
+    const { baseUrl, headers } = sonarrHeaders();
+    const url = `${baseUrl.replace(/\/+$/, '')}/api/v3/series/${req.params.id}`;
+    const current = await axios.get(url, { headers, timeout: 15000 });
+    const updated = await axios.put(url, { ...current.data, monitored: req.body.monitored }, { headers, timeout: 15000 });
+    res.json(updated.data);
+  } catch (e) { res.status(e.response?.status || 503).json({ error: e.response?.data?.message || e.message }); }
 });
 
 app.delete('/api/sonarr/series/:id', async (req, res) => {

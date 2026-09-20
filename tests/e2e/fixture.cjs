@@ -20,6 +20,7 @@ const upstream = http.createServer((req, res) => {
     { nzo_id: 'bytes', name: 'Bytes history', bytes: 1073741824, status: 'Completed' },
     { nzo_id: 'mb', name: 'Legacy history', mb: '512', status: 'Completed' },
   ] } }))
+  if (url.pathname.endsWith('/calendar')) return res.end(JSON.stringify([{ id: 12, seriesId: 1, seasonNumber: 1, episodeNumber: 2, title: 'Calendar fixture episode', airDateUtc: new Date().toISOString(), hasFile: false, series: { id: 1, title: 'Fixture Show with a long title' } }]))
   if (url.pathname.endsWith('/lookup')) return res.end(JSON.stringify([{ title: 'A long fixture lookup result with descriptive text', tvdbId: 201, tmdbId: 201, year: 2024, overview: 'Fixture overview', seasons: [] }]))
   if (url.pathname.endsWith('/qualityprofile')) return res.end(JSON.stringify([{ id: 1, name: 'HD 1080p' }]))
   if (url.pathname.endsWith('/rootfolder')) return res.end(JSON.stringify([{ path: '/media/library' }]))
@@ -29,8 +30,8 @@ const upstream = http.createServer((req, res) => {
     { id: 12, seriesId: 1, seasonNumber: 1, episodeNumber: 2, title: 'Missing episode with a long title', overview: 'Another episode description.', hasFile: false, airDateUtc: '2020-01-02T00:00:00Z' },
     { id: 13, seriesId: 1, seasonNumber: 1, episodeNumber: 3, title: 'Upcoming episode', hasFile: false, airDateUtc: '2099-01-01T00:00:00Z' },
   ]))
-  if (url.pathname.endsWith('/series')) return res.end(JSON.stringify([{ id: 1, title: 'Fixture Show with a long title', titleSlug: 'fixture-show', year: 2024, network: 'Fixture Network', status: 'continuing', seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 1 } }] }]))
-  if (url.pathname.endsWith('/movie')) return res.end(JSON.stringify([{ id: 2, title: 'Fixture Movie with a long descriptive title', year: 2024, studio: 'Fixture Studio', monitored: true, isAvailable: true, hasFile: false, overview: 'A movie description to verify wrapping and action controls.' }]))
+  if (url.pathname.endsWith('/series')) return res.end(JSON.stringify([{ id: 1, title: 'Fixture Show with a long title', titleSlug: 'fixture-show', year: 2024, network: 'Fixture Network', images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], status: 'continuing', seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 1 } }] }]))
+  if (url.pathname.endsWith('/movie')) return res.end(JSON.stringify([{ id: 2, title: 'Fixture Movie with a long descriptive title', year: 2024, studio: 'Fixture Studio', images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], monitored: true, isAvailable: true, hasFile: false, overview: 'A movie description to verify wrapping and action controls.' }]))
   if (url.searchParams.get('t') === 'search') return res.end(JSON.stringify({ channel: { item: [{ title: 'A lengthy fixture NZB result title', guid: 'nzb1', link: 'https://example.invalid/fixture.nzb', size: 1073741824 }] } }))
   if (url.pathname.includes('/command')) return res.end(JSON.stringify({ id: 99, status: 'completed', result: 'successful' }))
   res.end(JSON.stringify({ version: '4.0', caps: { server: { title: 'fixture' } } }))

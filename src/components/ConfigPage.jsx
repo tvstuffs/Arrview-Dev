@@ -191,6 +191,10 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
           </p>
         </header>
 
+        <section className="card" aria-label="Service checklist"><h2>Services</h2>
+          <p className="text-muted">Configured connections (use Test below to verify connectivity).</p>
+          <ul>{SERVICES.map(service => <li key={service.id}>{service.name}: {config[service.id].url && config[service.id].apikey ? '✓ Configured' : 'Not configured'}</li>)}</ul>
+        </section>
         <div className="services-grid">
           {SERVICES.map(service => (
             <ServiceCard

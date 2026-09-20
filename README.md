@@ -418,3 +418,23 @@ Responsive tests cover the full current UI at 305, 320, 360, 390, 402, 440, 466,
 keyboard focus, light/dark and simulated visibility transitions. Physical Safari/
 Android installation, keyboard/notch behavior and real suspend/resume still need
 the human checks in CHANGELOG 1.10.1.
+
+## Library parity (1.10.2 / W3)
+
+Movies now have lazy posters, List/Posters views, file details, interactive
+release search, monitoring, Recently Downloaded sort and both explicit deletion
+choices. Delete and Unmonitor keeps the library entry; Delete and Remove from
+Radarr removes it and its files. Removal is gated by server capability or version
+1.08+. A partial error is not success: close the sheet and refresh before retrying.
+Posters are fetched from service-provided remote URLs, not precached offline.
+
+Shows add posters, monitoring and Upcoming. The calendar covers yesterday through
+14 days ahead in local time and opens the selected show. Upcoming is available
+from the Shows toolbar and navigation when Sonarr is configured. Series monitoring
+preserves the upstream resource's other fields. It does not delete series files.
+
+Downloads poll every 2 seconds while downloading and 10 seconds idle while
+visible; W2 hidden/resume rules still apply. Load more increases history by 15,
+up to 1000. Settings lists configured services (not a connectivity claim; use
+Test to verify). Movie presentation joins the existing browser-local preferences.
+Human release checks are in CHANGELOG 1.10.2; native apps and Core are unchanged.

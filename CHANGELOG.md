@@ -338,3 +338,72 @@ files parsed as YAML with the expected ARRVIEW_TAG/default-latest template;
 workflow byte equality and both architecture targets were checked. No Docker
 daemon or Compose CLI is available here, so these are static checks, not image
 builds, Compose execution or runtime tests. No image was pushed or deployed.
+
+## 1.10.2 — 2026-09-19 — Web parity W3: library management and Upcoming
+
+W3 implemented in the container development repo; native apps and ArrViewCore
+unchanged. W4 retains version 1.11. No config schema changes.
+
+- Movies: lazy remote posters with a missing-image fallback, persisted List /
+  Posters view, interactive release search shared with Shows (Radarr grab or
+  NZBHydra-to-SAB fallback), file size/quality/resolution/languages, monitoring,
+  Recently Downloaded sorting by `movieFile.dateAdded`, and explicit Delete and
+  Unmonitor / Delete and Remove from Radarr confirmations. Removal requires the
+  advertised capability or legacy server 1.08+. Partial failures stay visible.
+- Shows: posters and series monitoring; Upcoming from the Shows toolbar and
+  service-gated navigation. Calendar spans yesterday through +14 local days,
+  groups by local air date and displays episode/time/status. Selecting an episode
+  clears hidden library filters, expands its show and scrolls it into view.
+- Downloads: visible-page polling at 2 seconds while downloading, 10 seconds idle,
+  Live indicator, history Load more in increments of 15 (maximum 1000).
+- Settings: explicit configured-service checklist alongside version and W1 help.
+- Additive server changes: `PUT /api/sonarr/series/:id` accepts boolean monitored,
+  reads the current upstream resource and preserves its other fields on update;
+  `/api/sabnzbd/history?limit=` validates 1–1000, retaining default 15. Identify
+  advertises movieDelete, seriesMonitor and historyLimit capabilities.
+
+### Human test plan
+
+1. Upgrade the prior dev image using its existing `/data` volume. Expect the
+   same service configuration, API keys and saved browsing preferences. Confirm
+   Settings shows 1.10.2 and its service checklist agrees with configuration.
+2. On physical iPhone Safari/Home Screen and Android Chrome/installed HTTPS app,
+   check posters (including a failed image), List/Posters persistence, file
+   details against Radarr, and Recently Downloaded order after a fresh import.
+   Use interactive search and grab a disposable release; confirm the correct
+   Radarr movie or Sonarr episode is targeted. Check rejected results and Hydra
+   fallback. Plain HTTP Android remains a shortcut, not a full installed PWA.
+3. With disposable media only, cancel both movie deletion choices first (nothing
+   changes), then test Delete and Unmonitor (file gone, movie remains unmonitored)
+   and Delete and Remove (files and library entry gone). Disconnect the upstream
+   during an action: expect an error, never success. Close to refresh before a
+   partial-action retry. Toggle movie/series monitoring and verify in each service;
+   series path, quality profile and season settings must remain unchanged.
+4. Check Upcoming around local midnight/timezone changes: yesterday through +14
+   days, Downloaded/Missing/Upcoming badges, times, empty/error states, and selecting
+   an episode opens its show even with previously saved nonmatching filters.
+5. Start/stop a disposable SAB download: expect 2-second/10-second updates and
+   working history Load more. Background the installed app, then return: polling
+   stops hidden, resumes immediately, and one SSE connection reconnects. Check
+   service failure/recovery, settings save, and existing episode actions.
+6. Check widths 305, 320, 360, 390, 402, 440, 466, 669, 834 and 1280px, short
+   320×568, large text, light/dark, keyboard and screen reader. Verify actual
+   notch/Duo safe areas, software keyboard and reachable sheet controls.
+7. Smoke-test the native app on a physical device in BOTH Server/proxy and Direct
+   modes: libraries, calendar, search, monitoring and disposable deletion. Direct
+   implementation is unchanged, not proven by server tests. iOS Simulator does
+   not implement local network privacy (Apple TN3179).
+
+**Agent verification:** production Vite build; 35/35 Node server checks, 27/27
+React component tests, 34/34 Chromium browser checks (W3 integrated into all ten
+width checks). Covers metadata-preserving monitor updates, invalid limits,
+upstream errors, movie deletion partial failures, Radarr/Hydra release routing,
+legacy removal gating, calendar boundaries, adaptive polling, pagination and
+view persistence. W1/W2 cache/offline/worker/lifecycle regressions included.
+Narrow layouts visually reviewed. CI/publication recorded after verification.
+
+**Not verified:** physical iPhone/Android install, Safari engine, notch/fold/
+keyboard/screen-reader behavior, real OS suspension/LAN permissions, live media
+services or destructive actions, native proxy/Direct and real persistent-volume
+upgrade. No native build needed: apps/Core unchanged. No running container was
+restarted; dev publication is not deployment. No release/latest promotion.
