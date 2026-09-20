@@ -56,8 +56,8 @@ test('bounded recent-import proxy contract', async (t) => {
                  { coverType: 'fanart', remoteUrl: 'https://cdn.example.test/fanart.jpg' }] }
     }] };
   }
-  await t.test('identifies version 1.10.1', async () => {
-    assert.equal((await (await fetch(base + '/api/arrview/identify')).json()).version, '1.10.1');
+  await t.test('identifies version 1.10.2', async () => {
+    assert.equal((await (await fetch(base + '/api/arrview/identify')).json()).version, '1.10.2');
   });
   await t.test('fixed bounded import query, credentials and base path; response allowlist', async () => {
     payload = validPage(2);

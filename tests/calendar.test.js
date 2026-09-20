@@ -42,7 +42,7 @@ test('calendar proxy contract', async (t) => {
   const base = `http://127.0.0.1:${server.address().port}`;
   const interval = '?start=2026-09-13T00:00:00Z&end=2026-09-28T00:00:00Z';
   await t.test('version identifies calendar-capable server', async () => {
-    assert.equal((await (await fetch(base + '/api/arrview/identify')).json()).version, '1.10.1');
+    assert.equal((await (await fetch(base + '/api/arrview/identify')).json()).version, '1.10.2');
   });
   await t.test('forwards window, key, embedded series and monitored-only policy', async () => {
     const response = await fetch(base + '/api/sonarr/calendar' + interval);

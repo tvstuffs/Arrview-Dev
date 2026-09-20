@@ -50,7 +50,7 @@ test('W0 web foundation contract', async t => {
     fs.renameSync(path.join(root, 'config.json'), path.join(root, 'saved.json'));
     const response = await fetch(base + '/api/health');
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { status: 'ok', version: '1.10.1' });
+    assert.deepEqual(await response.json(), { status: 'ok', version: '1.10.2' });
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(hits.length, 0);
     fs.renameSync(path.join(root, 'saved.json'), path.join(root, 'config.json'));

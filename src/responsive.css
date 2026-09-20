@@ -94,3 +94,18 @@ input, select { font: inherit; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
 .tab-btn > span { max-width: 100%; overflow-wrap: anywhere; }
+
+/* W3 media layouts share the W2 controls and sheets. */
+.media-poster { width: 64px; height: 96px; object-fit: cover; border-radius: 6px; flex: 0 0 64px; background: var(--bg-hover); }
+.poster-placeholder { display: flex; align-items: center; justify-content: center; }
+.movie-header { gap: 12px; }
+.movie-info { min-width: 0; }
+.movies-list { grid-template-columns: 1fr; }
+.movies-posters .movie-header { flex-direction: column; align-items: flex-start; }
+.movies-posters .media-poster { width: 100%; height: 260px; object-fit: contain; flex-basis: auto; }
+.upcoming-row { display: flex; text-align: left; align-items: center; gap: 12px; width: 100%; color: var(--text-primary); margin: 8px 0; }
+.upcoming-info { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 639px) { .tab-btn { font-size: 9px; letter-spacing: 0; } .tab-btn > span:last-child { white-space: nowrap; overflow-wrap: normal; } }
+
+.movie-footer > span { overflow-wrap: anywhere; min-width: 0; }
+button[aria-pressed="true"].btn-secondary { border-color: var(--accent); color: var(--accent); }
