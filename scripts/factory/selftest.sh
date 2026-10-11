@@ -95,7 +95,7 @@ stub="$tmp/codex-stub"
 cat >"$stub" <<'EOF'
 #!/usr/bin/env bash
 out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && { out=$2; shift; }; shift; done
-cat >/dev/null
+cat >"$LASTPROMPT"
 case "$STUB" in
   nofile) exit 0 ;;
   noverdict) printf 'Looks fine overall.\n' >"$out" ;;
@@ -104,13 +104,19 @@ case "$STUB" in
 esac
 EOF
 chmod +x "$stub"
-export CODEX_BIN="$stub"
+export CODEX_BIN="$stub" LASTPROMPT="$tmp/last-prompt"
+mkdir -p "$jobdir/round-1"
+echo "BUILD-EVIDENCE-MARKER actionlint exit 0" >"$jobdir/build.md"
+echo "VERIFY-EVIDENCE-MARKER" >"$jobdir/round-1/verify-actionlint.txt"
 export STUB=nofile; expect 1 "codex-run: missing output file fails" "$here/codex-run.sh" review gpt-5.6-sol "$jobdir" 1
 export STUB=noverdict; expect 1 "codex-run: output without verdict fails" "$here/codex-run.sh" review gpt-5.6-sol "$jobdir" 1
 export STUB=crash; expect 1 "codex-run: codex non-zero exit fails" "$here/codex-run.sh" review gpt-5.6-sol "$jobdir" 1
 export STUB=pass; expect 0 "codex-run: valid verdict passes" "$here/codex-run.sh" review gpt-5.6-sol "$jobdir" 1
+if grep -q BUILD-EVIDENCE-MARKER "$LASTPROMPT" && grep -q VERIFY-EVIDENCE-MARKER "$LASTPROMPT" && grep -q "cannot run tools" "$LASTPROMPT"; then
+  ok "codex-run: review prompt carries builder evidence, verify file and tool-limit rule"
+else bad "codex-run: review prompt missing evidence or tool-limit rule"; fi
 export STUB=pass; expect 1 "codex-run: model outside roster refused" "$here/codex-run.sh" review gpt-4o "$jobdir" 1
-unset CODEX_BIN
+unset CODEX_BIN LASTPROMPT
 
 # ---------- guard-bash.py ----------
 # Evaluate against the real checkout this script lives in (paths are only inspected, never run).

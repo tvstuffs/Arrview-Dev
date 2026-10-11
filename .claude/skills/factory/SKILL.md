@@ -89,6 +89,9 @@ Increment `.opus_runs` every time you spawn an agent on `opus`; `job.sh set` ref
      `risk gpt-6-astra <job-dir> <N>` when there is any escalation trigger (rule 3); the wrapper
      writes `round-N/review-xvendor.md` / `round-N/review-codex-risk.md`. If Codex built, MODE claude
      with `model: sonnet`; save its message to `round-N/review-xvendor.md`.
+   Codex reviewers cannot run Docker or network tools. If you re-run a tool the spec requires
+   (for example actionlint), save the exact command, version, exit code and output to
+   `round-N/verify-<tool>.txt` before the review; the wrapper passes it to Codex as evidence.
    Check every file with check-verdict.sh (`VERDICT: PASS|CHANGES`). An invalid or missing verdict:
    re-ask that agent once; still invalid -> `needs-human`. Record each reviewer's
    `{vendor, model, verdict}` under `.reviewers`, and any `TRIGGERS:` from review-risk.md in `.escalations`.

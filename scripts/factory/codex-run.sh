@@ -61,8 +61,16 @@ review_body() {   # $1 = focus text
     echo "The FIRST line of your final message must be exactly 'VERDICT: PASS' or 'VERDICT: CHANGES' and nothing else."
     echo "Use CHANGES only for issues that must be fixed before a human tests this; list nits under a 'Nits' heading."
     echo "The repository (job worktree, read-only) is your current directory; read any file you need."
+    echo "Your sandbox is read-only with no Docker and no network, so you cannot run tools such as actionlint or install packages."
+    echo "Where the spec requires a tool run, judge the recorded evidence below (exact command, tool version, exit code, output, negative controls) for plausibility and consistency with the diff."
+    echo "Do NOT answer CHANGES merely because you could not re-run a tool yourself; list it under Nits as 'not independently verified'. Answer CHANGES if the evidence is missing, contradictory or implausible."
     echo
     echo "===== spec.md ====="; cat "$job/spec.md"
+    local f
+    for f in "$job"/build.md "$job"/build-r*.md "$job/round-$round"/verify-*.txt; do
+      [ -f "$f" ] || continue
+      echo; echo "===== recorded evidence: ${f#"$job"/} ====="; cat "$f"
+    done
     echo; echo "===== git diff main...HEAD ====="; printf '%s\n' "$diff"
   } >"$prompt"
 }
