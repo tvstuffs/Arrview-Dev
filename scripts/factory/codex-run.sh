@@ -64,9 +64,14 @@ review_body() {   # $1 = focus text
     echo "Your sandbox is read-only with no Docker and no network, so you cannot run tools such as actionlint or install packages."
     echo "Where the spec requires a tool run, judge the recorded evidence below (exact command, tool version, exit code, output, negative controls) for plausibility and consistency with the diff."
     echo "Do NOT answer CHANGES merely because you could not re-run a tool yourself; list it under Nits as 'not independently verified'. Answer CHANGES if the evidence is missing, contradictory or implausible."
+    echo "If maintainer rework notes appear below, they are binding decisions that override the spec wherever they differ. Do not answer CHANGES for following them."
     echo
     echo "===== spec.md ====="; cat "$job/spec.md"
     local f
+    for f in "$job"/rework-*.md; do
+      [ -f "$f" ] || continue
+      echo; echo "===== maintainer rework note (overrides spec): ${f#"$job"/} ====="; cat "$f"
+    done
     for f in "$job"/build.md "$job"/build-r*.md "$job/round-$round"/verify-*.txt; do
       [ -f "$f" ] || continue
       echo; echo "===== recorded evidence: ${f#"$job"/} ====="; cat "$f"
