@@ -1,8 +1,12 @@
 name: Test server and web shell
 on:
   pull_request:
+  # The push trigger on main still runs this workflow standalone, and
+  # publish-ghcr.yml also calls it, so a push to main runs the tests twice.
+  # This is accepted (CI cost only) to keep standalone PR/main status checks.
   push:
     branches: [main]
+  workflow_call:
 permissions:
   contents: read
 jobs:
