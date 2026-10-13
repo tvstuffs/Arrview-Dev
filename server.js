@@ -20,7 +20,7 @@ app.use(express.json());
 // with a text/plain body leaves req.body empty and would wipe the config.
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'PATCH'].includes(req.method) &&
-      req.path.startsWith('/api/') && !req.path.startsWith('/api/webhooks/') &&
+      req.path.toLowerCase().startsWith('/api/') && !req.path.toLowerCase().startsWith('/api/webhooks/') &&
       !req.is('application/json')) {
     return res.status(415).json({ error: 'Content-Type must be application/json' });
   }
@@ -29,7 +29,7 @@ app.use((req, res, next) => {
 // Malformed JSON under /api gets a JSON 400 (never the HTML default page).
 app.use((err, req, res, next) => {
   if (err && (err.type === 'entity.parse.failed' || err.status === 400) &&
-      req.path.startsWith('/api/')) {
+      req.path.toLowerCase().startsWith('/api/')) {
     res.setHeader('Cache-Control', 'no-store');
     return res.status(400).json({ error: 'Invalid JSON' });
   }
@@ -102,6 +102,7 @@ function normalizeServiceUrl(raw, defaultPort) {
   if (!s || /[?#]/.test(s)) return null;
   const hadScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(s);
   if (!hadScheme) s = `http://${s}`;
+  else s = s.replace(/^[a-z][a-z0-9+.-]*(?=:\/\/)/i, m => m.toLowerCase());
   s = s.replace(/\/+$/, '');
   if (!hadScheme && defaultPort) {
     const rest = s.slice(s.indexOf('://') + 3);
@@ -137,7 +138,11 @@ function resolveEnvServices(env, log) {
     const host = m && m[2];
     const ok = host && (/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host) ||
       /^\[[0-9A-Fa-f:.]+\]$/.test(host));
-    if (ok) hostBase = { scheme: (m[1] || 'http').toLowerCase(), host };
+    let derivedOk = false;
+    if (ok) {
+      try { derivedOk = Boolean(new NodeURL(`http://${host}:8080`).hostname); } catch (_) {}
+    }
+    if (ok && derivedOk) hostBase = { scheme: (m[1] || 'http').toLowerCase(), host };
     else {
       hostInvalid = true;
       say('ARRVIEW_HOST is invalid (use a bare host name or IP, optionally with http:// or https://, no port, path, query or credentials) and is ignored.');
@@ -226,6 +231,8 @@ function saveConfig(config) {
   const tmp = path.join(CONFIG_DIR, `.config.json.${crypto.randomBytes(8).toString('hex')}.tmp`);
   try {
     fs.writeFileSync(tmp, JSON.stringify(config, null, 2));
+    // Keep the existing file mode (best effort) across the rename.
+    try { fs.chmodSync(tmp, fs.statSync(CONFIG_FILE).mode & 0o7777); } catch (_) {}
     fs.renameSync(tmp, CONFIG_FILE);
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch (_) {}
@@ -316,7 +323,9 @@ function buildConfigToSave(body) {
       return bad(`${svc} apikey is too long or contains control characters`);
     }
     out[svc] = { url, apikey };
-    if (svc === 'sabnzbd' && SAB_PATHS.includes(entry.sabPath)) out[svc].sabPath = entry.sabPath;
+    // Keep sabPath only while the address is unchanged; otherwise re-detect.
+    if (svc === 'sabnzbd' && SAB_PATHS.includes(entry.sabPath) &&
+        normalizeServiceUrl(stored.sabnzbd?.url) === url) out[svc].sabPath = entry.sabPath;
   }
   return { config: out };
 }

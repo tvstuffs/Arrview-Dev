@@ -174,6 +174,11 @@ Rules:
   with a valid `ARRVIEW_<SVC>_URL` override and a key stays env-managed.
 - Service URLs must not contain `?` or `#` (query strings and fragments are
   rejected everywhere, including Settings). A base path such as `/sonarr` is fine.
+- The default port is added only to an override that has neither a scheme nor
+  an explicit port (for example `ARRVIEW_SONARR_URL=<docker-host-address>`).
+- Mount the whole data directory (`./data:/data`), not `config.json` as a
+  single-file bind mount: saves write a temporary file and rename it over
+  `config.json`, which fails on a single-file mount.
 - Environment values are read once at startup. Logs name variables but never
   print keys or secret file contents.
 - With host networking (`network_mode: host`), containers share the host's

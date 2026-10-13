@@ -80,3 +80,12 @@ test('Save preserves a stored sabPath and omits it for env-managed SABnzbd', asy
   await waitFor(() => expect(fetch2.mock.calls.some(([u, o]) => u === '/api/config' && o?.method === 'POST')).toBe(true))
   expect(posted(fetch2, '/api/config').sabnzbd).toEqual({ url: 'http://sab.example.invalid:8080', apikey: MASKED })
 })
+
+test('Save is blocked while an edited address has no key re-entered', async () => {
+  const fetch = stubFetch(() => reply({ version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  fireEvent.change(screen.getByLabelText('Server URL', { selector: '#sonarr-url' }), { target: { value: 'http://new.example.invalid:8989' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect((await screen.findAllByText('Re-enter the API key for the new address.')).length).toBeGreaterThan(0)
+  expect(fetch.mock.calls.some(([, o]) => o?.method === 'POST')).toBe(false)
+})

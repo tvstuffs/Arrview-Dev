@@ -25,7 +25,7 @@ test('host-derived address, identify and header routing (criteria 2, 3)', async 
   const a = await startServer(t, { env: { ARRVIEW_HOST: 'localhost', ARRVIEW_SONARR_API_KEY: KEY } });
   const cfg = await a.getConfig();
   assert.equal(cfg.sonarr.url, 'http://localhost:8989');
-  assert.equal(cfg.sonarr.apikey, '••••tkey'.replace('tkey', KEY.slice(-4)));
+  assert.equal(cfg.sonarr.apikey, '••••' + KEY.slice(-4));
   const identify = await (await fetch(a.base + '/api/arrview/identify')).json();
   assert.deepEqual(identify.services, { sabnzbd: false, sonarr: true, radarr: false, nzbhydra: false });
 
@@ -202,7 +202,6 @@ test('env-managed service with a prior stored entry keeps it untouched (criterio
   } });
   const body = await s.getConfig();
   assert.deepEqual(body.envManaged, allManaged({ sonarr: true, sabnzbd: true }));
-  const before = s.readConfigText();
   const r = await s.json('POST', '/api/config', { ...body, sabnzbd: { ...body.sabnzbd, sabPath: '/api' } });
   assert.equal(r.status, 200);
   assert.deepEqual(s.readConfig().sonarr, sentinel.sonarr);
@@ -211,7 +210,6 @@ test('env-managed service with a prior stored entry keeps it untouched (criterio
   assert.deepEqual(s.readConfig().sonarr, sentinel.sonarr);
   assert.deepEqual(s.readConfig().sabnzbd, sentinel.sabnzbd);
   const afterOk = s.readConfigText();
-  assert.notEqual(before, undefined);
   const r409 = await s.json('POST', '/api/config', { ...body, sonarr: { ...body.sonarr, url: 'http://elsewhere.invalid' } });
   assert.equal(r409.status, 409);
   assert.equal(s.readConfigText(), afterOk);
@@ -247,4 +245,26 @@ test('no ARRVIEW_* variables leaves behaviour unchanged (criterion 18)', async t
   assert.deepEqual((await s.getConfig()).envManaged, allManaged());
   assert.equal((await fetch(s.base + '/api/sonarr/series')).status, 200);
   assert.equal(up.hits.at(-1).key, 'stored-key-12345');
+});
+
+test('malformed ARRVIEW_HOST values are rejected; overrides stay managed', async t => {
+  const up = await startUpstream(); t.after(up.close);
+  for (const host of ['999.999.999.999', '[:::]', 'http://[:::]']) {
+    const s = await startServer(t, { config: stored(up.port), env: {
+      ARRVIEW_HOST: host, ARRVIEW_SONARR_API_KEY: KEY, ARRVIEW_RADARR_API_KEY: KEY,
+      ARRVIEW_RADARR_URL: `http://127.0.0.1:${up.port}/radarr`,
+    } });
+    const cfg = await s.getConfig();
+    assert.deepEqual(cfg.envManaged, allManaged({ radarr: true }), host);
+    assert.equal(cfg.sonarr.url, stored(up.port).sonarr.url);
+    assert.ok(s.logs.some(l => l.startsWith('[config]') && l.includes('ARRVIEW_HOST')));
+  }
+});
+
+test('uppercase schemes are normalised so env-managed round trips do not 409', async t => {
+  const s = await startServer(t, { env: { ARRVIEW_SONARR_URL: 'HTTPS://example.invalid/sonarr', ARRVIEW_SONARR_API_KEY: KEY } });
+  const body = await s.getConfig();
+  assert.equal(body.sonarr.url, 'https://example.invalid/sonarr');
+  assert.equal((await s.json('POST', '/api/config', body)).status, 200);
+  assert.equal((await s.json('POST', '/api/config', { sonarr: { url: 'HTTPS://example.invalid/sonarr/', apikey: KEY } })).status, 200);
 });

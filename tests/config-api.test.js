@@ -212,3 +212,43 @@ test('_sabPathCache survives failed saves and resets after success (criterion 16
   await queue();
   assert.ok(probes() > primed, 'successful save must re-probe');
 });
+
+test('/api matching is case-insensitive for the 415 guard and JSON errors', async t => {
+  const up = await startUpstream(); t.after(up.close);
+  const s = await startServer(t, { config: services(up.port) });
+  const before = s.readConfigText();
+  for (const path of ['/API/config', '/Api/config']) {
+    assert.equal((await s.json('POST', path, '{"sonarr":{}}', { 'Content-Type': 'text/plain' })).status, 415, path);
+    const bad = await s.json('POST', path, '{not json');
+    assert.equal(bad.status, 400, path);
+    assert.deepEqual(await bad.json(), { error: 'Invalid JSON' });
+  }
+  assert.equal((await s.json('POST', '/API/webhooks/sonarr', 'x=1', { 'Content-Type': 'text/plain' })).status, 200);
+  assert.equal(s.readConfigText(), before);
+});
+
+test('sabPath is kept only when the SABnzbd address is unchanged', async t => {
+  const up = await startUpstream(); t.after(up.close);
+  const config = { sabnzbd: { url: `http://127.0.0.1:${up.port}`, apikey: 'sab-fixture-key', sabPath: '/api' } };
+  const s = await startServer(t, { config });
+  const probes = () => up.hits.filter(h => h.query.mode === 'version').length;
+  // Unchanged address (even with a trailing slash): sabPath survives.
+  let body = await s.getConfig();
+  assert.equal((await s.json('POST', '/api/config', { sabnzbd: { ...body.sabnzbd, url: body.sabnzbd.url + '/' } })).status, 200);
+  assert.equal(s.readConfig().sabnzbd.sabPath, '/api');
+  // UI flow: new address, new key, same sabPath posted -> dropped, re-probed.
+  const changed = { url: `http://localhost:${up.port}`, apikey: 'sab-fixture-key', sabPath: '/api' };
+  assert.equal((await s.json('POST', '/api/config', { sabnzbd: changed })).status, 200);
+  assert.equal(s.readConfig().sabnzbd.sabPath, undefined);
+  const before = probes();
+  assert.equal((await fetch(s.base + '/api/sabnzbd/queue')).status, 200);
+  assert.ok(probes() > before);
+});
+
+test('saving keeps the existing config.json file mode', async t => {
+  const up = await startUpstream(); t.after(up.close);
+  const s = await startServer(t, { config: services(up.port) });
+  fs.chmodSync(s.configFile, 0o600);
+  assert.equal((await s.json('POST', '/api/config', await s.getConfig())).status, 200);
+  assert.equal(fs.statSync(s.configFile).mode & 0o777, 0o600);
+});
