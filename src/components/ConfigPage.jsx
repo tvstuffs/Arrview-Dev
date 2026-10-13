@@ -132,6 +132,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
   }))
   const envManaged = initialConfig.envManaged || {}
   const [keyHints, setKeyHints] = useState({})
+  // Set when an address edit cleared a masked key; only cleared once a key is present at Save time.
+  const [keyRequired, setKeyRequired] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [version, setVersion] = useState(null)
@@ -152,7 +154,10 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
       ...prev,
       [service]: { ...prev[service], [field]: value, ...(clearKey ? { apikey: '' } : {}) },
     }))
-    if (clearKey) setKeyHints(prev => ({ ...prev, [service]: true }))
+    if (clearKey) {
+      setKeyHints(prev => ({ ...prev, [service]: true }))
+      setKeyRequired(prev => ({ ...prev, [service]: true }))
+    }
     else if (field === 'apikey') setKeyHints(prev => ({ ...prev, [service]: false }))
   }
 
@@ -177,7 +182,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
       setError('Configure at least one service before saving.')
       return
     }
-    if (SERVICES.some(s => !envManaged[s.id] && keyHints[s.id] && config[s.id].url.trim() && !config[s.id].apikey)) {
+    if (SERVICES.some(s => !envManaged[s.id] && keyRequired[s.id] && config[s.id].url.trim() && !config[s.id].apikey)) {
       setError('Re-enter the API key for the new address.')
       return
     }
