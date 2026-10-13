@@ -146,6 +146,44 @@ The container serves the dashboard on `http://localhost:7777` and stores saved s
 > - If you can't use host networking, the app still works — just choose
 >   **Connect Directly** in setup and enter `http://<host>:7777` manually.
 
+### Configure services from Docker (optional)
+
+Instead of typing service addresses and keys into the Settings page, you can
+supply them as container environment variables. This is useful for repeatable
+deployments. Without any `ARRVIEW_*` variables, behaviour is unchanged.
+
+| Variable | Meaning |
+|---|---|
+| `ARRVIEW_HOST` | One address for all services, for example `localhost` or `<docker-host-address>`. A host name, IPv4 address or bracketed IPv6 address, optionally prefixed with `http://` or `https://`. No port, path, query, fragment or credentials. Each service uses its default port (SABnzbd 8080, Sonarr 8989, Radarr 7878, NZBHydra 5076). |
+| `ARRVIEW_<SVC>_API_KEY` | API key, where `<SVC>` is `SONARR`, `RADARR`, `SABNZBD` or `NZBHYDRA`, for example `<your-sonarr-api-key>`. Surrounding whitespace and newlines are trimmed. |
+| `ARRVIEW_<SVC>_API_KEY_FILE` | Path to a file containing the key (for example `./secrets/sonarr_api_key` mounted into the container). Read once at startup and trimmed. Set this or the plain variable, not both. |
+| `ARRVIEW_<SVC>_URL` | Optional per-service address that replaces `ARRVIEW_HOST` for that service, for example `http://<docker-host-address>:8989/sonarr`. Without a scheme `http://` is added, and without a port the default port is added. |
+
+Rules:
+
+- **A service is "env-managed" only when it has both a key and an address.**
+  `ARRVIEW_HOST` never configures a service that has no env key. Env-managed
+  services are applied on top of `config.json` on every read, are never written
+  to it, and are read-only in Settings. To change them, edit the compose file,
+  `.env` or secret file and recreate the container with `docker compose up -d`.
+  No image rebuild is needed.
+- A half-configured service (a key with no address, an address with no key, or
+  an invalid value) logs a `[config]` warning at startup, ignores all its env
+  values and stays editable in Settings. The server still starts.
+- An invalid `ARRVIEW_HOST` only affects services that rely on it; a service
+  with a valid `ARRVIEW_<SVC>_URL` override and a key stays env-managed.
+- Service URLs must not contain `?` or `#` (query strings and fragments are
+  rejected everywhere, including Settings). A base path such as `/sonarr` is fine.
+- Environment values are read once at startup. Logs name variables but never
+  print keys or secret file contents.
+- With host networking (`network_mode: host`), containers share the host's
+  network: use `localhost` or the host's address, not compose service names.
+
+Settings and `GET /api/config` return API keys masked (`••••` plus the last four
+characters). A masked key sent back is reused only if the address is unchanged;
+if you change a service address you must re-enter its key. Note that ArrView
+still has no login.
+
 ### Build locally
 
 ```bash
@@ -349,7 +387,8 @@ actual installation/offline behavior still depends on browser and origin securit
 
 For the last option, Let's Encrypt (often via DNS validation) can provide a trusted
 certificate without making the app public. **ArrView 1.10 still has no built-in
-login and its configuration API contains service keys.** Keep the front door LAN-
+login. Its configuration API masks service keys, but anyone who can reach it can
+still change settings.** Keep the front door LAN-
 or tailnet-only, or protect it with an access-controlled gateway. Do not port-
 forward this unauthenticated container or enable Tailscale Funnel for it. The
 planned authentication sprint is the gate for public remote-access guidance.

@@ -17,5 +17,20 @@ services:
     environment:
       PORT: 7777
       CONFIG_DIR: /data
+      # Optional: seed services from Docker instead of the Settings page.
+      # A service is locked (read-only in Settings) only when it has BOTH an
+      # API key and an address. Values are applied on every read and are never
+      # written to config.json. Change them here, then recreate the container:
+      #   docker compose up -d      (no image rebuild is needed)
+      # Host networking means use `localhost` or the host's address, not
+      # compose service names.
+      # ARRVIEW_HOST: localhost                  # or <docker-host-address>; no port/path
+      # ARRVIEW_SONARR_API_KEY: <your-sonarr-api-key>
+      # ARRVIEW_RADARR_API_KEY_FILE: /run/secrets/radarr_api_key
+      # ARRVIEW_SABNZBD_API_KEY: <your-sabnzbd-api-key>
+      # ARRVIEW_NZBHYDRA_API_KEY: <your-nzbhydra-api-key>
+      # ARRVIEW_SONARR_URL: http://<docker-host-address>:8989   # per-service override
     volumes:
       - ./data:/data
+      # For *_API_KEY_FILE secrets (keep ./secrets out of git):
+      # - ./secrets/radarr_api_key:/run/secrets/radarr_api_key:ro

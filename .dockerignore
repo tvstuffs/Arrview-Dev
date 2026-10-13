@@ -11,6 +11,8 @@ CLAUDE*.md
 demo
 config.json
 data
+.env
+secrets
 dist
 .github
 .DS_Store

@@ -33,16 +33,18 @@ test('HTTPS worker controls page, caches only shell and never API reads or write
   await expect(page.getByText('1.0 GB', { exact: true })).toBeVisible()
   await expect(page.getByText('512 MB', { exact: true })).toBeVisible()
   const result = await page.evaluate(async () => {
-    const config = await (await fetch('/api/config')).json()
+    const configText = await (await fetch('/api/config')).text()
+    const config = JSON.parse(configText)
     const saved = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })
     await fetch('/api/health')
     const entries = []
     for (const key of await caches.keys()) for (const request of await (await caches.open(key)).keys()) {
       entries.push({ url: request.url, text: request.url.includes('.png') ? '' : await (await caches.match(request)).text() })
     }
-    return { saved: saved.status, entries }
+    return { saved: saved.status, entries, configText }
   })
   expect(result.saved).toBe(200)
+  expect(result.configText).not.toContain('fixture-only-key')
   expect(result.entries.length).toBeGreaterThan(3)
   for (const entry of result.entries) {
     expect(new URL(entry.url).pathname).not.toMatch(/^\/api(?:\/|$)/)

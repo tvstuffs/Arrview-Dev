@@ -3,6 +3,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
+const { URL: NodeURL } = require('url');
 
 const app = express();
 const PORT = process.env.PORT || 7777;
@@ -14,6 +16,25 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const APP_VERSION = '1.10.2';
 
 app.use(express.json());
+// Mutating API calls must declare a JSON body. Without this guard a request
+// with a text/plain body leaves req.body empty and would wipe the config.
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH'].includes(req.method) &&
+      req.path.startsWith('/api/') && !req.path.startsWith('/api/webhooks/') &&
+      !req.is('application/json')) {
+    return res.status(415).json({ error: 'Content-Type must be application/json' });
+  }
+  next();
+});
+// Malformed JSON under /api gets a JSON 400 (never the HTML default page).
+app.use((err, req, res, next) => {
+  if (err && (err.type === 'entity.parse.failed' || err.status === 400) &&
+      req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(400).json({ error: 'Invalid JSON' });
+  }
+  next(err);
+});
 // API responses and mutable shell files must always reach the server.
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -68,20 +89,171 @@ app.get('/api/:service/ping', async (req, res) => {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-function loadConfig() {
+const SERVICE_IDS = ['sabnzbd', 'nzbhydra', 'sonarr', 'radarr'];
+const DEFAULT_PORTS = { sabnzbd: 8080, sonarr: 8989, radarr: 7878, nzbhydra: 5076 };
+const MASK_PREFIX = '••••';
+
+// Shared service URL normaliser. Returns the normalised URL string, or null
+// when invalid. Query strings and fragments are forbidden because proxy routes
+// append paths to the stored base URL by string concatenation.
+function normalizeServiceUrl(raw, defaultPort) {
+  if (typeof raw !== 'string') return null;
+  let s = raw.trim();
+  if (!s || /[?#]/.test(s)) return null;
+  const hadScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(s);
+  if (!hadScheme) s = `http://${s}`;
+  s = s.replace(/\/+$/, '');
+  if (!hadScheme && defaultPort) {
+    const rest = s.slice(s.indexOf('://') + 3);
+    const slash = rest.indexOf('/');
+    const authority = slash === -1 ? rest : rest.slice(0, slash);
+    const tail = slash === -1 ? '' : rest.slice(slash);
+    if (!/:\d+$/.test(authority)) s = `http://${authority}:${defaultPort}${tail}`;
+  }
+  try {
+    const u = new NodeURL(s);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (!u.hostname || u.username || u.password) return null;
+  } catch (_) { return null; }
+  return s;
+}
+
+function mask(key) {
+  const k = String(key || '');
+  return k.length > 8 ? MASK_PREFIX + k.slice(-4) : MASK_PREFIX;
+}
+
+// Docker environment seeding. Resolved once at startup. A service is
+// env-managed only when it has both a resolved key and a resolved address.
+function resolveEnvServices(env, log) {
+  const managed = {};
+  const say = msg => log(`[config] ${msg}`);
+
+  let hostBase = null; // { scheme, host } when ARRVIEW_HOST is valid
+  let hostInvalid = false;
+  const rawHost = env.ARRVIEW_HOST;
+  if (typeof rawHost === 'string' && rawHost.trim()) {
+    const m = rawHost.trim().replace(/\/$/, '').match(/^(?:(https?):\/\/)?(.+)$/i);
+    const host = m && m[2];
+    const ok = host && (/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host) ||
+      /^\[[0-9A-Fa-f:.]+\]$/.test(host));
+    if (ok) hostBase = { scheme: (m[1] || 'http').toLowerCase(), host };
+    else {
+      hostInvalid = true;
+      say('ARRVIEW_HOST is invalid (use a bare host name or IP, optionally with http:// or https://, no port, path, query or credentials) and is ignored.');
+    }
+  }
+
+  let anyKey = false;
+  for (const svc of SERVICE_IDS) {
+    const S = svc.toUpperCase();
+    const keyVar = `ARRVIEW_${S}_API_KEY`;
+    const fileVar = `${keyVar}_FILE`;
+    const urlVar = `ARRVIEW_${S}_URL`;
+    const plainRaw = env[keyVar];
+    const fileRaw = env[fileVar];
+    const plainSet = typeof plainRaw === 'string' && plainRaw.trim() !== '';
+    const fileSet = typeof fileRaw === 'string' && fileRaw.trim() !== '';
+
+    let key = null;
+    let keyError = false;
+    if (plainSet && fileSet) {
+      keyError = true;
+      say(`${keyVar} and ${fileVar} are both set; set only one. ${svc} env config ignored.`);
+    } else if (plainSet) {
+      key = plainRaw.trim();
+    } else if (fileSet) {
+      try { key = String(fs.readFileSync(fileRaw.trim(), 'utf8')).trim(); } catch (_) { key = null; }
+      if (!key) {
+        key = null; keyError = true;
+        say(`${fileVar} is unreadable or empty. ${svc} env config ignored.`);
+      }
+    } else if (typeof plainRaw === 'string') {
+      keyError = true;
+      say(`${keyVar} is empty. ${svc} env config ignored.`);
+    } else if (typeof fileRaw === 'string') {
+      keyError = true;
+      say(`${fileVar} is empty. ${svc} env config ignored.`);
+    }
+    if (key) anyKey = true;
+
+    let address = null;
+    let urlError = false;
+    let hasOverride = false;
+    const rawUrl = env[urlVar];
+    if (typeof rawUrl === 'string' && rawUrl.trim()) {
+      hasOverride = true;
+      address = normalizeServiceUrl(rawUrl, DEFAULT_PORTS[svc]);
+      if (!address) {
+        urlError = true;
+        say(`${urlVar} is invalid (http/https URL without credentials, query or fragment). ${svc} env config ignored.`);
+      }
+    } else if (hostBase) {
+      address = `${hostBase.scheme}://${hostBase.host}:${DEFAULT_PORTS[svc]}`;
+    }
+
+    if (keyError || urlError) continue;
+    if (key && address) managed[svc] = { url: address, apikey: key };
+    else if (key) say(`${svc} has an API key but no valid address (set ${urlVar} or a valid ARRVIEW_HOST). ${svc} env config ignored.`);
+    else if (hasOverride) say(`${urlVar} is set without an API key. ${svc} env config ignored.`);
+  }
+  if (hostBase && !anyKey) say('ARRVIEW_HOST is set but no service has an ARRVIEW_<SVC>_API_KEY; nothing is env-managed.');
+  return managed;
+}
+
+const ENV_SERVICES = resolveEnvServices(process.env, msg => console.log(msg));
+
+// Stored config: config.json only.
+function loadStoredConfig() {
   try {
     if (fs.existsSync(CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
     }
   } catch (_) {}
   return {};
 }
 
-function saveConfig(config) {
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+// Effective config: stored config with env-managed services applied on top.
+function loadConfig() {
+  const config = loadStoredConfig();
+  for (const [svc, v] of Object.entries(ENV_SERVICES)) config[svc] = { url: v.url, apikey: v.apikey };
+  return config;
 }
 
-app.get('/api/config', (req, res) => res.json(loadConfig()));
+// Atomic write of the stored config; throws on failure after cleaning up.
+function saveConfig(config) {
+  const tmp = path.join(CONFIG_DIR, `.config.json.${crypto.randomBytes(8).toString('hex')}.tmp`);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(config, null, 2));
+    fs.renameSync(tmp, CONFIG_FILE);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    throw e;
+  }
+}
+
+// A masked placeholder is only honoured when the address is unchanged.
+function resolveMaskedKey(service, submittedKey, normalizedUrl) {
+  const current = loadConfig()[service];
+  if (!current || typeof current.apikey !== 'string' || !current.apikey) return null;
+  if (submittedKey !== mask(current.apikey)) return null;
+  const currentUrl = normalizeServiceUrl(current.url);
+  if (!currentUrl || currentUrl !== normalizedUrl) return null;
+  return current.apikey;
+}
+
+const REENTER_KEY_ERROR = 'API key must be re-entered when the address changes';
+
+app.get('/api/config', (req, res) => {
+  const out = {};
+  for (const [k, v] of Object.entries(loadConfig())) {
+    out[k] = v && typeof v === 'object' && typeof v.apikey === 'string'
+      ? { ...v, apikey: mask(v.apikey) } : v;
+  }
+  out.envManaged = Object.fromEntries(SERVICE_IDS.map(svc => [svc, Boolean(ENV_SERVICES[svc])]));
+  res.json(out);
+});
 
 // Identity endpoint used by the ArrView iOS app to confirm a discovered or
 // manually entered host is an ArrView server, and which services it proxies.
@@ -99,9 +271,65 @@ app.get('/api/arrview/identify', (req, res) => {
   });
 });
 
+const isPlainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// Validate a POST /api/config body. Returns { config } or { status, error }.
+function buildConfigToSave(body) {
+  const bad = error => ({ status: 400, error });
+  if (!isPlainObject(body)) return bad('Config must be a JSON object');
+  const stored = loadStoredConfig();
+  const out = {};
+  for (const key of Object.keys(body)) {
+    if (key !== 'envManaged' && !SERVICE_IDS.includes(key)) return bad(`Unknown config key: ${key}`);
+  }
+  for (const svc of SERVICE_IDS) {
+    if (!Object.prototype.hasOwnProperty.call(body, svc)) {
+      if (ENV_SERVICES[svc] && stored[svc] !== undefined) out[svc] = stored[svc];
+      continue;
+    }
+    const entry = body[svc];
+    if (!isPlainObject(entry)) return bad(`${svc} must be an object`);
+    const allowed = svc === 'sabnzbd' ? ['url', 'apikey', 'sabPath'] : ['url', 'apikey'];
+    for (const k of Object.keys(entry)) {
+      if (!allowed.includes(k)) return bad(`Unknown ${svc} key: ${k}`);
+    }
+    const env = ENV_SERVICES[svc];
+    if (env) {
+      const same = typeof entry.url === 'string' && normalizeServiceUrl(entry.url) === env.url &&
+        typeof entry.apikey === 'string' && (entry.apikey === env.apikey || entry.apikey === mask(env.apikey));
+      if (!same) {
+        const label = { sabnzbd: 'SABnzbd', nzbhydra: 'NZBHydra', sonarr: 'Sonarr', radarr: 'Radarr' }[svc];
+        return { status: 409, error: `${label} is set by the Docker configuration and can't be changed here` };
+      }
+      if (stored[svc] !== undefined) out[svc] = stored[svc];
+      continue;
+    }
+    if (typeof entry.url !== 'string' || !entry.url.trim()) return bad(`${svc} url must be a non-empty string`);
+    const url = normalizeServiceUrl(entry.url);
+    if (!url) return bad(`${svc} url must be an http(s) URL without credentials, query or fragment`);
+    if (typeof entry.apikey !== 'string' || !entry.apikey) return bad(`${svc} apikey must be a non-empty string`);
+    let apikey = entry.apikey;
+    if (apikey.startsWith(MASK_PREFIX)) {
+      apikey = resolveMaskedKey(svc, apikey, url);
+      if (!apikey) return bad(REENTER_KEY_ERROR);
+    } else if (apikey.length > 256 || /[\u0000-\u001f\u007f]/.test(apikey)) {
+      return bad(`${svc} apikey is too long or contains control characters`);
+    }
+    out[svc] = { url, apikey };
+    if (svc === 'sabnzbd' && SAB_PATHS.includes(entry.sabPath)) out[svc].sabPath = entry.sabPath;
+  }
+  return { config: out };
+}
+
 app.post('/api/config', (req, res) => {
-  _sabPathCache = null; // reset so new URL is re-probed
-  saveConfig(req.body);
+  const result = buildConfigToSave(req.body);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  try {
+    saveConfig(result.config);
+  } catch (_) {
+    return res.status(500).json({ error: 'Could not save settings' });
+  }
+  _sabPathCache = null; // reset so new URL is re-probed (only after a successful save)
   res.json({ success: true });
 });
 
@@ -128,8 +356,17 @@ async function detectSabPath(baseUrl, apikey) {
 
 app.post('/api/test/:service', async (req, res) => {
   const { service } = req.params;
-  const { url, apikey } = req.body;
-  if (!url || !apikey) return res.status(400).json({ error: 'URL and API key are required' });
+  const body = isPlainObject(req.body) ? req.body : {};
+  if (!body.url || !body.apikey || typeof body.url !== 'string' || typeof body.apikey !== 'string') {
+    return res.status(400).json({ error: 'URL and API key are required' });
+  }
+  const url = normalizeServiceUrl(body.url);
+  if (!url) return res.status(400).json({ error: 'Invalid URL: use an http(s) address without credentials, query or fragment' });
+  let apikey = body.apikey;
+  if (apikey.startsWith(MASK_PREFIX)) {
+    apikey = SERVICE_IDS.includes(service) ? resolveMaskedKey(service, apikey, url) : null;
+    if (!apikey) return res.status(400).json({ error: REENTER_KEY_ERROR });
+  }
 
   try {
     if (service === 'sabnzbd') {
@@ -184,15 +421,23 @@ let _sabPathCache = null;
 
 async function getSabPath(baseUrl, apikey) {
   if (_sabPathCache) return _sabPathCache;
-  const config = loadConfig();
-  if (config.sabnzbd?.sabPath) { _sabPathCache = config.sabnzbd.sabPath; return _sabPathCache; }
+  // Env-managed SABnzbd never reads or persists sabPath: memory cache only.
+  const envManaged = Boolean(ENV_SERVICES.sabnzbd);
+  if (!envManaged) {
+    const stored = loadStoredConfig();
+    if (stored.sabnzbd?.sabPath) { _sabPathCache = stored.sabnzbd.sabPath; return _sabPathCache; }
+  }
   const detected = await detectSabPath(baseUrl, apikey);
   if (detected) {
     _sabPathCache = detected;
-    // Persist it so future server restarts don't re-probe
-    const fresh = loadConfig();
-    fresh.sabnzbd = { ...fresh.sabnzbd, sabPath: detected };
-    saveConfig(fresh);
+    if (!envManaged) {
+      // Persist it (stored config only) so future restarts don't re-probe
+      try {
+        const fresh = loadStoredConfig();
+        fresh.sabnzbd = { ...fresh.sabnzbd, sabPath: detected };
+        saveConfig(fresh);
+      } catch (_) {}
+    }
   }
   return detected;
 }

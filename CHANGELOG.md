@@ -1,5 +1,20 @@
 # ArrView server development changelog
 
+## Unreleased — Docker environment seeding, masked keys, safer saves
+
+- Services can be configured from container environment variables
+  (`ARRVIEW_HOST`, `ARRVIEW_<SVC>_API_KEY` / `_API_KEY_FILE`, `ARRVIEW_<SVC>_URL`).
+  A service with both a key and an address is env-managed: applied on every read,
+  never written to `config.json`, read-only in Settings.
+- `GET /api/config` masks API keys and adds a read-only `envManaged` object. A
+  masked key sent back is reused only when the service address is unchanged
+  (`POST /api/config` and `POST /api/test/:service`).
+- Config-wipe fix: non-JSON POST/PUT/PATCH under `/api` (webhooks excepted) get
+  415, malformed JSON gets 400, `POST /api/config` is validated (service URLs may
+  not contain a query or fragment) and written atomically.
+- Settings preserves a stored SABnzbd path and shows server error messages.
+- `.gitignore` and `.dockerignore` gain `data/`, `.env` and `secrets/`.
+
 ## 1.10.1 — 2026-09-19 — Web parity W2: mobile layout and lifecycle
 
 Completes W2's nine areas in the container development repo. Version 1.10.1 leaves

@@ -33,7 +33,9 @@ const SERVICES = [
   },
 ]
 
-function ServiceCard({ service, values, onChange, onTest }) {
+const MASK_PREFIX = '\u2022\u2022\u2022\u2022'
+
+function ServiceCard({ service, values, onChange, onTest, envManaged = false, keyHint = false }) {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
 
@@ -46,6 +48,8 @@ function ServiceCard({ service, values, onChange, onTest }) {
   }
 
   const hasCredentials = values.url && values.apikey
+  const noteId = `${service.id}-env-note`
+  const hintId = `${service.id}-key-hint`
 
   return (
     <div className="service-card card">
@@ -64,6 +68,14 @@ function ServiceCard({ service, values, onChange, onTest }) {
         )}
       </div>
 
+      {envManaged && (
+        <p id={noteId} className="text-sm text-muted">
+          Set in the Docker configuration (ARRVIEW_{service.id.toUpperCase()}_* environment variables).
+          To change it, edit your compose file, .env or secret file and recreate the container
+          with <code>docker compose up -d</code>. No image rebuild is needed.
+        </p>
+      )}
+
       <div className="service-fields">
         <div className="field-group">
           <label htmlFor={`${service.id}-url`}>Server URL</label>
@@ -71,6 +83,8 @@ function ServiceCard({ service, values, onChange, onTest }) {
             id={`${service.id}-url`} type="url"
             placeholder={service.placeholder}
             value={values.url || ''}
+            readOnly={envManaged}
+            aria-describedby={envManaged ? noteId : undefined}
             onChange={e => onChange(service.id, 'url', e.target.value)}
           />
         </div>
@@ -81,6 +95,8 @@ function ServiceCard({ service, values, onChange, onTest }) {
               id={`${service.id}-key`} type="password"
               placeholder="Enter API key…"
               value={values.apikey || ''}
+              readOnly={envManaged}
+              aria-describedby={envManaged ? noteId : (keyHint ? hintId : undefined)}
               onChange={e => onChange(service.id, 'apikey', e.target.value)}
             />
             <button
@@ -93,6 +109,10 @@ function ServiceCard({ service, values, onChange, onTest }) {
           </div>
         </div>
       </div>
+
+      {keyHint && !envManaged && (
+        <div id={hintId} className="text-sm text-muted">Re-enter the API key for the new address.</div>
+      )}
 
       {testResult && !testResult.success && (
         <div className="error-banner mt-2" style={{fontSize: 12}}>
@@ -110,6 +130,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
     sonarr:   { url: '', apikey: '', ...initialConfig.sonarr   },
     radarr:   { url: '', apikey: '', ...initialConfig.radarr   },
   }))
+  const envManaged = initialConfig.envManaged || {}
+  const [keyHints, setKeyHints] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [version, setVersion] = useState(null)
@@ -124,10 +146,14 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
   }, [])
 
   function handleChange(service, field, value) {
+    if (envManaged[service]) return
+    const clearKey = field === 'url' && String(config[service].apikey || '').startsWith(MASK_PREFIX)
     setConfig(prev => ({
       ...prev,
-      [service]: { ...prev[service], [field]: value },
+      [service]: { ...prev[service], [field]: value, ...(clearKey ? { apikey: '' } : {}) },
     }))
+    if (clearKey) setKeyHints(prev => ({ ...prev, [service]: true }))
+    else if (field === 'apikey') setKeyHints(prev => ({ ...prev, [service]: false }))
   }
 
   async function handleTest(serviceId, url, apikey) {
@@ -160,6 +186,9 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
           let url = config[s.id].url.replace(/\/$/, '')
           if (!url.match(/^https?:\/\//)) url = `http://${url}`
           cleanConfig[s.id] = { url, apikey: config[s.id].apikey }
+          if (s.id === 'sabnzbd' && config.sabnzbd.sabPath && !envManaged.sabnzbd) {
+            cleanConfig.sabnzbd.sabPath = config.sabnzbd.sabPath
+          }
         }
       })
       const r = await fetch('/api/config', {
@@ -167,8 +196,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cleanConfig),
       })
-      const data = await r.json()
-      if (!r.ok || !data.success) throw new Error('Save failed')
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok || !data.success) throw new Error(data.error || 'Save failed')
       const saved = await fetch('/api/config', { cache: 'no-store' })
       if (!saved.ok) throw new Error('Settings saved, but could not reload them. Please retry.')
       await onSave(await saved.json())
@@ -203,6 +232,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
               values={config[service.id]}
               onChange={handleChange}
               onTest={handleTest}
+              envManaged={Boolean(envManaged[service.id])}
+              keyHint={Boolean(keyHints[service.id])}
             />
           ))}
         </div>
