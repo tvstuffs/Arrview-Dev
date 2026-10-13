@@ -252,3 +252,27 @@ test('saving keeps the existing config.json file mode', async t => {
   assert.equal((await s.json('POST', '/api/config', await s.getConfig())).status, 200);
   assert.equal(fs.statSync(s.configFile).mode & 0o777, 0o600);
 });
+
+test('temp file is created owner-only and a chmod failure never widens the mode', async t => {
+  const up = await startUpstream(); t.after(up.close);
+  const created = [];
+  const flag = { chmodFails: false };
+  const wrap = real => ({
+    ...real,
+    writeFileSync: (file, data, opts) => {
+      if (String(file).endsWith('.tmp')) created.push(opts);
+      return real.writeFileSync(file, data, opts);
+    },
+    chmodSync: (...args) => { if (flag.chmodFails) throw new Error('chmod failed'); return real.chmodSync(...args); },
+  });
+  const s = await startServer(t, { config: services(up.port), fsOverrides: wrap });
+  fs.chmodSync(s.configFile, 0o640);
+  assert.equal((await s.json('POST', '/api/config', await s.getConfig())).status, 200);
+  assert.equal(created.at(-1).mode, 0o600);
+  assert.equal(created.at(-1).flag, 'wx');
+  assert.equal(fs.statSync(s.configFile).mode & 0o777, 0o640);
+  flag.chmodFails = true;
+  assert.equal((await s.json('POST', '/api/config', await s.getConfig())).status, 200);
+  assert.equal(fs.statSync(s.configFile).mode & 0o777, 0o600);
+  assert.deepEqual(s.tempFiles(), []);
+});

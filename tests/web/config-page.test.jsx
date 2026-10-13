@@ -89,3 +89,14 @@ test('Save is blocked while an edited address has no key re-entered', async () =
   expect((await screen.findAllByText('Re-enter the API key for the new address.')).length).toBeGreaterThan(0)
   expect(fetch.mock.calls.some(([, o]) => o?.method === 'POST')).toBe(false)
 })
+
+test('emptying a URL still removes that service on Save', async () => {
+  const fetch = stubFetch(url => url === '/api/config' ? reply({ success: true }) : reply({ version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  fireEvent.change(screen.getByLabelText('Server URL', { selector: '#sonarr-url' }), { target: { value: '' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(fetch.mock.calls.some(([u, o]) => u === '/api/config' && o?.method === 'POST')).toBe(true))
+  const body = posted(fetch, '/api/config')
+  expect(body.sonarr).toBeUndefined()
+  expect(body.sabnzbd).toBeDefined()
+})

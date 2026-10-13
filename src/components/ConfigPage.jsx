@@ -177,7 +177,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
       setError('Configure at least one service before saving.')
       return
     }
-    if (SERVICES.some(s => !envManaged[s.id] && keyHints[s.id] && !config[s.id].apikey)) {
+    if (SERVICES.some(s => !envManaged[s.id] && keyHints[s.id] && config[s.id].url.trim() && !config[s.id].apikey)) {
       setError('Re-enter the API key for the new address.')
       return
     }

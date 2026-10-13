@@ -230,8 +230,10 @@ function loadConfig() {
 function saveConfig(config) {
   const tmp = path.join(CONFIG_DIR, `.config.json.${crypto.randomBytes(8).toString('hex')}.tmp`);
   try {
-    fs.writeFileSync(tmp, JSON.stringify(config, null, 2));
-    // Keep the existing file mode (best effort) across the rename.
+    // Created owner-only so keys are never readable while the temp file exists.
+    fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600, flag: 'wx' });
+    // Keep the existing file mode across the rename. If that fails the temp
+    // file stays 0600, which is never broader than the original.
     try { fs.chmodSync(tmp, fs.statSync(CONFIG_FILE).mode & 0o7777); } catch (_) {}
     fs.renameSync(tmp, CONFIG_FILE);
   } catch (e) {

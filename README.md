@@ -157,7 +157,7 @@ deployments. Without any `ARRVIEW_*` variables, behaviour is unchanged.
 | `ARRVIEW_HOST` | One address for all services, for example `localhost` or `<docker-host-address>`. A host name, IPv4 address or bracketed IPv6 address, optionally prefixed with `http://` or `https://`. No port, path, query, fragment or credentials. Each service uses its default port (SABnzbd 8080, Sonarr 8989, Radarr 7878, NZBHydra 5076). |
 | `ARRVIEW_<SVC>_API_KEY` | API key, where `<SVC>` is `SONARR`, `RADARR`, `SABNZBD` or `NZBHYDRA`, for example `<your-sonarr-api-key>`. Surrounding whitespace and newlines are trimmed. |
 | `ARRVIEW_<SVC>_API_KEY_FILE` | Path to a file containing the key (for example `./secrets/sonarr_api_key` mounted into the container). Read once at startup and trimmed. Set this or the plain variable, not both. |
-| `ARRVIEW_<SVC>_URL` | Optional per-service address that replaces `ARRVIEW_HOST` for that service, for example `http://<docker-host-address>:8989/sonarr`. Without a scheme `http://` is added, and without a port the default port is added. |
+| `ARRVIEW_<SVC>_URL` | Optional per-service address that replaces `ARRVIEW_HOST` for that service, for example `http://<docker-host-address>:8989/sonarr`. Without a scheme `http://` is added. The default port is added only when the override has neither a scheme nor an explicit port. |
 
 Rules:
 
