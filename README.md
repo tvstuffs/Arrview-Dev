@@ -150,13 +150,15 @@ The container serves the dashboard on `http://localhost:7777` and stores saved s
 
 Instead of typing service addresses and keys into the Settings page, you can
 supply them as container environment variables. This is useful for repeatable
-deployments. Without any `ARRVIEW_*` variables, behaviour is unchanged.
+deployments. Without any `ARRVIEW_*` variables you still configure services in
+Settings as before, but the masked keys, request validation, key rule and atomic
+saves described below apply either way.
 
 | Variable | Meaning |
 |---|---|
-| `ARRVIEW_HOST` | One address for all services, for example `localhost` or `<docker-host-address>`. A host name, IPv4 address or bracketed IPv6 address, optionally prefixed with `http://` or `https://`. No port, path, query, fragment or credentials. Each service uses its default port (SABnzbd 8080, Sonarr 8989, Radarr 7878, NZBHydra 5076). |
+| `ARRVIEW_HOST` | One address for all services, for example `localhost` or `<docker-host-address>`. A host name (letters, digits, dots and hyphens; no underscores), IPv4 address or bracketed IPv6 address, optionally prefixed with `http://` or `https://`. No port, path, query, fragment or credentials. Each service uses its default port (SABnzbd 8080, Sonarr 8989, Radarr 7878, NZBHydra 5076). |
 | `ARRVIEW_<SVC>_API_KEY` | API key, where `<SVC>` is `SONARR`, `RADARR`, `SABNZBD` or `NZBHYDRA`, for example `<your-sonarr-api-key>`. Surrounding whitespace and newlines are trimmed. |
-| `ARRVIEW_<SVC>_API_KEY_FILE` | Path to a file containing the key (for example `./secrets/sonarr_api_key` mounted into the container). Read once at startup and trimmed. Set this or the plain variable, not both. |
+| `ARRVIEW_<SVC>_API_KEY_FILE` | Path **inside the container** to a file containing the key, for example `/run/secrets/sonarr_api_key`, bind-mounted from `./secrets/sonarr_api_key` on the host (a relative path resolves from the container's `/app` directory). Read once at startup and trimmed. Set this or the plain variable, not both. |
 | `ARRVIEW_<SVC>_URL` | Optional per-service address that replaces `ARRVIEW_HOST` for that service, for example `http://<docker-host-address>:8989/sonarr`. Without a scheme `http://` is added. The default port is added only when the override has neither a scheme nor an explicit port. |
 
 Rules:
@@ -164,9 +166,10 @@ Rules:
 - **A service is "env-managed" only when it has both a key and an address.**
   `ARRVIEW_HOST` never configures a service that has no env key. Env-managed
   services are applied on top of `config.json` on every read, are never written
-  to it, and are read-only in Settings. To change them, edit the compose file,
-  `.env` or secret file and recreate the container with `docker compose up -d`.
-  No image rebuild is needed.
+  to it, and are read-only in Settings. To change them, edit the compose file or
+  `.env` and recreate the container with `docker compose up -d`; after changing
+  the contents of a secret file, restart it (`docker compose restart arrview`),
+  because `up -d` may not notice a changed file. No image rebuild is needed.
 - A half-configured service (a key with no address, an address with no key, or
   an invalid value) logs a `[config]` warning at startup, ignores all its env
   values and stays editable in Settings. The server still starts.
@@ -179,14 +182,18 @@ Rules:
 - Mount the whole data directory (`./data:/data`), not `config.json` as a
   single-file bind mount: saves write a temporary file and rename it over
   `config.json`, which fails on a single-file mount.
-- Atomic saves have three accepted effects: the first `config.json` that
-  ArrView creates is mode `0600` and owned by the user running the server
-  (root in the container); a single-file bind mount of `config.json` fails, so
-  mount the directory; and a symlinked `config.json` is replaced by a regular
-  file.
+- Atomic saves have these effects: the first `config.json` that ArrView creates
+  is mode `0600` and owned by the user running the server (root in the
+  container); an existing `config.json` keeps its mode but is owned by that user
+  after the first save; a single-file bind mount of `config.json` fails, so
+  mount the directory; a symlinked `config.json` is replaced by a regular file;
+  and the data directory must be writable (on a read-only mount every save
+  fails with a 500 "Could not save settings").
 - API keys (typed in Settings or set in the environment) are trimmed and must
-  contain at least one letter or number. A key such as `----` or only spaces is
-  rejected: Settings refuses to save it, the server answers 400, and an
+  contain at least one ASCII letter or number (`A`–`Z`, `a`–`z`, `0`–`9`). Typed
+  keys are also limited to 256 characters with no control characters. A key such
+  as `----` or only spaces is rejected: Settings refuses to save it, the server
+  answers 400, and an
   environment key like that is logged by variable name and ignored.
 - Environment values are read once at startup. Logs name variables but never
   print keys or secret file contents.
@@ -194,9 +201,24 @@ Rules:
   network: use `localhost` or the host's address, not compose service names.
 
 Settings and `GET /api/config` return API keys masked (`••••` plus the last four
-characters). A masked key sent back is reused only if the address is unchanged;
-if you change a service address you must re-enter its key. Note that ArrView
-still has no login.
+characters; keys of eight characters or fewer show only `••••`). A masked key sent
+back is reused only if the address is unchanged; if you change a service address
+you must re-enter its key. Note that ArrView still has no login.
+
+Behaviour for scripts and other clients:
+
+- `POST`, `PUT` and `PATCH` requests to `/api` (other than `/api/webhooks/*`) must
+  send `Content-Type: application/json` with a body, otherwise the server answers
+  415; malformed JSON gets 400 `{"error":"Invalid JSON"}`. For example, `curl -d`
+  needs `-H 'Content-Type: application/json'`.
+- `POST /api/config` validates its body (unknown keys, invalid URLs and invalid
+  keys get 400) and answers 409 if it tries to change an env-managed service. A
+  Settings-managed service left out of the body is removed, so send the whole
+  configuration.
+- Plain `ARRVIEW_<SVC>_API_KEY` values are visible in `docker inspect` and in any
+  compose file you share or commit. Prefer `_FILE` secrets on shared hosts, and
+  keep `.env` and `secrets/` out of git (both are in `.gitignore` and
+  `.dockerignore`).
 
 ### Build locally
 
@@ -269,6 +291,10 @@ workflows have been pushed and successfully run.
 Dev tag pushes and release feature-branch manual runs do not publish. Forks are
 blocked from publishing by the job condition. Both repositories use the same
 repository-aware workflow so promoting it cannot swap channel responsibilities.
+(Update 2026-10-12: these channels are live. Dev's workflow now also runs
+`test.yml` first and publishes only if it passes, so the two files differ until
+the test gate is promoted together with `test.yml`, `tests/`,
+`playwright.config.cjs` and the dev dependencies.)
 Commit tags identify source revisions; pin an image digest if you need immutable
 image bytes, since rebuilding the same commit can pick up updated base layers.
 

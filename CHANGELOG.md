@@ -16,7 +16,67 @@
   Settings, `POST /api/config`, `POST /api/test/:service` and environment keys.
   A spaces-only key is blocked in Settings rather than treated as removal.
 - Settings preserves a stored SABnzbd path and shows server error messages.
-- `.gitignore` and `.dockerignore` gain `data/`, `.env` and `secrets/`.
+- `.gitignore` gains `data/`, `.env` and `secrets/`; `.dockerignore` gains `.env` and
+  `secrets` (it already excluded `data`).
+- `POST /api/config` answers 409 when it tries to change an env-managed service. A
+  SABnzbd path is kept only while the SABnzbd address is unchanged (otherwise it is
+  detected again), and a stored service URL containing `?` or `#` now blocks Settings
+  saves until it is fixed. `POST /api/test/:service` normalises and validates the URL
+  and key the same way.
+- Saves are atomic (temporary file, then rename): a new `config.json` is mode `0600`;
+  an existing one keeps its mode but is owned by the server user after the first save;
+  a single-file bind mount of `config.json` makes saves fail (mount the data
+  directory); a symlinked `config.json` is replaced by a regular file; a read-only data
+  directory makes every save fail with a 500.
+- The letter-or-number key rule means ASCII (`A`–`Z`, `a`–`z`, `0`–`9`); typed keys are
+  limited to 256 characters with no control characters. Stored keys are not migrated.
+
+### Test plan (what a person must do to verify; placeholders only, back up `config.json` first)
+
+Verified by CI on a clean checkout of commit `439774f` (GitHub Actions, 2026-10-12):
+`npm ci`; `npm test` (node 65/65, vitest 41 tests in 6 files); Playwright e2e 34/34;
+and the multi-arch (linux/amd64 + linux/arm64) image build and publish as `dev`.
+
+1. **Settings save guard** (browser, Settings-managed install with two services): edit a
+   service address and confirm its key clears and Save is blocked, with no request
+   sent, until a key is typed; type then erase the key and confirm Save stays blocked
+   and nothing is deleted; spaces-only and `----` keys are refused with "API key must
+   contain at least one letter or number."; a completely empty key removes the
+   service; a padded key is stored trimmed.
+2. **SABnzbd path**: change the SABnzbd address and key, save, open Downloads and
+   confirm the queue loads and the path is detected again; an unchanged save keeps the
+   stored path.
+3. **Linux Docker with `network_mode: host`**: set `ARRVIEW_HOST`, one `_FILE` secret
+   key and one per-service address override, then `docker compose up -d`. Logs name
+   variables but never values; both services load, show read-only with a masked key
+   and a note; `GET /api/config` shows `envManaged`; a `POST /api/config` that
+   changes an env-managed service returns 409; the env address and key never appear
+   in `config.json`. Each bad configuration (address with `?`, plain and `_FILE` key
+   together, empty key, `ARRVIEW_HOST` with a port) logs one `[config]` line and
+   leaves the service editable.
+4. **Upgrade**: copy a populated production `config.json` to a test volume, start the
+   image, save with no changes, and confirm keys and the stored SABnzbd path are
+   unchanged; note the file's owner and mode afterwards. Also try a first install (new
+   file `0600`, root-owned), a single-file bind mount (saves fail with 500; the
+   directory mount works) and a symlinked `config.json`.
+5. **Shipped iOS 1.0 and tvOS**, in **ArrView Server (proxy)** and **Direct** mode,
+   against an env-managed and a Settings-managed server: services are detected, and
+   queue, history, search, add and monitor work with no 415 or 400; the apps accept
+   the masked keys from `GET /api/config`. Direct mode should be unaffected.
+6. **curl hardening** (throwaway data directory): `POST /api/config` with `text/plain`
+   and with no content type (415, file unchanged); malformed JSON (400);
+   `POST /api/webhooks/sonarr` with `text/plain` (200); `POST /API/config` in capitals
+   (415); a masked key with a changed address on `POST /api/config` and
+   `POST /api/test/sonarr` (400, nothing sent upstream); a padded real key against a
+   live Sonarr (the trimmed key reaches it).
+
+Not verified: anything on a real Linux Docker host, against live Sonarr, Radarr,
+SABnzbd or NZBHydra, with a populated production `config.json`, with the shipped apps
+in either mode, or on a device; the Settings page was exercised only by component
+tests, not by eye. Stored keys with surrounding spaces or no letter or number are
+intentionally not migrated and were not tried against a real config; a key of only
+non-ASCII letters is refused by design; a key typed as a space plus the bullet mask is
+stored literally (the optional guard is not built).
 
 ## 1.10.1 — 2026-09-19 — Web parity W2: mobile layout and lifecycle
 
@@ -340,6 +400,11 @@ and builds both linux/amd64 and linux/arm64. Release v* tags publish versioned
 images without moving latest. Compose accepts ARRVIEW_TAG (default latest).
 The identical workflow is safe to promote between Dev and release repositories.
 
+> **Superseded 2026-10-12:** no longer identical. Dev's `publish-ghcr.yml` now runs
+> `test.yml` first (`build-and-push` has `needs: test`, commit `9638014`), so promote
+> the workflow only together with `test.yml`, `tests/`, `playwright.config.cjs` and the
+> dev dependencies; the release repository does not have them yet.
+
 Human test plan: follow README's "Docker channels and ARM64" verification plan:
 verify channel digest isolation, both manifest architectures, startup/service
 connections and config persistence on both host architectures, physical-device
@@ -349,6 +414,10 @@ check is required for this infrastructure change alone.
 
 Verification results are recorded below after local checks. GHCR publication,
 ARM64/AMD64 container builds and live runtime/device checks are not yet verified.
+
+> **Update 2026-10-12:** the multi-architecture image builds and publishes (re-checked
+> today: the `dev` tag carries linux/amd64 and linux/arm64). Live runtime and device
+> checks of this infrastructure change remain unrecorded.
 
 Local verification: Actionlint 1.7.12 passed both workflows; 10 evaluated
 repository/ref/event cases passed the channel isolation checks. Both Compose
