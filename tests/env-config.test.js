@@ -268,3 +268,19 @@ test('uppercase schemes are normalised so env-managed round trips do not 409', a
   assert.equal((await s.json('POST', '/api/config', body)).status, 200);
   assert.equal((await s.json('POST', '/api/config', { sonarr: { url: 'HTTPS://example.invalid/sonarr/', apikey: KEY } })).status, 200);
 });
+
+test('env key needs an alphanumeric character (criterion 6c)', async t => {
+  const up = await startUpstream(); t.after(up.close);
+  for (const env of [{ ARRVIEW_SONARR_API_KEY: '----' }, { ARRVIEW_SONARR_API_KEY_FILE: secretFile(t, '  ...  \n') }]) {
+    const s = await startServer(t, { config: stored(up.port), env: { ARRVIEW_HOST: 'localhost', ...env } });
+    const cfg = await s.getConfig();
+    assert.equal(cfg.envManaged.sonarr, false);
+    assert.equal(cfg.sonarr.url, stored(up.port).sonarr.url);
+    const line = s.logs.find(l => l.startsWith('[config]') && l.includes('ARRVIEW_SONARR_API_KEY'));
+    assert.ok(line);
+    assert.ok(!line.includes('----') && !line.includes('...'));
+  }
+  const ok = await startServer(t, { env: { ARRVIEW_SONARR_URL: `http://127.0.0.1:${up.port}`, ARRVIEW_SONARR_API_KEY: '  a-b  ' } });
+  assert.equal((await fetch(ok.base + '/api/sonarr/series')).status, 200);
+  assert.equal(up.hits.at(-1).key, 'a-b');
+});

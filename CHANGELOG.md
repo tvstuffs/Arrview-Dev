@@ -12,6 +12,9 @@
 - Config-wipe fix: non-JSON POST/PUT/PATCH under `/api` (webhooks excepted) get
   415, malformed JSON gets 400, `POST /api/config` is validated (service URLs may
   not contain a query or fragment) and written atomically.
+- API keys are trimmed and must contain at least one letter or number, in
+  Settings, `POST /api/config`, `POST /api/test/:service` and environment keys.
+  A spaces-only key is blocked in Settings rather than treated as removal.
 - Settings preserves a stored SABnzbd path and shows server error messages.
 - `.gitignore` and `.dockerignore` gain `data/`, `.env` and `secrets/`.
 

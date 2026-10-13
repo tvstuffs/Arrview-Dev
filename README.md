@@ -179,6 +179,15 @@ Rules:
 - Mount the whole data directory (`./data:/data`), not `config.json` as a
   single-file bind mount: saves write a temporary file and rename it over
   `config.json`, which fails on a single-file mount.
+- Atomic saves have three accepted effects: the first `config.json` that
+  ArrView creates is mode `0600` and owned by the user running the server
+  (root in the container); a single-file bind mount of `config.json` fails, so
+  mount the directory; and a symlinked `config.json` is replaced by a regular
+  file.
+- API keys (typed in Settings or set in the environment) are trimmed and must
+  contain at least one letter or number. A key such as `----` or only spaces is
+  rejected: Settings refuses to save it, the server answers 400, and an
+  environment key like that is logged by variable name and ignored.
 - Environment values are read once at startup. Logs name variables but never
   print keys or secret file contents.
 - With host networking (`network_mode: host`), containers share the host's

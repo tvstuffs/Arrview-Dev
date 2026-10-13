@@ -119,3 +119,74 @@ test('Save stays blocked after typing then erasing the key, and works once a rea
   await waitFor(() => expect(configPosts()).toHaveLength(1))
   expect(posted(fetch, '/api/config').sonarr).toEqual({ url: 'http://new.example.invalid:8989', apikey: 'realkey' })
 })
+
+const ALNUM_ERROR = 'API key must contain at least one letter or number.'
+const configPosts = fetch => fetch.mock.calls.filter(([u, o]) => u === '/api/config' && o?.method === 'POST')
+const radarrStored = () => baseConfig({ radarr: { url: 'http://radarr.example.invalid:7878', apikey: MASKED } })
+
+test('19d: URL plus spaces-only or punctuation-only key blocks Save and removes nothing', async () => {
+  const fetch = stubFetch(() => reply({ version: '1' }))
+  render(<ConfigPage initialConfig={radarrStored()} onSave={() => {}} />)
+  fireEvent.change(screen.getByLabelText('Server URL', { selector: '#nzbhydra-url' }), { target: { value: 'http://hydra.example.invalid:5076' } })
+  const key = screen.getByLabelText('API Key', { selector: '#nzbhydra-key' })
+  for (const value of ['     ', '----']) {
+    fireEvent.change(key, { target: { value } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText(ALNUM_ERROR)).toBeInTheDocument()
+    expect(configPosts(fetch)).toHaveLength(0)
+    expect(key).toHaveValue(value)
+  }
+})
+
+test('19d: spaces-only replacement of a stored key is neither saved nor removal', async () => {
+  const fetch = stubFetch(() => reply({ version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  fireEvent.change(screen.getByLabelText('API Key', { selector: '#sonarr-key' }), { target: { value: '   ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(await screen.findByText(ALNUM_ERROR)).toBeInTheDocument()
+  expect(configPosts(fetch)).toHaveLength(0)
+})
+
+test('19d: a completely empty key still removes the service', async () => {
+  const fetch = stubFetch(url => url === '/api/config' ? reply({ success: true }) : reply({ version: '1' }))
+  render(<ConfigPage initialConfig={radarrStored()} onSave={() => {}} />)
+  fireEvent.change(screen.getByLabelText('API Key', { selector: '#radarr-key' }), { target: { value: '' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(configPosts(fetch)).toHaveLength(1))
+  const body = posted(fetch, '/api/config')
+  expect(body.radarr).toBeUndefined()
+  expect(body.sonarr).toBeDefined()
+  expect(screen.queryByText(ALNUM_ERROR)).toBeNull()
+})
+
+test('19d: the typed key is trimmed in the Save payload and in Test', async () => {
+  const fetch = stubFetch(url => url === '/api/config' ? reply({ success: true }) : url.startsWith('/api/test/') ? reply({ success: true }) : reply({ version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  fireEvent.change(screen.getByLabelText('Server URL', { selector: '#nzbhydra-url' }), { target: { value: 'http://hydra.example.invalid:5076' } })
+  fireEvent.change(screen.getByLabelText('API Key', { selector: '#nzbhydra-key' }), { target: { value: '  new-key-1  ' } })
+  fireEvent.click(screen.getByLabelText('API Key', { selector: '#nzbhydra-key' }).closest('.input-group').querySelector('button'))
+  await waitFor(() => expect(fetch.mock.calls.some(([u]) => u === '/api/test/nzbhydra')).toBe(true))
+  expect(posted(fetch, '/api/test/nzbhydra').apikey).toBe('new-key-1')
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(configPosts(fetch)).toHaveLength(1))
+  expect(posted(fetch, '/api/config').nzbhydra).toEqual({ url: 'http://hydra.example.invalid:5076', apikey: 'new-key-1' })
+})
+
+test('19d: placeholders and env-managed services are exempt', async () => {
+  const fetch = stubFetch(url => url === '/api/config' ? reply({ success: true }) : reply({ version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig({ sonarr: { url: 'http://sonarr.example.invalid:8989', apikey: '••••' }, envManaged: { sonarr: false, radarr: false, sabnzbd: true, nzbhydra: false } })} onSave={() => {}} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(configPosts(fetch)).toHaveLength(1))
+  expect(posted(fetch, '/api/config').sonarr.apikey).toBe('••••')
+  expect(screen.queryByText(ALNUM_ERROR)).toBeNull()
+})
+
+test('19d: a spaces-only key does not count as a configured service', async () => {
+  const fetch = stubFetch(() => reply({ version: '1' }))
+  render(<ConfigPage initialConfig={{ envManaged: {} }} onSave={() => {}} />)
+  fireEvent.change(screen.getByLabelText('Server URL', { selector: '#sonarr-url' }), { target: { value: 'http://sonarr.example.invalid:8989' } })
+  fireEvent.change(screen.getByLabelText('API Key', { selector: '#sonarr-key' }), { target: { value: '   ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(screen.getByText(/letter or number|at least one service/)).toBeInTheDocument())
+  expect(configPosts(fetch)).toHaveLength(0)
+})

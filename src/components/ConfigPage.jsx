@@ -35,6 +35,11 @@ const SERVICES = [
 
 const MASK_PREFIX = '\u2022\u2022\u2022\u2022'
 
+const KEY_ALNUM_ERROR = 'API key must contain at least one letter or number.'
+const isMasked = key => String(key || '').startsWith(MASK_PREFIX)
+const hasUsableKey = key => isMasked(key) || /[A-Za-z0-9]/.test(String(key || ''))
+const sendKey = key => (isMasked(key) ? key : String(key || '').trim())
+
 function ServiceCard({ service, values, onChange, onTest, envManaged = false, keyHint = false }) {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
@@ -47,7 +52,7 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
     setTesting(false)
   }
 
-  const hasCredentials = values.url && values.apikey
+  const hasCredentials = values.url && hasUsableKey(values.apikey)
   const noteId = `${service.id}-env-note`
   const hintId = `${service.id}-key-hint`
 
@@ -167,7 +172,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
       const r = await fetch(`/api/test/${serviceId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: normalizedUrl, apikey }),
+        body: JSON.stringify({ url: normalizedUrl, apikey: sendKey(apikey) }),
       })
       const data = await r.json()
       return data.success ? data : { success: false, error: data.error }
@@ -177,7 +182,12 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
   }
 
   async function handleSave() {
-    const hasAny = SERVICES.some(s => config[s.id].url && config[s.id].apikey)
+    if (SERVICES.some(s => !envManaged[s.id] && config[s.id].url.trim() && config[s.id].apikey &&
+        !hasUsableKey(config[s.id].apikey))) {
+      setError(KEY_ALNUM_ERROR)
+      return
+    }
+    const hasAny = SERVICES.some(s => config[s.id].url && hasUsableKey(config[s.id].apikey))
     if (!hasAny) {
       setError('Configure at least one service before saving.')
       return
@@ -191,10 +201,10 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
     try {
       const cleanConfig = {}
       SERVICES.forEach(s => {
-        if (config[s.id].url && config[s.id].apikey) {
+        if (config[s.id].url && hasUsableKey(config[s.id].apikey)) {
           let url = config[s.id].url.replace(/\/$/, '')
           if (!url.match(/^https?:\/\//)) url = `http://${url}`
-          cleanConfig[s.id] = { url, apikey: config[s.id].apikey }
+          cleanConfig[s.id] = { url, apikey: sendKey(config[s.id].apikey) }
           if (s.id === 'sabnzbd' && config.sabnzbd.sabPath && !envManaged.sabnzbd) {
             cleanConfig.sabnzbd.sabPath = config.sabnzbd.sabPath
           }
@@ -231,7 +241,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
 
         <section className="card" aria-label="Service checklist"><h2>Services</h2>
           <p className="text-muted">Configured connections (use Test below to verify connectivity).</p>
-          <ul>{SERVICES.map(service => <li key={service.id}>{service.name}: {config[service.id].url && config[service.id].apikey ? '✓ Configured' : 'Not configured'}</li>)}</ul>
+          <ul>{SERVICES.map(service => <li key={service.id}>{service.name}: {config[service.id].url && hasUsableKey(config[service.id].apikey) ? '✓ Configured' : 'Not configured'}</li>)}</ul>
         </section>
         <div className="services-grid">
           {SERVICES.map(service => (

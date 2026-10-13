@@ -276,3 +276,63 @@ test('temp file is created owner-only and a chmod failure never widens the mode'
   assert.equal(fs.statSync(s.configFile).mode & 0o777, 0o600);
   assert.deepEqual(s.tempFiles(), []);
 });
+
+const NO_ALNUM = ['   ', '\t \n', '----', '•', '   ...   '];
+
+test('test endpoint rejects keys with no alphanumeric character and trims (criterion 13b)', async t => {
+  const up = await startUpstream(); t.after(up.close);
+  const s = await startServer(t, { config: services(up.port) });
+  const urls = { sonarr: `http://127.0.0.1:${up.port}/sonarr`, sabnzbd: `http://127.0.0.1:${up.port}`, nzbhydra: `http://127.0.0.1:${up.port}` };
+  for (const [svc, url] of Object.entries(urls)) {
+    for (const apikey of [...NO_ALNUM, '']) {
+      const before = up.hits.length;
+      const r = await s.json('POST', `/api/test/${svc}`, { url, apikey });
+      assert.equal(r.status, 400, `${svc} ${JSON.stringify(apikey)}`);
+      const body = await r.json();
+      assert.ok(typeof body.error === 'string');
+      assert.ok(!body.error.includes('----'));
+      assert.equal(up.hits.length, before);
+    }
+  }
+  assert.equal((await s.json('POST', '/api/test/sonarr', { url: urls.sonarr, apikey: '  real-key  ' })).status, 200);
+  assert.equal(up.hits.at(-1).key, 'real-key');
+  assert.equal((await s.json('POST', '/api/test/nzbhydra', { url: urls.nzbhydra, apikey: '  real-key  ' })).status, 200);
+  assert.equal(up.hits.at(-1).query.apikey, 'real-key');
+});
+
+test('no key without an alphanumeric character is saved; keys are stored trimmed (criterion 15b)', async t => {
+  const up = await startUpstream(); t.after(up.close);
+  const s = await startServer(t, { config: services(up.port) });
+  const before = s.readConfigText();
+  for (const svc of ['sonarr', 'radarr', 'sabnzbd', 'nzbhydra']) {
+    for (const apikey of NO_ALNUM) {
+      const r = await s.json('POST', '/api/config', { [svc]: { url: 'http://example.invalid', apikey } });
+      assert.equal(r.status, 400, `${svc} ${JSON.stringify(apikey)}`);
+      assert.match((await r.json()).error, /letter or number/);
+      assert.equal(s.readConfigText(), before);
+    }
+  }
+  // Non-matching placeholder keeps the re-enter error, not the alphanumeric one.
+  let r = await s.json('POST', '/api/config', { sonarr: { url: 'http://example.invalid', apikey: '••••' } });
+  assert.equal(r.status, 400);
+  assert.doesNotMatch((await r.json()).error, /letter or number/);
+  assert.equal(s.readConfigText(), before);
+  // Trim and store trimmed.
+  r = await s.json('POST', '/api/config', { sonarr: { url: 'http://example.invalid', apikey: '  real-key-1  ' } });
+  assert.equal(r.status, 200);
+  assert.equal(s.readConfig().sonarr.apikey, 'real-key-1');
+  assert.equal((await s.getConfig()).sonarr.apikey, '••••ey-1');
+  // Valid placeholder with unchanged URL keeps the stored key.
+  const cfg = await s.getConfig();
+  r = await s.json('POST', '/api/config', { sonarr: cfg.sonarr });
+  assert.equal(r.status, 200);
+  assert.equal(s.readConfig().sonarr.apikey, 'real-key-1');
+  // Env-managed service never stores a no-alphanumeric key.
+  const env = await startServer(t, { env: { ARRVIEW_SONARR_URL: `http://127.0.0.1:${up.port}`, ARRVIEW_SONARR_API_KEY: KEY_ENV } });
+  const envBefore = env.readConfigText ? (() => { try { return env.readConfigText(); } catch (_) { return null; } })() : null;
+  r = await env.json('POST', '/api/config', { sonarr: { url: `http://127.0.0.1:${up.port}`, apikey: '   ' } });
+  assert.ok([400, 409].includes(r.status));
+  let after = null; try { after = env.readConfigText(); } catch (_) {}
+  assert.equal(after, envBefore);
+});
+const KEY_ENV = 'env-fixture-secret-key';

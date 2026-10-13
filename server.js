@@ -92,6 +92,20 @@ app.get('/api/:service/ping', async (req, res) => {
 const SERVICE_IDS = ['sabnzbd', 'nzbhydra', 'sonarr', 'radarr'];
 const DEFAULT_PORTS = { sabnzbd: 8080, sonarr: 8989, radarr: 7878, nzbhydra: 5076 };
 const MASK_PREFIX = '••••';
+const KEY_ALNUM_ERROR = 'API key must contain at least one letter or number.';
+
+// Shared by POST /api/config and POST /api/test/:service. Returns
+// { key } (trimmed) for a plain key, or { error }. Masked placeholders are
+// handled by the callers before this is used.
+function cleanSubmittedKey(raw) {
+  if (typeof raw !== 'string') return { error: 'API key must be a string' };
+  const key = raw.trim();
+  if (!/[A-Za-z0-9]/.test(key)) return { error: KEY_ALNUM_ERROR };
+  if (key.length > 256 || /[\u0000-\u001f\u007f]/.test(key)) {
+    return { error: 'API key is too long or contains control characters' };
+  }
+  return { key };
+}
 
 // Shared service URL normaliser. Returns the normalised URL string, or null
 // when invalid. Query strings and fragments are forbidden because proxy routes
@@ -179,6 +193,10 @@ function resolveEnvServices(env, log) {
     } else if (typeof fileRaw === 'string') {
       keyError = true;
       say(`${fileVar} is empty. ${svc} env config ignored.`);
+    }
+    if (key && !/[A-Za-z0-9]/.test(key)) {
+      key = null; keyError = true;
+      say(`${plainSet ? keyVar : fileVar} must contain at least one letter or number. ${svc} env config ignored.`);
     }
     if (key) anyKey = true;
 
@@ -305,7 +323,7 @@ function buildConfigToSave(body) {
     const env = ENV_SERVICES[svc];
     if (env) {
       const same = typeof entry.url === 'string' && normalizeServiceUrl(entry.url) === env.url &&
-        typeof entry.apikey === 'string' && (entry.apikey === env.apikey || entry.apikey === mask(env.apikey));
+        typeof entry.apikey === 'string' && (entry.apikey.trim() === env.apikey || entry.apikey.trim() === mask(env.apikey));
       if (!same) {
         const label = { sabnzbd: 'SABnzbd', nzbhydra: 'NZBHydra', sonarr: 'Sonarr', radarr: 'Radarr' }[svc];
         return { status: 409, error: `${label} is set by the Docker configuration and can't be changed here` };
@@ -321,8 +339,10 @@ function buildConfigToSave(body) {
     if (apikey.startsWith(MASK_PREFIX)) {
       apikey = resolveMaskedKey(svc, apikey, url);
       if (!apikey) return bad(REENTER_KEY_ERROR);
-    } else if (apikey.length > 256 || /[\u0000-\u001f\u007f]/.test(apikey)) {
-      return bad(`${svc} apikey is too long or contains control characters`);
+    } else {
+      const cleaned = cleanSubmittedKey(apikey);
+      if (cleaned.error) return bad(`${svc}: ${cleaned.error}`);
+      apikey = cleaned.key;
     }
     out[svc] = { url, apikey };
     // Keep sabPath only while the address is unchanged; otherwise re-detect.
@@ -377,6 +397,10 @@ app.post('/api/test/:service', async (req, res) => {
   if (apikey.startsWith(MASK_PREFIX)) {
     apikey = SERVICE_IDS.includes(service) ? resolveMaskedKey(service, apikey, url) : null;
     if (!apikey) return res.status(400).json({ error: REENTER_KEY_ERROR });
+  } else {
+    const cleaned = cleanSubmittedKey(apikey);
+    if (cleaned.error) return res.status(400).json({ error: cleaned.error });
+    apikey = cleaned.key;
   }
 
   try {
