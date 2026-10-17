@@ -56,7 +56,7 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted, onRefresh })
             className={`btn-ep-info ${showInfo ? 'active' : ''}`}
             onClick={e => { e.stopPropagation(); setShowInfo(v => !v) }}
             aria-label="Show episode description" title="Show episode description" aria-expanded={showInfo}
-          ><Icon name="caret-down" className={`icon ep-info-caret ${showInfo ? "open" : ""}`} /></button>
+          ><Icon name="info" weight={showInfo ? 'fill' : 'regular'} /></button>
         )}
         <div className="ep-right">
           {airDate && (
@@ -66,7 +66,7 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted, onRefresh })
           )}
           {downloaded ? (
             <>
-              <span className="badge badge-success text-xs"><Icon name="check" /></span>
+              <span className="badge badge-success text-xs"><Icon name="check" />Downloaded</span>
               <button className="btn btn-icon btn-icon-danger" onClick={() => setConfirmDelete(true)}
                 aria-label={`Delete and unmonitor ${ep.title}`} title="Delete from disk and unmonitor"><Icon name="trash" /></button>
             </>
@@ -416,7 +416,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
   if (error) {
     return (
       <div className="empty-state">
-        
+        <div className="empty-state-icon"><Icon name="warning" /></div>
         <strong>Cannot reach Sonarr</strong>
         <p className="text-sm text-muted">{error}</p>
         <button className="btn btn-secondary mt-4" onClick={fetchSeries}>Retry</button>

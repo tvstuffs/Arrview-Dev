@@ -113,14 +113,14 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
 
           {error && (
             <div className="nzb-empty">
-              
+              <div className="nzb-empty-icon"><Icon name="warning" /></div>
               <span>{error}</span>
             </div>
           )}
 
           {results && results.length === 0 && (
             <div className="nzb-empty">
-              <div className="nzb-empty-icon"><Icon name="magnifying-glass" /></div>
+              <div className="nzb-empty-icon"><Icon name="question" /></div>
               <span>No results found</span>
             </div>
           )}

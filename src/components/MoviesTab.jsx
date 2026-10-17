@@ -151,7 +151,7 @@ export default function MoviesTab({ onToast }) {
   if (error) {
     return (
       <div className="empty-state">
-        
+        <div className="empty-state-icon"><Icon name="warning" /></div>
         <strong>Cannot reach Radarr</strong>
         <p className="text-sm text-muted">{error}</p>
         <button className="btn btn-secondary mt-4" onClick={fetchMovies}>Retry</button>

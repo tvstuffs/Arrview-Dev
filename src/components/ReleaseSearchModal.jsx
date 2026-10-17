@@ -125,6 +125,7 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
 
         {error && (
           <div className="ep-search-empty">
+            <div style={{fontSize:32}}><Icon name="warning" /></div>
             <span>{error}</span>
           </div>
         )}
@@ -156,7 +157,7 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
             <div className="ep-search-body">
               {displayList.length === 0 && (
                 <div className="ep-search-empty" style={{padding:'40px 0'}}>
-                  <div style={{fontSize:32}}><Icon name="magnifying-glass" /></div>
+                  <div style={{fontSize:32}}><Icon name="question" /></div>
                   <span>No results found from any indexer</span>
                   <span className="text-xs text-muted" style={{textAlign:'center',maxWidth:400}}>
                     {serviceName} searched all configured indexers and found nothing.
@@ -195,7 +196,8 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
 
 function ReleaseRow({ release, grabbing, grabbed, onGrab, rejected }) {
   const qualityName = release.quality?.quality?.name || release.qualityVersion || '—'
-  const protocol = release.protocol === 'usenet' ? 'Usenet' : 'Torrent'
+  const isUsenet = release.protocol === 'usenet'
+  const protocol = isUsenet ? 'Usenet' : 'Torrent'
   const rejections = release.rejections || []
   const isHydraDirect = release._source === 'nzbhydra'
 
@@ -204,13 +206,13 @@ function ReleaseRow({ release, grabbing, grabbed, onGrab, rejected }) {
       <div className="release-main">
         <div className="release-title" title={release.title}>{release.title}</div>
         <div className="release-meta">
-          <span className="badge badge-muted">{protocol}</span>
+          <span className="badge badge-muted"><Icon name={isUsenet ? 'newspaper' : 'plant'} />{protocol}</span>
           <span className="badge badge-muted">{release.indexer || '—'}</span>
           {!isHydraDirect && <span className="badge badge-muted">{qualityName}</span>}
           <span className="text-xs text-muted">{formatSize(release.size)}</span>
           <span className="text-xs text-muted">{formatAge(release.ageHours)}</span>
           {release.seeders != null && (
-            <span className="text-xs text-muted">↑{release.seeders}</span>
+            <span className="text-xs text-muted release-seeders" role="img" aria-label={`${release.seeders} seeders`}><Icon name="arrow-up" />{release.seeders}</span>
           )}
           {isHydraDirect && (
             <span className="badge badge-muted" title="Result from NZBHydra direct search — will be sent to SABnzbd">NZBHydra</span>

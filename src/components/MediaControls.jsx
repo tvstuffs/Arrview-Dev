@@ -22,7 +22,10 @@ export function MonitorToggle({ media, service, onChanged, onToast }) {
     } catch (e) { onToast(`Monitoring failed: ${e.message}`, 'error') }
     finally { setPending(false) }
   }
-  return <button className="btn btn-icon monitor-toggle" aria-label={`Monitored: ${media.title}`} title={media.monitored ? 'Monitored' : 'Unmonitored'} aria-pressed={Boolean(media.monitored)} aria-busy={pending || undefined} disabled={pending} onClick={toggle}>{pending ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Saving…</> : <Icon name="bookmark-simple" weight={media.monitored ? 'fill' : 'regular'} />}</button>
+  return <button className="btn btn-icon monitor-toggle" aria-label={`Monitored: ${media.title}`} title={media.monitored ? 'Monitored' : 'Unmonitored'} aria-pressed={Boolean(media.monitored)} aria-busy={pending || undefined} disabled={pending} onClick={toggle}>
+    <span className={pending ? 'monitor-hidden' : undefined}><Icon name="bookmark-simple" weight={media.monitored ? 'fill' : 'regular'} /></span>
+    <span className={`monitor-saving${pending ? '' : ' monitor-hidden'}`}><span className="spinner" style={{ width: 14, height: 14 }} />Saving…</span>
+  </button>
 }
 export function supportsMovieRemoval(identity) {
   if (identity?.capabilities?.includes('movieDelete')) return true

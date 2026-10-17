@@ -80,21 +80,30 @@ test('progress fill and status dots have no gradients or glows', () => {
   }
 })
 
-// Glyph scan: no emoji, arrows, dingbats or symbols used as icons.
+// Glyph scan: every icon is set artwork from the Icon component; no emoji, arrows, dingbats or symbols.
+// Ranges: arrows 2190-21FF, technical 2300-23FF, geometric shapes 25A0-25FF, misc symbols and dingbats
+// 2600-27BF (includes check and cross marks), 2B00-2BFF, emoji 1F000-1FAFF, plus the info source,
+// circled/enclosed forms, variation selector and vertical ellipsis.
 const GLYPH_RANGES = [[0x1F000, 0x1FAFF], [0x2190, 0x21FF], [0x2300, 0x23FF], [0x2460, 0x27BF], [0x2900, 0x2BFF],
   [0x2139, 0x2139], [0x25A0, 0x25FF], [0xFE0F, 0xFE0F], [0x22EE, 0x22EE]]
-// Allowed: prose describing browser menus, and the seeders arrow before its count.
+// Allowed: the typographic arrows and the vertical ellipsis in InstallHelp's prose, which describe the browser's own menus.
 const ALLOWED = [
   { file: 'src/components/InstallHelp.jsx', chars: ['→', '⋮'] },
-  { file: 'src/components/ReleaseSearchModal.jsx', pattern: /↑(?=\{release\.seeders\})/g },
 ]
-test('no glyph icons remain in source, markup or CSS content', () => {
+const publicFiles = (function walkPublic(dir, out = []) {
+  for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+    const rel = path.posix.join(dir, entry.name)
+    if (entry.isDirectory()) walkPublic(rel, out)
+    else if (/\.(jsx?|css|html|json|webmanifest|svg)$/.test(entry.name)) out.push(rel)
+  }
+  return out
+})('public')
+test('no glyph icons remain in src/, public/ or index.html', () => {
   const offenders = []
-  for (const file of sources) {
+  for (const file of [...new Set([...sources, ...publicFiles])]) {
     let text = read(file)
     for (const rule of ALLOWED.filter(r => r.file === file)) {
       if (rule.chars) for (const c of rule.chars) text = text.split(c).join('')
-      if (rule.pattern) text = text.replace(rule.pattern, '')
     }
     for (const ch of text) {
       const code = ch.codePointAt(0)

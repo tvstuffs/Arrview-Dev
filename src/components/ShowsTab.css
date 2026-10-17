@@ -143,8 +143,6 @@
   transition: background 0.15s, color 0.15s;
 }
 .btn-ep-info:hover, .btn-ep-info:focus-visible, .btn-ep-info.active { background: var(--raised-2); color: var(--text); }
-.ep-info-caret { transition: transform 0.15s; }
-.ep-info-caret.open { transform: rotate(180deg); }
 
 .ep-overview {
   font-size: 12px;

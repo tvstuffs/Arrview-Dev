@@ -82,6 +82,44 @@ for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1024, 1280]) {
   })
 }
 
+for (const width of [320, 1024]) {
+  test(`monitor toggle keeps one width, centred content and 44 px touch size while saving (${width}px)`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true, colorScheme: 'dark' })
+    const page = await context.newPage()
+    await page.goto('https://localhost:18778')
+    await expect(page.getByText('Bytes history')).toBeVisible()
+    await tab(page, 'Movies')
+    const toggle = page.getByRole('button', { name: 'Monitored: Fixture Movie with a long descriptive title', exact: true })
+    await expect(toggle).toBeVisible()
+    const measure = () => toggle.evaluate(el => {
+      const box = el.getBoundingClientRect()
+      const visible = [...el.children].find(c => getComputedStyle(c).visibility !== 'hidden')
+      const inner = visible.getBoundingClientRect()
+      return { width: box.width, height: box.height, offset: Math.abs((inner.left + inner.width / 2) - (box.left + box.width / 2)) }
+    })
+    const idle = await measure()
+    expect(idle.width).toBeGreaterThanOrEqual(43.9)
+    expect(idle.height).toBeGreaterThanOrEqual(43.9)
+    expect(idle.offset).toBeLessThan(1.5)
+    let release
+    const gate = new Promise(resolve => { release = resolve })
+    await page.route('**/api/radarr/movie/monitor', async route => { await gate; await route.continue() })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-busy', 'true')
+    await expect(toggle).toHaveAttribute('aria-pressed', /true|false/)
+    const busy = await measure()
+    expect(busy.width).toBeCloseTo(idle.width, 1)
+    expect(busy.height).toBeCloseTo(idle.height, 1)
+    expect(busy.offset).toBeLessThan(1.5)
+    release()
+    await expect(toggle).not.toHaveAttribute('aria-busy')
+    const after = await measure()
+    expect(after.width).toBeCloseTo(idle.width, 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    await context.close()
+  })
+}
+
 test('tab, filters, sort and expanded show/season survive reload; cancelling confirmations makes no mutation', async ({ page, request }) => {
   await page.goto('/')
   await tab(page, 'Shows')
