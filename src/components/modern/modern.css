@@ -16,6 +16,8 @@
 .m-shell.m-shell input:focus-visible, .m-shell.m-shell select:focus-visible, .m-shell.m-shell textarea:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 /* Sheets opened from Modern are portalled outside the shell and carry m-sheet (see Sheet.jsx). */
 .m-sheet :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+/* Sheet form fields: the global text-input and Add-sheet select focus rules are more specific than the line above. */
+.m-sheet.m-sheet input:focus-visible, .m-sheet.m-sheet select:focus-visible, .m-sheet.m-sheet textarea:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; border-color: var(--hair-2); }
 .m-shell h1:focus-visible { outline: none; }
 .m-shell h1:focus { outline: none; }
 .m-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

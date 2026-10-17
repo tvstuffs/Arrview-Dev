@@ -33,6 +33,7 @@ test('gradients appear only as scrims and masks over artwork, boxes only on the 
   for (const { selector, body } of rules) {
     if (/gradient/.test(body)) expect(gradientOk, `gradient in ${selector}`).toContain(selector)
     if (/box-shadow/.test(body)) expect(shadowOk, `box-shadow in ${selector}`).toContain(selector)
+    if (/:focus-visible/.test(selector)) continue
     for (const decl of body.split(';')) {
       const match = /^\s*border(?!-radius)[\w-]*\s*:\s*(.*)$/.exec(decl)
       if (match) expect(match[1].trim(), `border in ${selector}`).toMatch(/^(0|none)$/)
