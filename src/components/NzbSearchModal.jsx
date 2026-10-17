@@ -147,7 +147,7 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
                       </div>
                     </div>
                     <button
-                      className={`btn btn-sm ${isSent ? 'btn-success' : 'btn-primary'}`}
+                      className={`btn btn-sm ${isSent ? 'btn-secondary' : 'btn-primary'}`}
                       onClick={() => !isSent && handleDownload(r)}
                       disabled={!canDownload || isSending || isSent}
                       title={isSent ? 'Added to SABnzbd' : 'Send to SABnzbd'}

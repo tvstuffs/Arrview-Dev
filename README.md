@@ -526,4 +526,4 @@ Human release checks are in CHANGELOG 1.10.2; native apps and Core are unchanged
 ## Credits
 
 - [Inter](https://rsms.me/inter/) 4.1, SIL Open Font License 1.1. The variable font is self-hosted from `public/fonts/inter/InterVariable.woff2`; the licence text is [public/fonts/inter/LICENSE.txt](public/fonts/inter/LICENSE.txt).
-- [Phosphor Icons](https://phosphoricons.com/) 2.1.1, MIT. A small set of icons is inlined as SVG paths in `src/components/Icon.jsx`; the licence text is [licenses/phosphor-icons-MIT.txt](licenses/phosphor-icons-MIT.txt).
+- [Phosphor Icons](https://phosphoricons.com/) 2.1.1, MIT. A small set of icons is inlined as SVG paths in `src/components/Icon.jsx`; the licence text is [licenses/phosphor-icons-MIT.txt](licenses/phosphor-icons-MIT.txt); a copy ships in the built app at `licenses/phosphor-icons-MIT.txt`.

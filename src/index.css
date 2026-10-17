@@ -119,14 +119,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .btn-attn:hover:not(:disabled) { background: rgba(255,194,51,.24); }
 
-/* Success: confirmation state only (Added, Grabbed, Resume). */
-.btn-success {
-  background: var(--ok-bg);
-  color: var(--ok);
-  border: 1px solid rgba(126,226,160,.3);
-}
-.btn-success:hover:not(:disabled) { background: rgba(126,226,160,.24); }
-
 .btn-ghost {
   background: transparent;
   color: var(--text-2);

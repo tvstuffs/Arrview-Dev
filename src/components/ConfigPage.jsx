@@ -66,7 +66,7 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
           <div className="text-sm text-muted">{service.description}</div>
         </div>
         {testResult && (
-          <div className={`test-badge ${testResult.success ? 'badge-success' : 'badge-danger'} badge ml-auto`}>
+          <div className={`test-badge ${testResult.success ? 'badge-muted' : 'badge-danger'} badge ml-auto`}>
             {testResult.success
               ? <><Icon name="check" /> Connected{testResult.version ? ` v${testResult.version}` : ""}</>
               : 'Failed'}

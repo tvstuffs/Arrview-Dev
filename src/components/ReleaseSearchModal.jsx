@@ -223,7 +223,7 @@ function ReleaseRow({ release, grabbing, grabbed, onGrab, rejected }) {
         </div>
       </div>
       <button
-        className={`btn btn-sm ${grabbed ? 'btn-success' : 'btn-primary'}`}
+        className={`btn btn-sm ${grabbed ? 'btn-secondary' : 'btn-primary'}`}
         onClick={() => !grabbed && onGrab(release)}
         disabled={grabbing || grabbed}
       >

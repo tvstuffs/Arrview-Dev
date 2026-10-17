@@ -11,7 +11,7 @@
     to the service-worker precache, so it renders offline. No third-party font request.
   - Phosphor icons (2.1.1, MIT, licence in `licenses/`) as inline SVG replace every emoji
     and glyph icon. Icon-only buttons keep their accessible names; a few gain a `title`.
-    Where the staged icon set had no match, the episode-description button uses a caret,
+    Where no matching Phosphor icon is bundled, the episode-description button uses a caret,
     error states show text only, and protocol markers read "Usenet" and "Torrent".
   - New neutral dark tokens replace the GitHub-style palette. Cyan is for live activity
     and focus only, amber for missing items and Search Missing actions, red for
@@ -26,8 +26,8 @@
     the system to light mode and confirm the app stays dark. Check each tab. Hover posters
     and tab through their actions. Pause and resume a queue item. Open and cancel each
     destructive sheet. Go offline after the first load and confirm the offline page. In
-    DevTools Network, confirm `InterVariable.woff2` loads from the server and nothing
-    loads from another origin. Not verified by the factory: a real Sonarr/Radarr library,
+    DevTools Network, confirm `InterVariable.woff2` loads from the server and no font
+    or icon loads from another origin. Not covered by automated tests: a real Sonarr/Radarr library,
     iOS/Android installs, VoiceOver, and a Docker image build.
 
 - **Version 1.9A1.** This build starts the pre-2.0 track. Each build increments the A
