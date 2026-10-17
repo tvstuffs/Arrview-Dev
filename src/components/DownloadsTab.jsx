@@ -4,6 +4,7 @@ import { useVisiblePolling } from '../hooks/lifecycle'
 import ConfirmSheet from './ConfirmSheet'
 import { checkedFetch } from '../actions'
 import NzbSearchModal from './NzbSearchModal'
+import Icon from './Icon.jsx'
 
 function formatBytes(mb) {
   if (mb == null) return '—'
@@ -30,11 +31,11 @@ function QueueItem({ slot, onPause, onResume, onDelete }) {
         <div className="queue-item-name truncate" title={slot.filename}>{slot.filename}</div>
         <div className="queue-item-actions">
           {isPaused ? (
-            <button className="btn btn-success btn-sm" onClick={() => onResume(slot.nzo_id)} aria-label="Resume" title="Resume">▶</button>
+            <button className="btn btn-icon" onClick={() => onResume(slot.nzo_id)} aria-label="Resume" title="Resume"><Icon name="play" weight="fill" /></button>
           ) : (
-            <button className="btn btn-secondary btn-sm" onClick={() => onPause(slot.nzo_id)} aria-label="Pause" title="Pause">⏸</button>
+            <button className="btn btn-icon" onClick={() => onPause(slot.nzo_id)} aria-label="Pause" title="Pause"><Icon name="pause" weight="fill" /></button>
           )}
-          <button className="btn btn-danger btn-sm" onClick={() => onDelete(slot.nzo_id)} aria-label="Delete" title="Delete">✕</button>
+          <button className="btn btn-icon btn-icon-danger" onClick={() => onDelete(slot.nzo_id)} aria-label="Delete" title="Delete"><Icon name="x" /></button>
         </div>
       </div>
 
@@ -49,8 +50,8 @@ function QueueItem({ slot, onPause, onResume, onDelete }) {
 
       <div className="progress-bar">
         <div
-          className="progress-fill"
-          style={{ width: `${pct}%`, background: isPaused ? 'var(--warning)' : undefined }}
+          className={`progress-fill ${isPaused ? 'is-attn' : ''}`}
+          style={{ width: `${pct}%` }}
         />
       </div>
       <div className="queue-item-pct text-xs text-muted">{pct}%</div>
@@ -142,7 +143,7 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
   if (error) {
     return (
       <div className="empty-state">
-        <div className="empty-state-icon">⚠️</div>
+        
         <strong>Cannot reach SABnzbd</strong>
         <p className="text-sm text-muted">{error}</p>
         <button className="btn btn-secondary mt-4" onClick={fetchData}>Retry</button>
@@ -167,31 +168,31 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
       {/* Queue stats bar */}
       <div className="queue-statsbar card">
         <div className="stat-group">
-          <span className="stat-label">Status <span className="badge badge-success" title="Refreshes every 2 seconds downloading; every 10 seconds idle">Live</span></span>
-          <span className={`badge ${isDownloading ? 'badge-success' : 'badge-muted'}`}>
-            {queue?.status || 'Unknown'}
+          <span className={`badge ${isDownloading ? 'badge-live' : 'badge-muted'}`}>
+            {isDownloading && <span className="live-dot" aria-hidden="true" />}{queue?.status || 'Unknown'}
           </span>
+          <span className="stat-label">Status <span className="badge badge-live" title="Refreshes every 2 seconds downloading; every 10 seconds idle">Live</span></span>
         </div>
         <div className="stat-group">
-          <span className="stat-label">Speed</span>
           <span className="stat-value">{isDownloading ? speed : '—'}</span>
+          <span className="stat-label">Speed</span>
         </div>
         <div className="stat-group">
-          <span className="stat-label">Remaining</span>
           <span className="stat-value">{eta || '—'}</span>
+          <span className="stat-label">Remaining</span>
         </div>
         <div className="stat-group">
-          <span className="stat-label">Items</span>
           <span className="stat-value">{slots.length}</span>
+          <span className="stat-label">Items</span>
         </div>
         <div className="statsbar-actions ml-auto">
-          {canSearch && <button className="btn btn-primary btn-sm" onClick={() => setShowSearch(true)}>🔎 Search NZBs</button>}
+          {canSearch && <button className="btn btn-primary btn-sm" onClick={() => setShowSearch(true)}><Icon name="magnifying-glass" /> Search NZBs</button>}
           {isDownloading
-            ? <button className="btn btn-secondary btn-sm" onClick={handlePauseAll}>⏸ Pause All</button>
-            : <button className="btn btn-success btn-sm" onClick={handleResumeAll}>▶ Resume All</button>
+            ? <button className="btn btn-secondary btn-sm" onClick={handlePauseAll}><Icon name="pause" weight="fill" /> Pause All</button>
+            : <button className="btn btn-secondary btn-sm" onClick={handleResumeAll}><Icon name="play" weight="fill" /> Resume All</button>
           }
           <button className="btn btn-ghost btn-sm" onClick={fetchData} aria-label="Refresh downloads" title="Refresh downloads">
-            🔄 Refresh
+            <Icon name="arrows-clockwise" /> Refresh
           </button>
         </div>
       </div>
@@ -201,7 +202,7 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
         <h2 className="section-title">Queue ({slots.length})</h2>
         {slots.length === 0 ? (
           <div className="empty-state" style={{padding:'32px'}}>
-            <div className="empty-state-icon">✅</div>
+            <div className="empty-state-icon"><Icon name="check" /></div>
             <span>Queue is empty</span>
           </div>
         ) : (

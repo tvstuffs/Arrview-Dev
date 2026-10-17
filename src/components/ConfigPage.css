@@ -4,7 +4,7 @@
   align-items: flex-start;
   justify-content: center;
   padding: calc(48px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(80px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
-  background: var(--bg-primary);
+  background: var(--canvas);
 }
 
 .config-container {
@@ -51,7 +51,7 @@
   align-items: center;
   gap: 12px;
 }
-.service-icon { font-size: 24px; flex-shrink: 0; }
+.service-icon { font-size: 24px; flex-shrink: 0; display: inline-flex; color: var(--text-2); }
 
 .service-fields {
   display: flex;

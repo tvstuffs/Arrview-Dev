@@ -1,6 +1,7 @@
 import Sheet from './Sheet'
 import { usePreference, oneOf } from '../hooks/usePreference'
 import { useState, useEffect } from 'react'
+import Icon from './Icon.jsx'
 import './EpisodeSearchModal.css'
 
 function formatSize(bytes) {
@@ -124,7 +125,6 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
 
         {error && (
           <div className="ep-search-empty">
-            <div style={{fontSize:32}}>⚠️</div>
             <span>{error}</span>
           </div>
         )}
@@ -156,7 +156,7 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
             <div className="ep-search-body">
               {displayList.length === 0 && (
                 <div className="ep-search-empty" style={{padding:'40px 0'}}>
-                  <div style={{fontSize:32}}>🤷</div>
+                  <div style={{fontSize:32}}><Icon name="magnifying-glass" /></div>
                   <span>No results found from any indexer</span>
                   <span className="text-xs text-muted" style={{textAlign:'center',maxWidth:400}}>
                     {serviceName} searched all configured indexers and found nothing.
@@ -169,7 +169,7 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      Open NZBHydra ↗
+                      Open NZBHydra <Icon name="arrow-square-out" />
                     </a>
                   )}
                 </div>
@@ -195,7 +195,7 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
 
 function ReleaseRow({ release, grabbing, grabbed, onGrab, rejected }) {
   const qualityName = release.quality?.quality?.name || release.qualityVersion || '—'
-  const protocol = release.protocol === 'usenet' ? '📰' : '🌱'
+  const protocol = release.protocol === 'usenet' ? 'Usenet' : 'Torrent'
   const rejections = release.rejections || []
   const isHydraDirect = release._source === 'nzbhydra'
 
@@ -204,7 +204,8 @@ function ReleaseRow({ release, grabbing, grabbed, onGrab, rejected }) {
       <div className="release-main">
         <div className="release-title" title={release.title}>{release.title}</div>
         <div className="release-meta">
-          <span className="badge badge-muted">{protocol} {release.indexer || '—'}</span>
+          <span className="badge badge-muted">{protocol}</span>
+          <span className="badge badge-muted">{release.indexer || '—'}</span>
           {!isHydraDirect && <span className="badge badge-muted">{qualityName}</span>}
           <span className="text-xs text-muted">{formatSize(release.size)}</span>
           <span className="text-xs text-muted">{formatAge(release.ageHours)}</span>
@@ -216,7 +217,7 @@ function ReleaseRow({ release, grabbing, grabbed, onGrab, rejected }) {
           )}
           {rejections.length > 0 && (
             <span className="release-rejection" title={rejections.join(' · ')}>
-              ⚠ {rejections[0]}{rejections.length > 1 ? ` +${rejections.length - 1}` : ''}
+              {rejections[0]}{rejections.length > 1 ? ` +${rejections.length - 1}` : ''}
             </span>
           )}
         </div>
@@ -226,7 +227,7 @@ function ReleaseRow({ release, grabbing, grabbed, onGrab, rejected }) {
         onClick={() => !grabbed && onGrab(release)}
         disabled={grabbing || grabbed}
       >
-        {grabbing ? <span className="spinner" /> : grabbed ? '✓ Grabbed' : '⬇ Grab'}
+        {grabbing ? <span className="spinner" /> : grabbed ? <><Icon name="check" /> Grabbed</> : <><Icon name="download-simple" /> Grab</>}
       </button>
     </div>
   )

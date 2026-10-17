@@ -464,8 +464,13 @@ Search and Settings. Service tabs appear only when configured; NZB search requir
 Hydra, and sending a result requires SABnzbd. Wider windows keep top navigation.
 Touch controls are at least 44px; sheets keep a reachable Close button, trap
 keyboard focus, support Escape, and return focus to the triggering control.
-Episode rows/actions wrap, and mobile toasts sit above the bottom bar. Appearance
-follows the system's light/dark preference, including theme-color and offline UI.
+Episode rows/actions wrap, and mobile toasts sit above the bottom bar. The app is
+dark only: it ignores the system's light/dark preference, including theme-color and
+the offline page.
+
+Update (1.9A1): below 640px the bottom bar has the five content tabs and Settings is
+the gear in the top bar; from 640px the navigation is a horizontal bar, and from 1024px
+it is a left sidebar with Settings at the bottom.
 
 View preferences are stored **locally in that browser/origin** under
 `arrview.ui.v1.*`: last tab, library search/filter/sort, expanded show/seasons,
@@ -494,7 +499,7 @@ remains separate. Confirm only against disposable media during testing.
 The test fixture now contains queues, shows/episodes, movies and search results.
 Responsive tests cover the full current UI at 305, 320, 360, 390, 402, 440, 466,
 669, 834 and 1280px, including sheets, touch target sizes, preference restoration,
-keyboard focus, light/dark and simulated visibility transitions. Physical Safari/
+keyboard focus, dark-only rendering and simulated visibility transitions. Physical Safari/
 Android installation, keyboard/notch behavior and real suspend/resume still need
 the human checks in CHANGELOG 1.10.1.
 
@@ -517,3 +522,8 @@ visible; W2 hidden/resume rules still apply. Load more increases history by 15,
 up to 1000. Settings lists configured services (not a connectivity claim; use
 Test to verify). Movie presentation joins the existing browser-local preferences.
 Human release checks are in CHANGELOG 1.10.2; native apps and Core are unchanged.
+
+## Credits
+
+- [Inter](https://rsms.me/inter/) 4.1, SIL Open Font License 1.1. The variable font is self-hosted from `public/fonts/inter/InterVariable.woff2`; the licence text is [public/fonts/inter/LICENSE.txt](public/fonts/inter/LICENSE.txt).
+- [Phosphor Icons](https://phosphoricons.com/) 2.1.1, MIT. A small set of icons is inlined as SVG paths in `src/components/Icon.jsx`; the licence text is [licenses/phosphor-icons-MIT.txt](licenses/phosphor-icons-MIT.txt).

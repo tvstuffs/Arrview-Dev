@@ -6,15 +6,16 @@ import AddMediaModal from './AddMediaModal.jsx'
 
 import { Poster, MonitorToggle, supportsMovieRemoval } from './MediaControls'
 import ReleaseSearchModal from './ReleaseSearchModal'
+import Icon from './Icon.jsx'
 import ConfirmSheet from './ConfirmSheet'
 import { checkedFetch, deleteMovieAndUnmonitor } from '../actions'
 
 const MOVIE_STATUS = {
   available:    { label: 'Downloaded',   cls: 'badge-success' },
-  missing:      { label: 'Missing',      cls: 'badge-danger'  },
+  missing:      { label: 'Missing',      cls: 'badge-warning' },
   announced:    { label: 'Announced',    cls: 'badge-muted'   },
-  inCinemas:    { label: 'In Cinemas',   cls: 'badge-accent'  },
-  released:     { label: 'Released',     cls: 'badge-warning' },
+  inCinemas:    { label: 'In Cinemas',   cls: 'badge-muted'   },
+  released:     { label: 'Released',     cls: 'badge-muted'   },
 }
 
 function getMovieStatus(movie) {
@@ -23,7 +24,7 @@ function getMovieStatus(movie) {
   return 'missing'
 }
 
-function MovieCard({ movie, onChanged, onToast, identity }) {
+function MovieCard({ movie, onChanged, onToast, identity, view = "list" }) {
   const [interactive, setInteractive] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const canRemove = supportsMovieRemoval(identity)
@@ -52,8 +53,30 @@ function MovieCard({ movie, onChanged, onToast, identity }) {
 
   const canSearch = !movie.hasFile && movie.monitored && movie.isAvailable
 
+  const posters = view === 'posters'
+  const monitorToggle = <MonitorToggle media={movie} service="radarr" onChanged={onChanged} onToast={onToast} />
+  const interactiveButton = <button className="btn btn-icon" onClick={() => setInteractive(true)} aria-label="Interactive Search" title="Interactive Search"><Icon name="magnifying-glass" /></button>
+  const deleteButton = <button className="btn btn-icon btn-icon-danger" onClick={() => setConfirm(true)} aria-label={`Delete ${movie.title}`} title={`Delete ${movie.title}`}><Icon name="trash" /></button>
+  const downloadButton = canSearch && (
+    <button className={`btn btn-attn btn-sm ${posters ? 'tile-download' : 'ml-auto'}`} onClick={handleSearch} disabled={searching}>
+      {searching ? <span className="spinner" style={{width:12,height:12}} /> : <Icon name="download-simple" />} Download
+    </button>
+  )
+
   return (
-    <div className="movie-card card">
+    <div className={posters ? `movie-tile ${movie.hasFile ? '' : 'is-missing'}` : 'movie-card card'}>
+      {posters ? <>
+        <div className="tile-art">
+          <Poster media={movie} />
+          <span className={`badge text-xs tile-badge ${statusInfo.cls}`}>{statusInfo.label}</span>
+          <div className="tile-actions">
+            {downloadButton}
+            <div className="tile-actions-row">{interactiveButton}{monitorToggle}{deleteButton}</div>
+          </div>
+        </div>
+        <div className="tile-title truncate" title={movie.title}>{movie.title}</div>
+        <div className="tile-sub truncate">{[movie.year, movie.studio].filter(Boolean).join(' · ')}</div>
+      </> : <>
       <div className="movie-header">
         <Poster media={movie} />
         <div className="movie-info">
@@ -74,19 +97,12 @@ function MovieCard({ movie, onChanged, onToast, identity }) {
         {movie.hasFile && movie.movieFile && (
           <span className="text-xs text-muted">{movie.movieFile.quality?.quality?.name || 'Downloaded'} · {movie.movieFile.size != null ? `${(movie.movieFile.size / 1073741824).toFixed(1)} GB` : 'Size unknown'} · {movie.movieFile.mediaInfo?.resolution || movie.movieFile.quality?.quality?.resolution || 'Resolution unknown'} · {movie.movieFile.languages?.map(l => l.name).join(', ') || movie.movieFile.mediaInfo?.audioLanguages || 'Languages unknown'}</span>
         )}
-        <MonitorToggle media={movie} service="radarr" onChanged={onChanged} onToast={onToast} />
-        <button className="btn btn-secondary btn-sm" onClick={() => setInteractive(true)}>Interactive Search</button>
-        <button className="btn btn-danger btn-sm" onClick={() => setConfirm(true)} aria-label={`Delete ${movie.title}`}>Delete…</button>
-        {canSearch && (
-          <button
-            className="btn btn-success btn-sm ml-auto"
-            onClick={handleSearch}
-            disabled={searching}
-          >
-            {searching ? <span className="spinner" style={{width:12,height:12}} /> : '⬇'} Download
-          </button>
-        )}
+        {monitorToggle}
+        {interactiveButton}
+        {deleteButton}
+        {downloadButton}
       </div>
+      </>}
       {interactive && <ReleaseSearchModal movie={movie} onClose={() => setInteractive(false)} onToast={onToast} />}
       {confirm && <ConfirmSheet title="Delete movie?" description={`“${movie.title}”: Delete and Unmonitor deletes the file but keeps the movie in Radarr, unmonitored. Delete and Remove deletes files and removes the movie from Radarr.${canRemove ? '' : ' Removing movies needs ArrView Server 1.08 or later.'}`}
         actions={[
@@ -135,7 +151,7 @@ export default function MoviesTab({ onToast }) {
   if (error) {
     return (
       <div className="empty-state">
-        <div className="empty-state-icon">⚠️</div>
+        
         <strong>Cannot reach Radarr</strong>
         <p className="text-sm text-muted">{error}</p>
         <button className="btn btn-secondary mt-4" onClick={fetchMovies}>Retry</button>
@@ -178,22 +194,22 @@ export default function MoviesTab({ onToast }) {
   return (
     <div className="movies-tab">
       {/* Stats */}
-      <div className="movies-stats card">
+      <div className="movies-stats">
         <div className="stat-chip">
           <span className="stat-chip-value">{movies.length}</span>
           <span className="stat-chip-label">Total Movies</span>
         </div>
         <div className="stat-chip">
-          <span className="stat-chip-value text-success">{downloaded}</span>
+          <span className="stat-chip-value">{downloaded}</span>
           <span className="stat-chip-label">Downloaded</span>
         </div>
         <div className="stat-chip">
-          <span className="stat-chip-value text-danger">{missing}</span>
+          <span className="stat-chip-value text-attn">{missing}</span>
           <span className="stat-chip-label">Missing</span>
         </div>
         {missing > 0 && (
-          <button className="btn btn-success btn-sm ml-auto" onClick={downloadAllMissing}>
-            ⬇ Download All Missing ({missing})
+          <button className="btn btn-attn btn-sm ml-auto" onClick={downloadAllMissing}>
+            <Icon name="download-simple" /> Download All Missing ({missing})
           </button>
         )}
         <button
@@ -207,6 +223,7 @@ export default function MoviesTab({ onToast }) {
       {/* Controls */}
       <div className="movies-controls">
         <div className="search-input">
+          <Icon name="magnifying-glass" className="icon search-input-icon" />
           <input
             type="text"
             aria-label="Search movies" placeholder="Search movies…"
@@ -218,7 +235,7 @@ export default function MoviesTab({ onToast }) {
           {[['all','All'],['downloaded','Downloaded'],['missing','Missing'],['monitored','Monitored']].map(([v,l]) => (
             <button
               key={v}
-              className={`btn btn-sm ${filter === v ? 'btn-primary' : 'btn-secondary'}`}
+              aria-pressed={filter === v}
               onClick={() => setFilter(v)}
             >{l}</button>
           ))}
@@ -236,18 +253,18 @@ export default function MoviesTab({ onToast }) {
       </div>
 
       <div className="filter-buttons" aria-label="Movie view">
-        {['list','posters'].map(value => <button key={value} className="btn btn-secondary" aria-pressed={view === value} onClick={() => setView(value)}>{value === 'list' ? 'List' : 'Posters'}</button>)}
+        {['list','posters'].map(value => <button key={value} aria-pressed={view === value} onClick={() => setView(value)}>{value === 'list' ? 'List' : 'Posters'}</button>)}
       </div>
       {/* Grid */}
       {filtered.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon">🎬</div>
+          <div className="empty-state-icon"><Icon name="film-slate" /></div>
           <span>No movies match your filter</span>
         </div>
       ) : (
         <div className={`movies-grid movies-${view}`}>
           {filtered.map(movie => (
-            <MovieCard key={movie.id} movie={movie} onToast={onToast} onChanged={fetchMovies} identity={identity} />
+            <MovieCard key={movie.id} movie={movie} view={view} onToast={onToast} onChanged={fetchMovies} identity={identity} />
           ))}
         </div>
       )}

@@ -2,6 +2,34 @@
 
 ## 1.9A1 (unreleased) — Docker environment seeding, masked keys, safer saves
 
+- **Web redesign foundation and the Classic layout (web client only).** No server,
+  dependency or version change.
+  - Dark only. The system light theme from 1.10.1 (W2) is superseded: the app and the
+    offline page stay dark whatever the system setting, with one `theme-color`
+    (`#0b0b0c`, also the manifest colours).
+  - Inter 4.1 (variable, SIL OFL 1.1) is self-hosted under `public/fonts/inter/` and added
+    to the service-worker precache, so it renders offline. No third-party font request.
+  - Phosphor icons (2.1.1, MIT, licence in `licenses/`) as inline SVG replace every emoji
+    and glyph icon. Icon-only buttons keep their accessible names; a few gain a `title`.
+    Where the staged icon set had no match, the episode-description button uses a caret,
+    error states show text only, and protocol markers read "Usenet" and "Torrent".
+  - New neutral dark tokens replace the GitHub-style palette. Cyan is for live activity
+    and focus only, amber for missing items and Search Missing actions, red for
+    destructive actions. Progress fills are solid; there are no glows. Primary buttons
+    are a neutral light fill.
+  - Classic layout: left sidebar from 1024px (Settings at the bottom), horizontal bar from
+    640px, and on phones a five-tab bottom bar with Settings as the gear in the top bar.
+    One-line stats, segmented filters, icon-button row actions, quiet service status and,
+    for Movies "Posters", a poster wall with hover/keyboard-focus actions (always visible
+    under the poster on touch and phones). Wording, filters and destructive text unchanged.
+  - *Human test plan:* back up `config.json`. Open the dashboard on desktop and phone. Set
+    the system to light mode and confirm the app stays dark. Check each tab. Hover posters
+    and tab through their actions. Pause and resume a queue item. Open and cancel each
+    destructive sheet. Go offline after the first load and confirm the offline page. In
+    DevTools Network, confirm `InterVariable.woff2` loads from the server and nothing
+    loads from another origin. Not verified by the factory: a real Sonarr/Radarr library,
+    iOS/Android installs, VoiceOver, and a Docker image build.
+
 - **Version 1.9A1.** This build starts the pre-2.0 track. Each build increments the A
   number (1.9A2, 1.9A3, …) until 2.0. The label is display text, and it sorts below
   1.10.2 if compared as numbers, so clients must detect features through the

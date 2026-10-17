@@ -12,7 +12,7 @@ export default defineConfig({
     manifest: {
       id: '/', name: 'ArrView', short_name: 'ArrView',
       start_url: '/', scope: '/', display: 'standalone',
-      background_color: '#0d1117', theme_color: '#0d1117',
+      background_color: '#0b0b0c', theme_color: '#0b0b0c',
       icons: [
         { src: '/arrview-icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: '/arrview-icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -20,7 +20,7 @@ export default defineConfig({
       ],
     },
     injectManifest: {
-      globPatterns: ['**/*.{js,css,png,svg,html,webmanifest}'],
+      globPatterns: ['**/*.{js,css,png,svg,html,webmanifest,woff2}'],
       // Navigations use the network first, never a precache-first HTML shell.
       globIgnores: ['index.html'],
     },

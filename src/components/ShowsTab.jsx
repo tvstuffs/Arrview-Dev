@@ -1,4 +1,5 @@
 import { Poster, MonitorToggle } from './MediaControls'
+import Icon from './Icon.jsx'
 import { useState, useCallback, useEffect } from 'react'
 import './ShowsTab.css'
 import ConfirmSheet from './ConfirmSheet'
@@ -10,9 +11,9 @@ import AddMediaModal from './AddMediaModal.jsx'
 import EpisodeSearchModal from './EpisodeSearchModal.jsx'
 
 const STATUS_BADGE = {
-  continuing: 'badge-success',
+  continuing: 'badge-muted',
   ended:      'badge-muted',
-  upcoming:   'badge-accent',
+  upcoming:   'badge-muted',
 }
 
 // Sum episode counts from main seasons only (exclude season 0 / specials)
@@ -54,8 +55,8 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted, onRefresh })
           <button
             className={`btn-ep-info ${showInfo ? 'active' : ''}`}
             onClick={e => { e.stopPropagation(); setShowInfo(v => !v) }}
-            aria-label="Show episode description" title="Show episode description"
-          >ℹ</button>
+            aria-label="Show episode description" title="Show episode description" aria-expanded={showInfo}
+          ><Icon name="caret-down" className={`icon ep-info-caret ${showInfo ? "open" : ""}`} /></button>
         )}
         <div className="ep-right">
           {airDate && (
@@ -65,19 +66,19 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted, onRefresh })
           )}
           {downloaded ? (
             <>
-              <span className="badge badge-success text-xs">✓</span>
-              <button className="btn btn-ghost btn-xs" onClick={() => setConfirmDelete(true)}
-                aria-label={`Delete and unmonitor ${ep.title}`} title="Delete from disk and unmonitor">🗑</button>
+              <span className="badge badge-success text-xs"><Icon name="check" /></span>
+              <button className="btn btn-icon btn-icon-danger" onClick={() => setConfirmDelete(true)}
+                aria-label={`Delete and unmonitor ${ep.title}`} title="Delete from disk and unmonitor"><Icon name="trash" /></button>
             </>
           ) : !hasAired ? (
             <span className="badge badge-muted text-xs">Upcoming</span>
           ) : (
             <>
-              <button className="btn btn-accent btn-xs" onClick={() => onSearch(ep.id)}>
-                ⬇ Download
+              <button className="btn btn-attn btn-xs" onClick={() => onSearch(ep.id)}>
+                <Icon name="download-simple" /> Download
               </button>
-              <button className="btn btn-secondary btn-xs" onClick={() => onInteractiveSearch(ep)} aria-label="Interactive search — pick a release manually" title="Interactive search — pick a release manually">
-                🔍
+              <button className="btn btn-icon" onClick={() => onInteractiveSearch(ep)} aria-label="Interactive search — pick a release manually" title="Interactive search — pick a release manually">
+                <Icon name="magnifying-glass" />
               </button>
             </>
           )}
@@ -242,7 +243,7 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
           </div>
           <div className="show-progress">
             <div className="progress-bar" style={{height:4}}>
-              <div className="progress-fill" style={{width:`${pct}%`}} />
+              <div className={`progress-fill ${missing > 0 ? 'is-attn' : 'is-ok'}`} style={{width:`${pct}%`}} />
             </div>
             <span className="text-xs text-muted">
               {onDisk}/{total} eps
@@ -252,27 +253,27 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
         </button>
         {missing > 0 && (
           <button
-            className="btn btn-success btn-sm"
+            className="btn btn-attn btn-sm"
             onClick={e => { e.stopPropagation(); searchMissing() }}
             disabled={searching}
             aria-label="Search for all missing episodes" title="Search for all missing episodes"
           >
-            {searching ? <span className="spinner" style={{width:12,height:12}} /> : '⬇'} Search Missing
+            {searching ? <span className="spinner" style={{width:12,height:12}} /> : <Icon name="download-simple" />} Search Missing
           </button>
         )}
         {sonarrUrl && show.titleSlug && (
           <a
-            className="btn btn-ghost btn-sm"
+            className="btn btn-icon"
             href={`${sonarrUrl}/series/${show.titleSlug}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={e => e.stopPropagation()}
-            title="Open in Sonarr"
-          >Open in Sonarr ↗</a>
+            title="Open in Sonarr" aria-label="Open in Sonarr"
+          ><Icon name="arrow-square-out" /></a>
         )}
-        <button className="btn btn-ghost btn-sm" onClick={() => setConfirmRemoveSeries(true)}
-          aria-label={`Remove ${show.title} from Sonarr`}>🗑 Remove</button>
-        <span className="expand-icon">{expanded ? '▲' : '▼'}</span>
+        <button className="btn btn-icon btn-icon-danger" onClick={() => setConfirmRemoveSeries(true)}
+          aria-label={`Remove ${show.title} from Sonarr`} title={`Remove ${show.title} from Sonarr`}><Icon name="trash" /></button>
+        <span className={`expand-icon ${expanded ? "open" : ""}`} aria-hidden="true"><Icon name="caret-down" /></span>
       </div>
 
       {confirmRemoveSeries && <ConfirmSheet title="Remove series from Sonarr?"
@@ -305,12 +306,12 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
                     className="season-header"
                   >
                     <button className="season-toggle" aria-label={`Season ${sn}`} aria-expanded={isSeasonOpen} onClick={() => toggleSeason(sn)}>
-                      <span aria-hidden="true">{isSeasonOpen ? '▾' : '▸'}</span> Season {sn}
+                      <span aria-hidden="true" className="season-caret"><Icon name={isSeasonOpen ? 'caret-down' : 'caret-right'} /></span> Season {sn}
                       <span className="text-xs text-muted"> {dlCount}/{eps.length} episodes</span>
                     </button>
                     {missingCount > 0 && (
                       <button
-                        className="btn btn-success btn-xs"
+                        className="btn btn-attn btn-xs"
                         onClick={async e => {
                           e.stopPropagation()
                           const ids = eps
@@ -345,8 +346,8 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
                     )}
                     {dlCount > 0 && (
                       <div className="season-header-right" onClick={e => e.stopPropagation()}>
-                        <button className="btn btn-ghost btn-xs" onClick={() => setConfirmSeasonDelete(sn)}
-                          aria-label={`Delete downloaded files in Season ${sn}`}>🗑 Remove</button>
+                        <button className="btn btn-icon btn-icon-danger" onClick={() => setConfirmSeasonDelete(sn)}
+                          aria-label={`Delete downloaded files in Season ${sn}`} title={`Delete downloaded files in Season ${sn}`}><Icon name="trash" /></button>
                       </div>
                     )}
                   </div>
@@ -415,7 +416,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
   if (error) {
     return (
       <div className="empty-state">
-        <div className="empty-state-icon">⚠️</div>
+        
         <strong>Cannot reach Sonarr</strong>
         <p className="text-sm text-muted">{error}</p>
         <button className="btn btn-secondary mt-4" onClick={fetchSeries}>Retry</button>
@@ -451,24 +452,24 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
   return (
     <div className="shows-tab">
       {/* Stats */}
-      <div className="shows-stats card">
+      <div className="shows-stats">
         <button className="btn btn-secondary" onClick={onUpcoming}>Upcoming</button>
         <div className="stat-chip">
           <span className="stat-chip-value">{series.length}</span>
           <span className="stat-chip-label">Shows</span>
         </div>
         <div className="stat-chip">
-          <span className="stat-chip-value text-danger">{totalMissing}</span>
+          <span className="stat-chip-value text-attn">{totalMissing}</span>
           <span className="stat-chip-label">Missing Episodes</span>
         </div>
         <div className="stat-chip">
-          <span className="stat-chip-value text-success">
+          <span className="stat-chip-value">
             {series.filter(s => s.status?.toLowerCase() === 'continuing').length}
           </span>
           <span className="stat-chip-label">Continuing</span>
         </div>
         <div className="stat-chip">
-          <span className="stat-chip-value text-muted">
+          <span className="stat-chip-value">
             {series.filter(s => s.status?.toLowerCase() === 'ended').length}
           </span>
           <span className="stat-chip-label">Ended</span>
@@ -481,6 +482,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
       {/* Controls */}
       <div className="shows-controls">
         <div className="search-input">
+          <Icon name="magnifying-glass" className="icon search-input-icon" />
           <input
             type="text"
             aria-label="Search shows" placeholder="Search shows…"
@@ -492,7 +494,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
           {[['all','All'],['missing','Has Missing'],['continuing','Continuing'],['ended','Ended']].map(([v,l]) => (
             <button
               key={v}
-              className={`btn btn-sm ${filter === v ? 'btn-primary' : 'btn-secondary'}`}
+              aria-pressed={filter === v}
               onClick={() => setFilter(v)}
             >{l}</button>
           ))}
@@ -507,14 +509,14 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
           <option value="year">Newest First</option>
         </select>
         <button className="btn btn-ghost btn-sm" onClick={fetchSeries} aria-label="Refresh shows" title="Refresh shows">
-          🔄 Refresh
+          <Icon name="arrows-clockwise" /> Refresh
         </button>
       </div>
 
       {/* List */}
       {filtered.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon">📺</div>
+          <div className="empty-state-icon"><Icon name="television-simple" /></div>
           <span>No shows match your filter</span>
         </div>
       ) : (

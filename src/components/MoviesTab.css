@@ -2,20 +2,18 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1100px;
+  max-width: 1180px;
   margin: 0 auto;
   width: 100%;
 }
 
+/* Stats: one quiet line, value then label. */
 .movies-stats {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 8px 24px;
   flex-wrap: wrap;
 }
-.stat-chip { display: flex; flex-direction: column; gap: 2px; }
-.stat-chip-value { font-size: 22px; font-weight: 700; }
-.stat-chip-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
 .movies-controls {
   display: flex;
@@ -23,23 +21,22 @@
   align-items: center;
   flex-wrap: wrap;
 }
-.filter-buttons { display: flex; gap: 4px; flex-wrap: wrap; }
 .sort-select {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--raised);
+  border: 1px solid var(--hair);
   border-radius: var(--radius-sm);
-  color: var(--text-primary);
+  color: var(--text);
   padding: 5px 10px;
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
   margin-left: auto;
 }
-.sort-select:focus { outline: none; border-color: var(--accent); }
+.sort-select:focus { outline: none; border-color: var(--hair-2); }
 
 .movies-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -53,19 +50,6 @@
   display: flex;
   gap: 12px;
   align-items: flex-start;
-}
-
-.movie-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  font-weight: 700;
-  color: #fff;
-  flex-shrink: 0;
 }
 
 .movie-info {
@@ -94,5 +78,68 @@
 .movie-footer {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
+}
+
+/* -- Poster wall ----------------------------------------- */
+.movies-grid.movies-posters {
+  grid-template-columns: repeat(auto-fill, minmax(min(168px, 100%), 1fr));
+  gap: 20px 16px;
+}
+.movie-tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tile-art {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--raised);
+  border: 1px solid var(--hair);
+}
+.tile-art .media-poster {
+  display: flex;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  flex: none;
+  border-radius: 0;
+  object-fit: cover;
+  font-size: 40px;
+}
+.movie-tile.is-missing .media-poster { filter: grayscale(1); opacity: .6; }
+.tile-badge { position: absolute; top: 8px; right: 8px; backdrop-filter: blur(6px); background-color: rgba(11,11,12,.72); }
+.tile-badge.badge-warning { color: var(--attn); }
+.tile-badge.badge-success { color: var(--ok); }
+.tile-title { font-size: 13px; font-weight: 600; margin-top: 6px; }
+.tile-sub { font-size: 12px; color: var(--text-3); }
+
+/* Hover and keyboard focus reveal the actions over the poster. */
+.tile-actions {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 28px 8px 8px;
+  background: linear-gradient(to top, rgba(0,0,0,.88), rgba(0,0,0,0));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.tile-art:hover .tile-actions,
+.tile-art:focus-within .tile-actions { opacity: 1; pointer-events: auto; }
+.tile-download { width: 100%; justify-content: center; background: var(--attn); color: var(--canvas); border-color: var(--attn); }
+.tile-download:hover:not(:disabled) { background: #ffd05a; }
+.tile-actions-row { display: flex; justify-content: space-between; gap: 2px; }
+.tile-actions .btn-icon { color: var(--text); }
+
+/* Touch and phones: no hover, so the actions sit under the poster. */
+@media (hover: none), (max-width: 639px) {
+  .tile-art { overflow: visible; background: transparent; border: 0; }
+  .tile-art .media-poster { border-radius: var(--radius); border: 1px solid var(--hair); }
+  .tile-actions { position: static; opacity: 1; pointer-events: auto; background: none; padding: 6px 0 0; }
+  .tile-badge { top: 8px; right: 8px; }
+  .tile-actions-row { display: grid; grid-template-columns: repeat(3, 44px); justify-content: space-between; gap: 0; }
+  .tile-actions .btn-icon { color: var(--text-2); }
+}
+@media (max-width: 639px) {
+  .movies-grid.movies-posters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 8px; }
 }

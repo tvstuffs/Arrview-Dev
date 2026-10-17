@@ -1,6 +1,6 @@
 .nzb-search-panel {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--raised);
+  border: 1px solid var(--hair);
   border-radius: 12px;
   width: 100%;
   max-width: 860px;
@@ -15,14 +15,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hair);
   flex-shrink: 0;
 }
 
 .nzb-search-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text);
   margin: 0;
 }
 
@@ -30,23 +30,23 @@
   display: flex;
   gap: 10px;
   padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hair);
   flex-shrink: 0;
 }
 
 .nzb-search-input {
   flex: 1;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--raised);
+  border: 1px solid var(--hair);
   border-radius: 6px;
   padding: 8px 12px;
-  color: var(--text-primary);
+  color: var(--text);
   font-size: 14px;
   outline: none;
   transition: border-color 0.15s;
 }
-.nzb-search-input:focus { border-color: var(--accent); }
-.nzb-search-input::placeholder { color: var(--text-muted); }
+.nzb-search-input:focus { border-color: var(--hair-2); }
+.nzb-search-input::placeholder { color: var(--text-3); }
 
 .nzb-search-body {
   flex: 1;
@@ -60,10 +60,10 @@
   align-items: center;
   gap: 10px;
   padding: 48px 20px;
-  color: var(--text-secondary);
+  color: var(--text-2);
   font-size: 14px;
 }
-.nzb-empty-icon { font-size: 36px; }
+.nzb-empty-icon { font-size: 36px; display: flex; color: var(--text-3); }
 
 .nzb-results { display: flex; flex-direction: column; gap: 2px; }
 
@@ -80,7 +80,7 @@
   border: 1px solid transparent;
   transition: background 0.1s;
 }
-.nzb-result-row:hover { background: var(--bg-card); }
+.nzb-result-row:hover { background: var(--raised); }
 .nzb-result-row.sent  { opacity: 0.55; }
 
 .nzb-result-main {
@@ -90,7 +90,7 @@
 
 .nzb-result-title {
   font-size: 13px;
-  color: var(--text-primary);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

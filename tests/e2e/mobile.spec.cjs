@@ -14,18 +14,26 @@ async function fit(page, root = 'body') {
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 1)
   }
 }
-async function tab(page, name) { await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name, exact: true }).click() }
+// Below 640 px Settings is the header gear; the bar carries the other five tabs.
+async function tab(page, name) {
+  if (name === 'Settings' && page.viewportSize().width < 640) { await page.getByRole('button', { name: 'Open settings', exact: true }).click(); return }
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name, exact: true }).click()
+}
+async function settingsButtons(page) { return page.getByRole('button', { name: /settings/i }).evaluateAll(els => els.map(el => el.getAttribute('aria-label') || el.textContent.trim())) }
 async function close(page) { await page.getByRole('button', { name: 'Close dialog' }).click(); await expect(page.getByRole('dialog')).toHaveCount(0) }
 
-for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1280]) {
+for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1024, 1280]) {
   test(`all tabs and sheets fit ${width}px touch viewport`, async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true, colorScheme: width % 2 ? 'light' : 'dark' })
+    const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true, colorScheme: 'dark' })
     const page = await context.newPage()
     await page.goto('https://localhost:18778')
     await expect(page.getByText('Bytes history')).toBeVisible()
     await fit(page)
-    const nav = await page.getByRole('navigation').boundingBox()
+    const nav = await page.getByRole('navigation', { name: 'Main navigation' }).boundingBox()
     if (width < 640) expect(nav.y + nav.height).toBe(890)
+    if (width >= 1024) { expect(nav.x).toBe(0); expect(nav.height).toBeGreaterThan(nav.width) }
+    else if (width >= 640) expect(nav.width).toBeGreaterThan(nav.height)
+    expect(await settingsButtons(page)).toEqual([width < 640 ? 'Open settings' : 'Settings'])
     await page.getByRole('button', { name: 'Delete', exact: true }).click()
     await expect(page.getByRole('dialog')).toBeVisible(); await fit(page, 'dialog'); await close(page)
     await page.getByRole('button', { name: /Search NZBs/ }).click(); await fit(page, 'dialog'); await close(page)
@@ -58,6 +66,11 @@ for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1280]) {
     await page.getByRole('button', { name: 'Interactive Search', exact: true }).click(); await expect(page.getByText('Fixture.Show.S01E02.1080p.Long.Release.Name')).toBeVisible(); await fit(page, 'dialog'); await close(page)
     await page.getByRole('button', { name: 'Delete Fixture Movie with a long descriptive title' }).click(); await fit(page, 'dialog'); await close(page)
     await page.getByRole('button', { name: 'Posters', exact: true }).click(); await fit(page)
+    // Poster wall actions stay reachable and at least 44 px on touch and phones.
+    for (const name of ['Download', 'Interactive Search', 'Monitored: Fixture Movie with a long descriptive title', 'Delete Fixture Movie with a long descriptive title']) {
+      await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
+    }
+    await expect(page.getByRole('button', { name: 'Posters', exact: true })).toHaveAttribute('aria-pressed', 'true')
     if (width === 305) await page.screenshot({ path: 'test-results/w3-movies-305.png', fullPage: true })
     await page.getByRole('button', { name: '+ Add Movie', exact: true }).click(); await fit(page, 'dialog'); await close(page)
     await tab(page, 'Search')
@@ -101,12 +114,12 @@ test('keyboard modal traps focus, Escape closes, and returns focus to its trigge
   await expect(trigger).toBeFocused()
 })
 
-test('light/dark follow system and narrow large text remains usable', async ({ page }) => {
+test('dark only, ignores light system setting, and narrow large text remains usable', async ({ page }) => {
   await page.setViewportSize({ width: 305, height: 890 })
   await page.emulateMedia({ colorScheme: 'light' }); await page.goto('/')
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(245, 247, 250)')
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(11, 11, 12)')
   await page.emulateMedia({ colorScheme: 'dark' })
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(13, 17, 23)')
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(11, 11, 12)')
   await tab(page, 'Shows')
   await page.addStyleTag({ content: 'button,input,select,p,span,label,h2 {font-size: 20px !important;}' })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -159,4 +172,58 @@ test('removed services cannot leave a restored tab blank', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Movies', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Downloads', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Search', exact: true })).toHaveCount(0)
+})
+
+test('sidebar at 1024 and 1280, horizontal bar at 834, bottom bar with five tabs below 640', async ({ browser }) => {
+  for (const [width, layout] of [[1024, 'sidebar'], [1280, 'sidebar'], [834, 'bar'], [640, 'bar'], [390, 'bottom']]) {
+    const context = await browser.newContext({ viewport: { width, height: 800 }, ignoreHTTPSErrors: true })
+    const page = await context.newPage()
+    await page.goto('https://localhost:18778')
+    await expect(page.getByText('Bytes history')).toBeVisible()
+    const nav = page.getByRole('navigation', { name: 'Main navigation' })
+    const box = await nav.boundingBox()
+    if (layout === 'sidebar') { expect(box.x).toBe(0); expect(box.height).toBeGreaterThan(box.width) }
+    else { expect(box.width).toBeGreaterThan(box.height) }
+    if (layout === 'bottom') expect(box.y + box.height).toBe(800)
+    const names = await nav.getByRole('button').evaluateAll(els => els.map(el => el.getAttribute('aria-label')))
+    expect(names).toEqual(layout === 'bottom' ? ['Downloads', 'Shows', 'Upcoming', 'Movies', 'Search'] : ['Downloads', 'Shows', 'Upcoming', 'Movies', 'Search', 'Settings'])
+    expect(await settingsButtons(page)).toEqual([layout === 'bottom' ? 'Open settings' : 'Settings'])
+    if (layout === 'sidebar') {
+      const settings = await nav.getByRole('button', { name: 'Settings', exact: true }).boundingBox()
+      const search = await nav.getByRole('button', { name: 'Search', exact: true }).boundingBox()
+      expect(settings.y).toBeGreaterThan(search.y + search.height)
+    }
+    await context.close()
+  }
+})
+
+test('phone bar shows only the available non-Settings tabs when a service is missing', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 800 }, ignoreHTTPSErrors: true })
+  const page = await context.newPage()
+  await page.route('**/api/config', route => route.fulfill({ json: { sonarr: { url: 'http://example.invalid', apikey: 'fixture' } } }))
+  await page.goto('https://localhost:18778')
+  const nav = page.getByRole('navigation', { name: 'Main navigation' })
+  await expect(nav.getByRole('button')).toHaveCount(2)
+  expect(await nav.getByRole('button').evaluateAll(els => els.map(el => el.getAttribute('aria-label')))).toEqual(['Shows', 'Upcoming'])
+  expect(await settingsButtons(page)).toEqual(['Open settings'])
+  await context.close()
+})
+
+test('poster wall actions appear on hover and keyboard focus and stay reachable by Tab', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('arrview.ui.v1.movies.view', JSON.stringify('posters')))
+  await page.goto('/'); await tab(page, 'Movies')
+  const title = 'Fixture Movie with a long descriptive title'
+  const actions = page.locator('.tile-actions')
+  await expect(actions).toHaveCSS('opacity', '0')
+  await page.getByRole('button', { name: 'Download', exact: true }).focus()
+  await expect(actions).toHaveCSS('opacity', '1')
+  const reached = new Set()
+  for (let i = 0; i < 6; i++) {
+    reached.add(await page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent.trim()))
+    await page.keyboard.press('Tab')
+  }
+  for (const name of ['Download', 'Interactive Search', 'Monitored: ' + title, 'Delete ' + title]) expect(reached).toContain(name)
+  await page.mouse.move(0, 0)
+  await page.locator('.tile-art').hover()
+  await expect(actions).toHaveCSS('opacity', '1')
 })

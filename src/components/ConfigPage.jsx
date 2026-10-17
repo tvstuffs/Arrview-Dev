@@ -1,33 +1,34 @@
 import { useState, useEffect } from 'react'
 import './ConfigPage.css'
 import InstallHelp from './InstallHelp.jsx'
+import Icon from './Icon.jsx'
 
 const SERVICES = [
   {
     id: 'sabnzbd',
     name: 'SABnzbd',
-    icon: '📥',
+    icon: 'tray-arrow-down',
     description: 'Usenet downloader',
     placeholder: 'http://localhost:8080',
   },
   {
     id: 'nzbhydra',
     name: 'NZBHydra',
-    icon: '🔎',
+    icon: 'magnifying-glass',
     description: 'Usenet search aggregator',
     placeholder: 'http://localhost:5076',
   },
   {
     id: 'sonarr',
     name: 'Sonarr',
-    icon: '📺',
+    icon: 'television-simple',
     description: 'TV show management',
     placeholder: 'http://localhost:8989',
   },
   {
     id: 'radarr',
     name: 'Radarr',
-    icon: '🎬',
+    icon: 'film-slate',
     description: 'Movie management',
     placeholder: 'http://localhost:7878',
   },
@@ -59,7 +60,7 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
   return (
     <div className="service-card card">
       <div className="service-header">
-        <span className="service-icon">{service.icon}</span>
+        <span className="service-icon"><Icon name={service.icon} /></span>
         <div>
           <div className="font-semibold">{service.name}</div>
           <div className="text-sm text-muted">{service.description}</div>
@@ -67,8 +68,8 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
         {testResult && (
           <div className={`test-badge ${testResult.success ? 'badge-success' : 'badge-danger'} badge ml-auto`}>
             {testResult.success
-              ? `✓ Connected${testResult.version ? ` v${testResult.version}` : ''}`
-              : '✗ Failed'}
+              ? <><Icon name="check" /> Connected{testResult.version ? ` v${testResult.version}` : ""}</>
+              : 'Failed'}
           </div>
         )}
       </div>
@@ -241,7 +242,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
 
         <section className="card" aria-label="Service checklist"><h2>Services</h2>
           <p className="text-muted">Configured connections (use Test below to verify connectivity).</p>
-          <ul>{SERVICES.map(service => <li key={service.id}>{service.name}: {config[service.id].url && hasUsableKey(config[service.id].apikey) ? '✓ Configured' : 'Not configured'}</li>)}</ul>
+          <ul>{SERVICES.map(service => <li key={service.id}>{service.name}: {config[service.id].url && hasUsableKey(config[service.id].apikey) ? <><Icon name="check" /> Configured</> : 'Not configured'}</li>)}</ul>
         </section>
         <div className="services-grid">
           {SERVICES.map(service => (
@@ -270,7 +271,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
           <div className="config-footer-actions">
             {onBack && (
               <button className="btn btn-secondary btn-lg" onClick={onBack} disabled={saving}>
-                ← Back
+                <Icon name="caret-left" /> Back
               </button>
             )}
             <button

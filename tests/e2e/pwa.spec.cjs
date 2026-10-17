@@ -2,6 +2,11 @@ const { test, expect } = require('@playwright/test')
 const sharp = require('sharp')
 const APP_VERSION = require('../helpers/app-version')
 
+// Below 640 px Settings is the header gear; from 640 px up it is in the navigation.
+async function openSettings(page) {
+  const width = page.viewportSize()?.width ?? 1280
+  await page.getByRole('button', { name: width < 640 ? 'Open settings' : 'Settings', exact: true }).click()
+}
 async function controlled(page) {
   await page.goto('/')
   await page.evaluate(async () => {
@@ -14,7 +19,7 @@ test('manifest, icons, mutable headers and backward-compatible identity', async 
   const response = await request.get('/manifest.webmanifest')
   expect(response.headers()['cache-control']).toBe('no-cache')
   const manifest = await response.json()
-  expect(manifest).toMatchObject({ id: '/', name: 'ArrView', short_name: 'ArrView', start_url: '/', scope: '/', display: 'standalone', theme_color: '#0d1117', background_color: '#0d1117' })
+  expect(manifest).toMatchObject({ id: '/', name: 'ArrView', short_name: 'ArrView', start_url: '/', scope: '/', display: 'standalone', theme_color: '#0b0b0c', background_color: '#0b0b0c' })
   expect(manifest.icons).toHaveLength(3)
   for (const icon of [...manifest.icons, { src: '/apple-touch-icon.png', sizes: '180x180' }]) {
     const image = await request.get(icon.src)
@@ -40,7 +45,7 @@ test('HTTPS worker controls page, caches only shell and never API reads or write
     await fetch('/api/health')
     const entries = []
     for (const key of await caches.keys()) for (const request of await (await caches.open(key)).keys()) {
-      entries.push({ url: request.url, text: request.url.includes('.png') ? '' : await (await caches.match(request)).text() })
+      entries.push({ url: request.url, text: /\.(png|woff2)(\?|$)/.test(request.url) ? '' : await (await caches.match(request)).text() })
     }
     return { saved: saved.status, entries, configText }
   })
@@ -101,7 +106,7 @@ test('online recovery tolerates networking becoming usable after the event', asy
 test('settings save keeps active tab and does not reload document', async ({ page }) => {
   await controlled(page)
   await page.getByRole('button', { name: 'Movies', exact: false }).click()
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openSettings(page)
   await expect(page.getByRole('heading', { name: 'Add to Home Screen' })).toBeVisible()
   const navigationCount = await page.evaluate(() => performance.getEntriesByType('navigation').length)
   await page.evaluate(() => { window.fixtureDocumentMarker = 'same-document' })
@@ -116,7 +121,7 @@ for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1280]) {
     const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true })
     const page = await context.newPage()
     await page.goto('https://localhost:18778/')
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await openSettings(page)
     // Offer a fixture Chromium prompt to measure the new touch control.
     await page.evaluate(() => {
       const event = new Event('beforeinstallprompt', { cancelable: true })
@@ -147,7 +152,7 @@ test('insecure HTTP has no worker and explains Android shortcut', async ({ brows
   await page.goto('http://arrview.test:18779')
   expect(await page.evaluate(() => window.isSecureContext)).toBe(false)
   expect(await page.evaluate(() => 'serviceWorker' in navigator)).toBe(false)
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openSettings(page)
   await expect(page.getByText(/creates a shortcut that opens in Chrome/)).toBeVisible()
   await expect(page.getByText(/Offline startup is unavailable/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Install ArrView' })).toHaveCount(0)
@@ -166,4 +171,30 @@ test('new service worker activates and refreshes an open shell automatically', a
   })
   await expect.poll(() => page.evaluate(() => window.fixtureBeforeUpdate)).toBeUndefined()
   await expect(page.getByText('Bytes history')).toBeVisible()
+})
+
+test('Inter is precached, works offline, and no request leaves the origin', async ({ page, context }) => {
+  const origin = 'https://localhost:18778'
+  const foreign = []
+  page.on('request', request => { if (!/^(data|blob):/.test(request.url()) && new URL(request.url()).origin !== origin) foreign.push(request.url()) })
+  await controlled(page)
+  await expect(page.getByText('Bytes history')).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('Bytes history')).toBeVisible()
+  const cached = await page.evaluate(async () => {
+    const urls = []
+    for (const key of await caches.keys()) for (const request of await (await caches.open(key)).keys()) urls.push(new URL(request.url).pathname)
+    return urls
+  })
+  expect(cached).toContain('/fonts/inter/InterVariable.woff2')
+  await context.setOffline(true)
+  const offline = await page.evaluate(async () => {
+    const response = await fetch('/fonts/inter/InterVariable.woff2')
+    return { status: response.status, type: response.headers.get('content-type'), bytes: (await response.arrayBuffer()).byteLength }
+  })
+  expect(offline.status).toBe(200)
+  expect(['font/woff2', 'application/octet-stream']).toContain(offline.type)
+  expect(offline.bytes).toBeGreaterThan(0)
+  await context.setOffline(false)
+  expect(foreign).toEqual([])
 })

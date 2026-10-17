@@ -1,7 +1,7 @@
-.sheet { color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 14px; padding: 0; margin: auto; width: min(900px, calc(100% - 48px)); max-width: none; max-height: calc(100dvh - 48px); overflow: hidden; }
+.sheet { color: var(--text); background: var(--raised); border: 1px solid var(--hair); border-radius: 14px; padding: 0; margin: auto; width: min(900px, calc(100% - 48px)); max-width: none; max-height: calc(100dvh - 48px); overflow: hidden; }
 .sheet[open] { display: flex; flex-direction: column; }
 .sheet::backdrop { background: rgba(0,0,0,.65); }
-.sheet-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; flex: none; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
+.sheet-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; flex: none; border-bottom: 1px solid var(--hair); background: var(--raised); }
 .sheet-header h2 { font-size: 18px; overflow-wrap: anywhere; min-width: 0; }
 .sheet-header button { flex: none; min-width: 44px; min-height: 44px; }
 .sheet-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }

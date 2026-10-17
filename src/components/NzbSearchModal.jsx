@@ -1,6 +1,7 @@
 import Sheet from './Sheet'
 import { usePreference, textPreference } from '../hooks/usePreference'
 import { useState, useRef, useCallback } from 'react'
+import Icon from './Icon.jsx'
 import './NzbSearchModal.css'
 
 function formatSize(bytes) {
@@ -98,7 +99,7 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
         <div className="nzb-search-body">
           {!results && !loading && !error && (
             <div className="nzb-empty">
-              <div className="nzb-empty-icon">🔍</div>
+              <div className="nzb-empty-icon"><Icon name="magnifying-glass" /></div>
               <span>Enter a search term and press Search or Enter</span>
             </div>
           )}
@@ -112,14 +113,14 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
 
           {error && (
             <div className="nzb-empty">
-              <div className="nzb-empty-icon">⚠️</div>
+              
               <span>{error}</span>
             </div>
           )}
 
           {results && results.length === 0 && (
             <div className="nzb-empty">
-              <div className="nzb-empty-icon">🤷</div>
+              <div className="nzb-empty-icon"><Icon name="magnifying-glass" /></div>
               <span>No results found</span>
             </div>
           )}
@@ -151,7 +152,7 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
                       disabled={!canDownload || isSending || isSent}
                       title={isSent ? 'Added to SABnzbd' : 'Send to SABnzbd'}
                     >
-                      {isSending ? <span className="spinner" /> : isSent ? '✓ Added' : '⬇ Download'}
+                      {isSending ? <span className="spinner" /> : isSent ? <><Icon name="check" /> Added</> : <><Icon name="download-simple" /> Download</>}
                     </button>
                   </div>
                 )

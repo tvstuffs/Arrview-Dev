@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import Icon from './Icon.jsx'
 import './Sheet.css'
 
 export default function Sheet({ title, children, onClose, busy = false, className = '' }) {
@@ -24,7 +25,7 @@ export default function Sheet({ title, children, onClose, busy = false, classNam
       } }}>
       <header className="sheet-header">
         <h2 id={titleId}>{title}</h2>
-        <button className="btn btn-ghost" aria-label="Close dialog" disabled={busy} onClick={onClose}>✕</button>
+        <button className="btn btn-ghost" aria-label="Close dialog" title="Close dialog" disabled={busy} onClick={onClose}><Icon name="x" /></button>
       </header>
       <div className="sheet-content">{children}</div>
     </dialog>, document.body,

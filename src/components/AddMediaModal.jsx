@@ -1,5 +1,6 @@
 import Sheet from './Sheet'
 import { useState, useEffect, useRef } from 'react'
+import Icon from './Icon.jsx'
 import './AddMediaModal.css'
 
 // Returns the best poster URL from a Sonarr/Radarr result object
@@ -41,7 +42,7 @@ function ResultCard({ item, selected, onSelect, type }) {
         {item.overview && (
           <p className="result-overview text-xs text-secondary">{item.overview}</p>
         )}
-        {alreadyAdded && <span className="badge badge-accent text-xs">Already in library</span>}
+        {alreadyAdded && <span className="badge badge-muted text-xs">Already in library</span>}
       </div>
     </div>
   )
@@ -195,7 +196,7 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
                 <div className="font-semibold" style={{fontSize:15}}>{selected.title}</div>
                 <div className="text-sm text-muted">{selected.year > 0 ? selected.year : ''}</div>
                 <button className="btn btn-ghost btn-sm mt-2" onClick={() => setSelected(null)}>
-                  ← Change selection
+                  <Icon name="caret-left" /> Change selection
                 </button>
               </div>
             </div>
