@@ -312,8 +312,26 @@ for (const [view, size] of [['Large posters', 'large'], ['Small posters', 'small
     expect(button.width).toBeLessThan(tile.width)
     if (size === 'large') expect(button.width).toBeLessThan(tile.width * 0.8)
     await expect(download).toHaveCSS('border-top-width', '0px')
-    // A click in the lower poster, outside every button, opens the movie page and starts nothing.
-    await page.mouse.click(tile.x + tile.width / 2, tile.y + tile.height * 0.4)
+    // A click in the lower half of the poster, outside every overlay button and right beside Download,
+    // opens the movie page and starts nothing. The point is derived from the tile and button boxes.
+    const boxes = []
+    for (const b of await wrap.locator('.m-overlay').getByRole('button').all()) boxes.push(await b.boundingBox())
+    const gap = 4
+    const inside = (p, r, pad = 0) => p.x >= r.x - pad && p.x <= r.x + r.width + pad && p.y >= r.y - pad && p.y <= r.y + r.height + pad
+    const cy = button.y + button.height / 2
+    const candidates = [
+      { x: button.x - gap - 2, y: cy },
+      { x: button.x + button.width + gap + 2, y: cy },
+      { x: button.x + button.width / 2, y: button.y - gap - 2 },
+      { x: button.x + button.width / 2, y: button.y + button.height + gap + 2 },
+      { x: tile.x + tile.width / 2, y: tile.y + tile.height * 0.75 }
+    ]
+    const point = candidates.find(p => inside(p, tile) && p.y > tile.y + tile.height / 2 && !boxes.some(r => inside(p, r, gap)))
+    expect(point, 'a click point in the lower half of the tile outside every overlay button').toBeTruthy()
+    expect(inside(point, tile)).toBe(true)
+    expect(point.y).toBeGreaterThan(tile.y + tile.height / 2)
+    for (const r of boxes) expect(inside(point, r)).toBe(false)
+    await page.mouse.click(point.x, point.y)
     await expect(heading(page)).toHaveText(MOVIE)
     expect(await commands()).toEqual([])
     await open(page, '/movies')
