@@ -1,9 +1,14 @@
-import { useEffect, useId, useRef } from 'react'
+import { createContext, useContext, useEffect, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
 import './Sheet.css'
 
+// Sheets are portalled to <body>, outside the Modern shell; the shell provides this class through context
+// so its sheets get the neutral focus ring. Classic provides nothing and keeps the default.
+export const SheetClassContext = createContext('')
+
 export default function Sheet({ title, children, onClose, busy = false, className = '' }) {
+  const themeClass = useContext(SheetClassContext)
   const dialog = useRef(null)
   const titleId = useId()
   useEffect(() => {
@@ -17,7 +22,7 @@ export default function Sheet({ title, children, onClose, busy = false, classNam
     }
   }, [])
   return createPortal(
-    <dialog ref={dialog} className={`sheet ${className}`} aria-labelledby={titleId}
+    <dialog ref={dialog} className={`sheet ${className} ${themeClass}`.trim()} aria-labelledby={titleId}
       onCancel={event => { event.preventDefault(); if (!busy) onClose() }}
       onClick={event => { if (event.target === event.currentTarget && !busy) {
         const bounds = event.currentTarget.getBoundingClientRect()

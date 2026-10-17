@@ -149,7 +149,7 @@ export default function ShowPage({ id, phone, onToast, config }) {
   const { series, loading, error, refresh } = useSeries()
   const numeric = /^\d+$/.test(id) ? Number(id) : NaN
   if (!Number.isSafeInteger(numeric)) return <NotFound kind="show" />
-  if (loading) return <div className="empty-state" role="status"><h1 className="m-sr">Show</h1><span className="spinner" /><span>Loading show…</span></div>
+  if (loading) return <div className="empty-state" role="status"><h1 className="m-sr" data-m-placeholder>Show</h1><span className="spinner" /><span>Loading show…</span></div>
   if (error) return <div className="empty-state">
     <h1 className="m-sr">Show</h1>
     <div className="empty-state-icon"><Icon name="warning" /></div>

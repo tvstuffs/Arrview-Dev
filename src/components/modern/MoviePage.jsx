@@ -23,7 +23,7 @@ export default function MoviePage({ id, phone, onToast }) {
   const actions = useMediaActions(onToast)
   const numeric = /^\d+$/.test(id) ? Number(id) : NaN
   if (!Number.isSafeInteger(numeric)) return <NotFound kind="movie" />
-  if (loading) return <div className="empty-state" role="status"><h1 className="m-sr">Movie</h1><span className="spinner" /><span>Loading movie…</span></div>
+  if (loading) return <div className="empty-state" role="status"><h1 className="m-sr" data-m-placeholder>Movie</h1><span className="spinner" /><span>Loading movie…</span></div>
   if (error) return <div className="empty-state">
     <h1 className="m-sr">Movie</h1>
     <div className="empty-state-icon"><Icon name="warning" /></div>

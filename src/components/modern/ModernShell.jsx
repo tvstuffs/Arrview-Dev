@@ -4,6 +4,7 @@ import DownloadsTab from '../DownloadsTab.jsx'
 import UpcomingTab from '../UpcomingTab.jsx'
 import ConfigPage from '../ConfigPage.jsx'
 import NzbSearchModal from '../NzbSearchModal.jsx'
+import { SheetClassContext } from '../Sheet.jsx'
 import { LibraryProvider } from './LibraryProvider.jsx'
 import ServiceBanner from './ServiceBanner.jsx'
 import PageHeader, { SettingsLink } from './PageHeader.jsx'
@@ -54,15 +55,29 @@ export default function ModernShell({ config, onConfigSaved, layout, onLayoutCha
     setSavedTab(route.section)
     if (route.section !== 'settings') lastSection.current = route.section
   }, [available, route.section])
-  // A new path scrolls to the top and moves focus to the page heading.
+  // A new path scrolls to the top and moves focus to the page heading. A loading placeholder heading
+  // (data-m-placeholder) is replaced once the library arrives, so focus follows to the real <h1>.
   useEffect(() => {
     if (!available) return
     const previous = previousPath.current
     previousPath.current = route.path
     if (previous === null || previous === route.path) return
     window.scrollTo(0, 0)
-    const heading = document.querySelector('.m-main h1')
-    if (heading) { heading.setAttribute('tabindex', '-1'); heading.focus({ preventScroll: true }) }
+    const focusHeading = () => {
+      const heading = document.querySelector('.m-main h1')
+      if (!heading) return false
+      heading.setAttribute('tabindex', '-1'); heading.focus({ preventScroll: true })
+      return !heading.hasAttribute('data-m-placeholder')
+    }
+    const main = document.querySelector('.m-main')
+    if (focusHeading() || !main) return
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement
+      if (active && active !== document.body && !active.hasAttribute('data-m-placeholder')) { observer.disconnect(); return }
+      if (focusHeading()) observer.disconnect()
+    })
+    observer.observe(main, { childList: true, subtree: true })
+    return () => observer.disconnect()
   }, [available, route.path])
 
   if (!available) return <div className="m-shell" />
@@ -102,7 +117,7 @@ export default function ModernShell({ config, onConfigSaved, layout, onLayoutCha
     {phone && <Icon name={tab.icon} weight={section === tab.id ? 'fill' : 'regular'} />}<span>{tab.label}</span>
   </a>
 
-  return <LibraryProvider><div className={`m-shell${phone ? ' is-phone' : ''}`}>
+  return <SheetClassContext.Provider value="m-sheet"><LibraryProvider><div className={`m-shell${phone ? ' is-phone' : ''}`}>
     {!phone && <header className={`m-topbar${hero && !offline.length ? ' is-overlay' : ''}`}>
       <a className="m-brand" href="#/downloads"><img src="/arrview-icon.svg" alt="" width="28" height="28" /><span>ArrView</span></a>
       <nav className="m-topnav" aria-label="Main navigation">{navTabs.map(link)}</nav>
@@ -114,5 +129,5 @@ export default function ModernShell({ config, onConfigSaved, layout, onLayoutCha
     <div className="toast-container" aria-live="polite" aria-atomic="false">
       {toasts.map(t => <div key={t.id} className={`toast toast-${t.type}`}>{t.message}</div>)}
     </div>
-  </div></LibraryProvider>
+  </div></LibraryProvider></SheetClassContext.Provider>
 }

@@ -428,6 +428,76 @@ test('the neutral focus ring also covers reused Downloads controls on wide scree
   const css = await page.evaluate(async () => [...document.styleSheets].flatMap(sheet => [...sheet.cssRules]).map(rule => rule.cssText).filter(text => text.startsWith('.m-shell :focus-visible')))
   expect(css.length).toBe(1)
 })
+// Tab through the open dialog with the keyboard and report each focused control's focus ring colour.
+async function dialogRingColours(page) {
+  const colours = []
+  const count = Math.min(await page.getByRole('dialog').locator('button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href]').count(), 4)
+  expect(count).toBeGreaterThan(1)
+  let key = 'Tab'
+  for (let i = 0; i < count; i++) {
+    await page.keyboard.press(key)
+    if (!await page.evaluate(() => document.activeElement.closest('dialog') !== null)) { key = 'Shift+Tab'; await page.keyboard.press(key) }
+    const info = await page.evaluate(() => ({ inDialog: document.activeElement.closest('dialog') !== null, tag: document.activeElement.tagName, color: getComputedStyle(document.activeElement).outlineColor, style: getComputedStyle(document.activeElement).outlineStyle }))
+    if (!info.inDialog) break
+    colours.push(info)
+  }
+  expect(colours.length).toBeGreaterThan(0)
+  return colours
+}
+test('sheets opened from Modern use the neutral focus ring; Classic sheets stay cyan (criterion 30)', async ({ page }) => {
+  await open(page, '/shows/1')
+  await page.getByRole('button', { name: 'More actions for ' + SHOW }).click()
+  await expect(page.getByRole('dialog').getByText('Remove series from Sonarr?')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveClass(/m-sheet/)
+  let colours = await dialogRingColours(page)
+  expect(colours.some(c => c.tag === 'BUTTON')).toBe(true)
+  for (const c of colours) { expect(c.style).toBe('solid'); expect(c.color).toBe(TEXT); expect(c.color).not.toBe(LIVE) }
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await open(page, '/shows')
+  await page.getByRole('button', { name: 'Add Show', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  colours = await dialogRingColours(page)
+  // Text fields in the Add sheet draw a border instead of an outline; any outline that is drawn must be neutral.
+  for (const c of colours) { if (c.style !== 'none') expect(c.color).toBe(TEXT); expect(c.color).not.toBe(LIVE) }
+  expect(colours.some(c => c.style === 'solid')).toBe(true)
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => localStorage.setItem('arrview.ui.v1.layout', '"classic"'))
+  await page.reload()
+  await page.getByRole('button', { name: 'Movies', exact: true }).click()
+  await page.getByRole('button', { name: '+ Add Movie', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('dialog')).not.toHaveClass(/m-sheet/)
+  colours = await dialogRingColours(page)
+  expect(colours.some(c => c.color === LIVE)).toBe(true)
+  for (const c of colours) if (c.style === 'solid') expect(c.color).toBe(LIVE)
+})
+test('the active phone tab uses the fill icon and inactive tabs the regular one (criterion 8)', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 402, height: 800 }, hasTouch: true, isMobile: true, ignoreHTTPSErrors: true })
+  const page = await context.newPage()
+  const iconPath = name => page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name, exact: true }).locator('svg path').getAttribute('d')
+  await open(page, '/shows')
+  const showsActive = await iconPath('Shows'); const moviesInactive = await iconPath('Movies')
+  await open(page, '/movies')
+  const showsInactive = await iconPath('Shows'); const moviesActive = await iconPath('Movies')
+  expect(showsActive).not.toBe(showsInactive)
+  expect(moviesActive).not.toBe(moviesInactive)
+  await context.close()
+})
+test('a deep link to a show or movie before the library loads ends with focus on the real <h1> (criterion 31)', async ({ page }) => {
+  for (const [kind, api, title, hash] of [['shows', 'sonarr/series', SHOW, '/shows/1'], ['movies', 'radarr/movies', MOVIE, '/movies/2']]) {
+    await open(page, '/downloads')
+    let release
+    const gate = new Promise(resolve => { release = resolve })
+    await page.route(`**/api/${api}`, async route => { await gate; await route.continue() })
+    await page.evaluate(h => { window.location.hash = h }, hash)
+    await expect(page.getByText(kind === 'shows' ? 'Loading show…' : 'Loading movie…')).toBeVisible()
+    release()
+    await expect(heading(page)).toHaveText(title)
+    await expect.poll(() => page.evaluate(() => document.activeElement === document.querySelector('.m-main h1'))).toBe(true)
+    await page.unroute(`**/api/${api}`)
+  }
+})
 test('Add buttons open the existing modals (criterion 9)', async ({ page }) => {
   await open(page, '/shows')
   await page.getByRole('button', { name: 'Add Show', exact: true }).click()
