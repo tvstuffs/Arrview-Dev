@@ -7,6 +7,33 @@ const css = fs.readFileSync(path.join(root, 'src/components/modern/modern.css'),
 const rules = []
 for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) rules.push({ selector: m[1].trim(), body: m[2] })
 
+// The only nonzero border allowed anywhere: the sheet form fields restore their hairline border on keyboard focus.
+const SHEET_FIELD_SELECTOR = '.m-sheet.m-sheet input:focus-visible, .m-sheet.m-sheet select:focus-visible, .m-sheet.m-sheet textarea:focus-visible'
+const SHEET_FIELD_BORDER = 'border-color: var(--hair-2)'
+function parseRules(source) {
+  return [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({ selector: m[1].trim().replace(/\s+/g, ' '), body: m[2] }))
+}
+function borderViolations(list) {
+  const bad = []
+  for (const { selector, body } of list) {
+    for (const decl of body.split(';')) {
+      const match = /^\s*border(?!-radius)[\w-]*\s*:\s*(.*)$/.exec(decl)
+      if (!match) continue
+      if (/^(0|none)$/.test(match[1].trim())) continue
+      if (selector === SHEET_FIELD_SELECTOR && decl.trim().replace(/\s+/g, ' ') === SHEET_FIELD_BORDER) continue
+      bad.push(`${selector} { ${decl.trim()} }`)
+    }
+  }
+  return bad
+}
+
+test('the border guard rejects a focus-visible border on a tile and allows only the sheet-field rule', () => {
+  expect(borderViolations(parseRules('.m-tile:focus-visible { border: 1px solid red; }'))).toHaveLength(1)
+  expect(borderViolations(parseRules('.m-tile:focus-visible { border-color: var(--hair-2); }'))).toHaveLength(1)
+  expect(borderViolations(parseRules('.m-shell :focus-visible { border-color: var(--hair-2); }'))).toHaveLength(1)
+  expect(borderViolations(parseRules(`${SHEET_FIELD_SELECTOR} { outline: 2px solid var(--text); border-color: var(--hair-2); }`))).toEqual([])
+  expect(borderViolations(parseRules(`${SHEET_FIELD_SELECTOR} { border: 1px solid red; }`))).toHaveLength(1)
+})
 test('Modern CSS never references the live colour and has no light colour scheme (criteria 11, 33)', () => {
   expect(css).not.toMatch(/--live/)
   expect(css).not.toMatch(/prefers-color-scheme/)
@@ -33,12 +60,8 @@ test('gradients appear only as scrims and masks over artwork, boxes only on the 
   for (const { selector, body } of rules) {
     if (/gradient/.test(body)) expect(gradientOk, `gradient in ${selector}`).toContain(selector)
     if (/box-shadow/.test(body)) expect(shadowOk, `box-shadow in ${selector}`).toContain(selector)
-    if (/:focus-visible/.test(selector)) continue
-    for (const decl of body.split(';')) {
-      const match = /^\s*border(?!-radius)[\w-]*\s*:\s*(.*)$/.exec(decl)
-      if (match) expect(match[1].trim(), `border in ${selector}`).toMatch(/^(0|none)$/)
-    }
   }
+  expect(borderViolations(rules)).toEqual([])
   const bar = rules.find(r => r.selector === '.m-tilebar span')
   expect(bar.body).not.toMatch(/gradient/)
 })
