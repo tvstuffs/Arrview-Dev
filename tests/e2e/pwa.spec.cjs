@@ -30,7 +30,7 @@ test('manifest, icons, mutable headers and backward-compatible identity', async 
   expect(manifest.icons.find(icon => icon.purpose === 'maskable').sizes).toBe('512x512')
   expect((await request.get('/sw.js')).headers()['cache-control']).toBe('no-cache')
   const identity = await (await request.get('/api/arrview/identify')).json()
-  expect(identity).toMatchObject({ app: 'arrview', version: APP_VERSION, capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit'], services: { sonarr: true, radarr: true, sabnzbd: true, nzbhydra: true } })
+  expect(identity).toMatchObject({ app: 'arrview', version: APP_VERSION, capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit', 'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar'], services: { sonarr: true, radarr: true, sabnzbd: true, nzbhydra: true } })
 })
 
 test('HTTPS worker controls page, caches only shell and never API reads or writes', async ({ page, context }) => {

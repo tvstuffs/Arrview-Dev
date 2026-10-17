@@ -121,6 +121,35 @@ intentionally not migrated and were not tried against a real config; a key of on
 non-ASCII letters is refused by design; a key typed as a space plus the bullet mask is
 stored literally (the optional guard is not built).
 
+### Web redesign routes (server only, no web UI change)
+
+- New `GET /api/sonarr/queue` and `GET /api/radarr/queue`: bounded (first 100 records),
+  allowlisted proxies of the upstream queues with the series, episode or movie embedded.
+  `downloadId` is passed through verbatim so a client can match SABnzbd slots exactly.
+- New `GET /api/radarr/calendar?start&end`: same window rule as the Sonarr calendar (at
+  most 32 days). The server keeps only movies whose digital or physical release falls in
+  the window (cinema dates never qualify) and returns an allowlist, at most 500 movies.
+- Additive: `GET /api/sonarr/series/:id/episodes` also sends `includeImages=true` and
+  `GET /api/sonarr/calendar` also sends `includeEpisodeImages=true` (responses stay
+  pass-through).
+- `GET /api/arrview/identify` capabilities gain `sonarrQueue`, `radarrQueue`,
+  `episodeStills`, `calendarStills` and `radarrCalendar`. The version label is unchanged.
+
+Human verification (not covered by the automated tests, which use a fake upstream):
+
+- With a live Sonarr and Radarr and an active SABnzbd download, confirm each queue
+  record's `downloadId` equals the matching SABnzbd slot's `nzo_id` exactly, including
+  case. Unverified assumption: the services report SABnzbd's `nzo_id` verbatim
+  (expected shape `SABnzbd_nzo_` plus random characters).
+- Confirm `images[].url` values load artwork as they do for the existing series and
+  movie routes (copied unchanged from upstream, often relative `/MediaCover/...`).
+- Confirm the installed versions honour `includeImages` (Sonarr episodes),
+  `includeEpisodeImages` (Sonarr calendar) and `includeMovie` (Radarr queue), and
+  whether `physicalReleaseNote` is present on Radarr calendar movies.
+- Compare the Radarr calendar for a month with known digital and physical dates against
+  Radarr's own calendar.
+- Confirm iOS proxy-mode episode lists and the web Shows and Upcoming tabs still work.
+
 ## 1.10.1 — 2026-09-19 — Web parity W2: mobile layout and lifecycle
 
 Completes W2's nine areas in the container development repo. Version 1.10.1 leaves

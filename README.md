@@ -37,7 +37,7 @@ npm start
 
 On first launch you'll be taken to the **Configuration page**. Enter the server URL and API key for each service you want to monitor, test each connection, then click **Save & Open Dashboard**.
 
-Settings are saved to `config.json` (gitignored). You can re-open settings any time via the ⚙️ button in the top bar.
+Settings are saved to `config.json` (gitignored). You can re-open them any time from **Settings**: the gear in the header on phones, or the navigation on wider screens.
 
 ---
 
@@ -522,6 +522,75 @@ visible; W2 hidden/resume rules still apply. Load more increases history by 15,
 up to 1000. Settings lists configured services (not a connectivity claim; use
 Test to verify). Movie presentation joins the existing browser-local preferences.
 Human release checks are in CHANGELOG 1.10.2; native apps and Core are unchanged.
+
+## Web redesign routes
+
+Server routes for the art-led web redesign. They exist only in this proxy server
+(Direct-mode clients bypass it). Clients detect support from the `capabilities`
+strings in `GET /api/arrview/identify`.
+
+| Route | Capability |
+| --- | --- |
+| `GET /api/sonarr/queue` | `sonarrQueue` |
+| `GET /api/radarr/queue` | `radarrQueue` |
+| `GET /api/sonarr/series/:id/episodes` (adds `includeImages=true`) | `episodeStills` |
+| `GET /api/sonarr/calendar` (adds `includeEpisodeImages=true`) | `calendarStills` |
+| `GET /api/radarr/calendar?start&end` | `radarrCalendar` |
+
+### Queue: `GET /api/sonarr/queue`, `GET /api/radarr/queue`
+
+Takes no parameters (client query parameters are ignored). The server requests the
+first page of 100 records from the service (`includeSeries` and `includeEpisode` for
+Sonarr, `includeMovie` for Radarr) with a 10 second timeout, a 4 MiB response limit,
+no redirects and strict JSON. The response is
+`{ page, pageSize, totalRecords, records }`; `totalRecords` larger than
+`records.length` means the list is truncated at 100.
+
+Each record holds only: `id`, `title`, `status`, `size`, `sizeleft`, `timeleft`,
+`estimatedCompletionTime`, `trackedDownloadStatus`, `trackedDownloadState`,
+`downloadId`, `quality` (`{ name }` or `null`), and either `seriesId`, `episodeId`,
+`series` (`{ id, title, year, images }`) and `episode` (`{ id, seasonNumber,
+episodeNumber, title, airDateUtc }`) or `movieId` and `movie` (`{ id, title, year,
+images }`). Embedded items are `null` when the service has none. `images` holds at
+most the first poster and the first fanart as `{ coverType, url, remoteUrl }`. No
+filesystem paths, download client, indexer, overview or authentication material is
+returned.
+
+`downloadId` is passed through verbatim as a string, or `null` when absent, empty or
+not a string. It is never trimmed or case-folded, so an exact comparison with
+SABnzbd's `nzo_id` is the only matching rule a client should use.
+
+Errors return only `{ error: 'Sonarr queue unavailable' }` or
+`{ error: 'Radarr queue unavailable' }`: an invalid upstream page gives 502, an
+upstream 404 gives 502, other upstream 4xx and 5xx statuses are kept, anything else
+(connection failure, oversize or malformed body, redirect, service not configured)
+gives 503.
+
+### Radarr calendar: `GET /api/radarr/calendar?start&end`
+
+Validated like the Sonarr calendar: `start` and `end` must each be one parseable
+value, `end` after `start`, at most 32 days, otherwise 400 before any upstream call.
+The server calls Radarr with the normalised ISO bounds and `unmonitored=false`.
+
+**The server filters release types.** Radarr returns a movie when any of its dates
+(cinema included) is in the window, so the server keeps a movie only when its
+`digitalRelease` or `physicalRelease` falls inside the window (both bounds
+inclusive). Movies with only a cinema date in the window, or with absent or
+unparseable dates, are dropped; order is preserved and at most 500 movies are
+returned. `inCinemas` is still returned but is informational and must not be shown
+as a release date.
+
+Each movie holds only `id`, `title`, `year`, `monitored`, `hasFile`, `isAvailable`,
+`status`, `inCinemas`, `digitalRelease`, `physicalRelease`, `physicalReleaseNote` and
+`images` (as above). Fields missing upstream are `null`. Limits and errors are as for
+the queue routes, with the message `Radarr calendar unavailable` (a non-array upstream
+body gives 502).
+
+### Additive image parameters
+
+`GET /api/sonarr/series/:id/episodes` now also sends `includeImages=true`, and
+`GET /api/sonarr/calendar` also sends `includeEpisodeImages=true`. Both responses
+stay pass-through; episodes simply carry their `images` when the service supports it.
 
 ## Credits
 

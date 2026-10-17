@@ -296,7 +296,8 @@ app.get('/api/arrview/identify', (req, res) => {
   res.json({
     app: 'arrview',
     version: APP_VERSION,
-    capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit'],
+    capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit',
+      'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar'],
     services,
   });
 });
@@ -539,21 +540,120 @@ app.get('/api/sonarr/series', async (req, res) => {
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
-// Bound calendar requests and include series in one upstream call (no N+1).
-app.get('/api/sonarr/calendar', async (req, res) => {
-  const { start, end } = req.query;
+// Shared calendar window rule: both bounds are single parseable strings, end is
+// after start, and the interval is at most 32 days. Returns null when invalid.
+function parseCalendarWindow(query) {
+  const { start, end } = query;
   const startTime = typeof start === 'string' ? Date.parse(start) : NaN;
   const endTime = typeof end === 'string' ? Date.parse(end) : NaN;
   if (!Number.isFinite(startTime) || !Number.isFinite(endTime) ||
-      endTime <= startTime || endTime - startTime > 32 * 86400000) {
+      endTime <= startTime || endTime - startTime > 32 * 86400000) return null;
+  return { startTime, endTime };
+}
+
+// Poster and fanart (first of each, upstream order), reduced to url fields.
+function pickPosterFanart(images) {
+  if (!Array.isArray(images)) return [];
+  const picked = [];
+  let poster = false, fanart = false;
+  for (const image of images) {
+    if (!image || typeof image !== 'object') continue;
+    if (image.coverType === 'poster' && !poster) poster = true;
+    else if (image.coverType === 'fanart' && !fanart) fanart = true;
+    else continue;
+    picked.push({ coverType: image.coverType, url: image.url, remoteUrl: image.remoteUrl });
+  }
+  return picked;
+}
+
+// Sonarr/Radarr queue proxies: bounded page, allowlisted records, and a fixed
+// error message. downloadId is passed through verbatim for exact matching.
+const QUEUE_PAGE_SIZE = 100;
+
+function queueEnvelopeValid(queue) {
+  return !!queue && typeof queue === 'object' && !Array.isArray(queue) &&
+    queue.page === 1 && Number.isSafeInteger(queue.pageSize) &&
+    queue.pageSize >= 1 && queue.pageSize <= QUEUE_PAGE_SIZE &&
+    Number.isSafeInteger(queue.totalRecords) && queue.totalRecords >= 0 &&
+    Array.isArray(queue.records) && queue.records.length <= queue.pageSize &&
+    queue.records.every(record => record && typeof record === 'object');
+}
+
+function queueCommon(record) {
+  const qualityName = record.quality?.quality?.name;
+  return {
+    id: record.id,
+    title: record.title,
+    status: record.status,
+    size: record.size,
+    sizeleft: record.sizeleft,
+    timeleft: record.timeleft,
+    estimatedCompletionTime: record.estimatedCompletionTime,
+    trackedDownloadStatus: record.trackedDownloadStatus,
+    trackedDownloadState: record.trackedDownloadState,
+    downloadId: typeof record.downloadId === 'string' && record.downloadId !== '' ? record.downloadId : null,
+    quality: qualityName === undefined || qualityName === null ? null : { name: qualityName },
+  };
+}
+
+function sendQueueError(res, error, message) {
+  // Never expose an axios error/config, upstream paths or authentication material.
+  const code = error.response?.status;
+  // A 404 from the service is an upstream failure, not a missing ArrView route.
+  res.status(code === 404 ? 502 : (code >= 400 && code <= 599 ? code : 503)).json({ error: message });
+}
+
+async function fetchQueue({ baseUrl, headers }, includeParams) {
+  const response = await axios.get(`${baseUrl.replace(/\/+$/, '')}/api/v3/queue`, {
+    headers,
+    params: { page: 1, pageSize: QUEUE_PAGE_SIZE, ...includeParams },
+    timeout: 10000,
+    maxContentLength: 4 * 1024 * 1024,
+    maxRedirects: 0,
+    responseType: 'json',
+    transitional: { silentJSONParsing: false },
+  });
+  return response.data;
+}
+
+app.get('/api/sonarr/queue', async (req, res) => {
+  const message = 'Sonarr queue unavailable';
+  try {
+    const queue = await fetchQueue(sonarrHeaders(), { includeSeries: true, includeEpisode: true });
+    if (!queueEnvelopeValid(queue)) return res.status(502).json({ error: message });
+    // Deliberate allowlist: no filesystem paths, download client, indexer or overviews.
+    const records = queue.records.map(record => {
+      const { series, episode } = record;
+      return {
+        ...queueCommon(record),
+        seriesId: record.seriesId,
+        episodeId: record.episodeId,
+        series: series && typeof series === 'object' ? {
+          id: series.id, title: series.title, year: series.year, images: pickPosterFanart(series.images),
+        } : null,
+        episode: episode && typeof episode === 'object' ? {
+          id: episode.id, seasonNumber: episode.seasonNumber, episodeNumber: episode.episodeNumber,
+          title: episode.title, airDateUtc: episode.airDateUtc,
+        } : null,
+      };
+    });
+    res.json({ page: 1, pageSize: queue.pageSize, totalRecords: queue.totalRecords, records });
+  } catch (error) { sendQueueError(res, error, message); }
+});
+
+// Bound calendar requests and include series in one upstream call (no N+1).
+app.get('/api/sonarr/calendar', async (req, res) => {
+  const window = parseCalendarWindow(req.query);
+  if (!window) {
     return res.status(400).json({ error: 'Provide a valid start/end interval of at most 32 days' });
   }
+  const { startTime, endTime } = window;
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl.replace(/\/$/, '')}/api/v3/calendar`, {
       headers,
       params: { start: new Date(startTime).toISOString(), end: new Date(endTime).toISOString(),
-        includeSeries: true, unmonitored: false },
+        includeSeries: true, includeEpisodeImages: true, unmonitored: false },
       timeout: 15000,
     });
     res.json(r.data);
@@ -565,7 +665,7 @@ app.get('/api/sonarr/series/:id/episodes', async (req, res) => {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/episode`, {
       headers,
-      params: { seriesId: req.params.id },
+      params: { seriesId: req.params.id, includeImages: true },
       timeout: 15000,
     });
     res.json(r.data);
@@ -779,6 +879,74 @@ app.get('/api/radarr/movies', async (req, res) => {
     const r = await axios.get(`${baseUrl}/api/v3/movie`, { headers, timeout: 15000 });
     res.json(r.data);
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
+});
+
+app.get('/api/radarr/queue', async (req, res) => {
+  const message = 'Radarr queue unavailable';
+  try {
+    const queue = await fetchQueue(radarrHeaders(), { includeMovie: true });
+    if (!queueEnvelopeValid(queue)) return res.status(502).json({ error: message });
+    // Deliberate allowlist: no filesystem paths, download client, indexer or overviews.
+    const records = queue.records.map(record => {
+      const movie = record.movie;
+      return {
+        ...queueCommon(record),
+        movieId: record.movieId,
+        movie: movie && typeof movie === 'object' ? {
+          id: movie.id, title: movie.title, year: movie.year, images: pickPosterFanart(movie.images),
+        } : null,
+      };
+    });
+    res.json({ page: 1, pageSize: queue.pageSize, totalRecords: queue.totalRecords, records });
+  } catch (error) { sendQueueError(res, error, message); }
+});
+
+// Digital and physical releases only. Radarr returns a movie when any of its
+// dates (cinema included) is in the window, so the server applies the product
+// rule once for every client: keep a movie only if its digital or physical
+// release falls inside the validated window (inclusive).
+const RADARR_CALENDAR_LIMIT = 500;
+app.get('/api/radarr/calendar', async (req, res) => {
+  const window = parseCalendarWindow(req.query);
+  if (!window) {
+    return res.status(400).json({ error: 'Provide a valid start/end interval of at most 32 days' });
+  }
+  const { startTime, endTime } = window;
+  const message = 'Radarr calendar unavailable';
+  try {
+    const { baseUrl, headers } = radarrHeaders();
+    const response = await axios.get(`${baseUrl.replace(/\/+$/, '')}/api/v3/calendar`, {
+      headers,
+      params: { start: new Date(startTime).toISOString(), end: new Date(endTime).toISOString(), unmonitored: false },
+      timeout: 10000,
+      maxContentLength: 4 * 1024 * 1024,
+      maxRedirects: 0,
+      responseType: 'json',
+      transitional: { silentJSONParsing: false },
+    });
+    if (!Array.isArray(response.data)) return res.status(502).json({ error: message });
+    const inWindow = value => {
+      const time = typeof value === 'string' ? Date.parse(value) : NaN;
+      return time >= startTime && time <= endTime;
+    };
+    const movies = [];
+    for (const movie of response.data) {
+      if (movies.length >= RADARR_CALENDAR_LIMIT) break;
+      if (!movie || typeof movie !== 'object') continue;
+      if (!inWindow(movie.digitalRelease) && !inWindow(movie.physicalRelease)) continue;
+      // Deliberate allowlist: no filesystem paths, overviews, ratings or external ids.
+      movies.push({
+        id: movie.id ?? null, title: movie.title ?? null, year: movie.year ?? null,
+        monitored: movie.monitored ?? null, hasFile: movie.hasFile ?? null,
+        isAvailable: movie.isAvailable ?? null, status: movie.status ?? null,
+        inCinemas: movie.inCinemas ?? null, digitalRelease: movie.digitalRelease ?? null,
+        physicalRelease: movie.physicalRelease ?? null,
+        physicalReleaseNote: movie.physicalReleaseNote ?? null,
+        images: pickPosterFanart(movie.images),
+      });
+    }
+    res.json(movies);
+  } catch (error) { sendQueueError(res, error, message); }
 });
 
 // Widget metadata must never fetch the full movie library. Radarr's paged

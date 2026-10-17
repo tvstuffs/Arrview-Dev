@@ -240,7 +240,8 @@ test('no ARRVIEW_* variables leaves behaviour unchanged (criterion 18)', async t
   const identify = await (await fetch(s.base + '/api/arrview/identify')).json();
   assert.deepEqual(identify, {
     app: 'arrview', version: APP_VERSION,
-    capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit'],
+    capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit',
+      'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar'],
     services: { sabnzbd: true, sonarr: true, radarr: true, nzbhydra: true },
   });
   assert.deepEqual((await s.getConfig()).envManaged, allManaged());
