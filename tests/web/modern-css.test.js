@@ -65,6 +65,14 @@ test('gradients appear only as scrims and masks over artwork, boxes only on the 
   const bar = rules.find(r => r.selector === '.m-tilebar span')
   expect(bar.body).not.toMatch(/gradient/)
 })
+test('overlay Download is compact and filled, and the overlay appears without a fade so no button is clickable half-visible (rework 2)', () => {
+  expect(rules.find(r => r.selector === '.m-overlay').body).not.toMatch(/transition/)
+  const download = rules.find(r => r.selector.startsWith('.m-overlay .btn-attn,'))
+  expect(download.body).toMatch(/flex:\s*0 0 auto/)
+  expect(download.body).toMatch(/border:\s*0/)
+  expect(download.body).toMatch(/background:\s*var\(--attn\)/)
+  expect(css).not.toMatch(/\.m-overlay \.btn-attn\s*\{[^}]*100%/)
+})
 test('tiles, rows and bars carry no outlines other than the focus ring (criterion 11)', () => {
   for (const { selector, body } of rules) {
     if (/:focus-visible/.test(selector)) continue
