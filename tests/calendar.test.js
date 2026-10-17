@@ -52,6 +52,7 @@ test('calendar proxy contract', async (t) => {
     assert.equal(lastRequest.key, 'fixture-only');
     assert.equal(lastRequest.url.searchParams.get('includeSeries'), 'true');
     assert.equal(lastRequest.url.searchParams.get('unmonitored'), 'false');
+    assert.equal(lastRequest.url.searchParams.get('includeEpisodeImages'), 'true');
     assert.equal(lastRequest.url.searchParams.get('start'), '2026-09-13T00:00:00.000Z');
     assert.equal(lastRequest.url.searchParams.get('end'), '2026-09-28T00:00:00.000Z');
   });
