@@ -80,7 +80,7 @@ test('every mutating fetch in src/ sends Content-Type: application/json', () => 
   const calls = walk(SRC).flatMap(scan)
   const offenders = calls.filter(c => !c.ok).map(c => `${c.file}:${c.line}`)
   expect(offenders).toEqual([])
-  for (const name of ['actions.js', 'DownloadsTab.jsx', 'ShowsTab.jsx', 'MoviesTab.jsx', 'ConfigPage.jsx']) {
+  for (const name of ['actions.js', 'DownloadsTab.jsx', 'useMediaActions.js', 'ConfigPage.jsx']) {
     expect(calls.some(c => path.basename(c.file) === name), `no mutating call found in ${name}`).toBe(true)
   }
 })

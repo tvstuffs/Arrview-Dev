@@ -2,11 +2,11 @@ import { Poster, MonitorToggle } from './MediaControls'
 import Icon from './Icon.jsx'
 import { useState, useCallback, useEffect } from 'react'
 import './ShowsTab.css'
-import ConfirmSheet from './ConfirmSheet'
-import { useCommandPolling } from '../hooks/useCommandPolling'
-import { deleteAndUnmonitor, checkedFetch } from '../actions'
+import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from './MediaSheets'
+import { useMediaActions } from '../hooks/useMediaActions'
 import { usePreference, textPreference, oneOf, idList } from '../hooks/usePreference'
 import { useServerEvents, useVisiblePolling } from '../hooks/lifecycle'
+import { mainSeasonCounts } from '../media'
 import AddMediaModal from './AddMediaModal.jsx'
 import EpisodeSearchModal from './EpisodeSearchModal.jsx'
 
@@ -16,33 +16,13 @@ const STATUS_BADGE = {
   upcoming:   'badge-muted',
 }
 
-// Sum episode counts from main seasons only (exclude season 0 / specials)
-function mainSeasonCounts(show) {
-  const seasons = (show.seasons || []).filter(s => s.seasonNumber > 0)
-  if (seasons.length > 0) {
-    const total  = seasons.reduce((n, s) => n + (s.statistics?.totalEpisodeCount || 0), 0)
-    const onDisk = seasons.reduce((n, s) => n + (s.statistics?.episodeFileCount  || 0), 0)
-    return { total, onDisk }
-  }
-  // Fallback: use show-level stats (no season breakdown available)
-  const stats = show.statistics || {}
-  return { total: stats.totalEpisodeCount || 0, onDisk: stats.episodeFileCount || 0 }
-}
-
-
-
-function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted, onRefresh }) {
+function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDelete, onRefresh }) {
   const [showInfo, setShowInfo]         = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const downloaded = ep.hasFile
   const airDate = ep.airDateUtc ? new Date(ep.airDateUtc) : null
   const hasAired = airDate && airDate < new Date()
   const isMissing = !downloaded && hasAired
-
-  async function handleDelete() {
-    try { await deleteAndUnmonitor([ep]); onDeleted() }
-    catch (error) { onDeleted(error.message); throw error }
-  }
 
   return (
     <div className={`episode-row-wrap ${isMissing ? 'episode-missing' : downloaded ? 'episode-downloaded' : ''}`}>
@@ -84,9 +64,7 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted, onRefresh })
           )}
         </div>
       </div>
-      {confirmDelete && <ConfirmSheet title="Delete episode file?"
-        description={`Delete “${ep.title}” from disk and unmonitor it in Sonarr. The episode stays in your library.`}
-        actions={[{ label: 'Delete and Unmonitor', run: handleDelete }]}
+      {confirmDelete && <EpisodeDeleteSheet ep={ep} onDelete={() => onDelete(ep)}
         onClose={() => { setConfirmDelete(false); onRefresh() }} />}
       {showInfo && ep.overview && (
         <div className="ep-overview">{ep.overview}</div>
@@ -96,7 +74,7 @@ function EpisodeRow({ ep, onSearch, onInteractiveSearch, onDeleted, onRefresh })
 }
 
 function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, onToggle }) {
-  const pollCommand = useCommandPolling()
+  const actions = useMediaActions(onToast)
   const [expandedSeasons, setExpandedSeasons] = usePreference(`show.${show.id}.seasons`, [], idList)
   const [episodes, setEpisodes] = useState(null)
   const [loadingEps, setLoadingEps] = useState(false)
@@ -132,71 +110,15 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
 
   async function searchMissing() {
     setSearching(true)
-    try {
-      const r = await fetch('/api/sonarr/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'SeriesSearch', seriesId: show.id }),
-      })
-      const data = await r.json()
-      if (data.error) throw new Error(data.error)
-      onToast(`Searching all missing episodes of "${show.title}"…`, 'info')
-      pollCommand(data.id, (status, result) => {
-        if (status === 'completed' && result === 'successful') {
-          onToast(`Search complete for "${show.title}" — check downloads`, 'success')
-        } else if (status === 'completed' && result === 'skipped') {
-          onToast(`Search skipped for "${show.title}" (no indexer results)`, 'info')
-        } else if (status === 'failed' || result === 'unsuccessful') {
-          onToast(`Search failed for "${show.title}"`, 'error')
-        } else if (status === 'timeout') {
-          onToast(`"${show.title}" search is taking a while — check Sonarr`, 'info')
-        }
-      })
-    } catch (e) {
-      onToast(`Search failed: ${e.message}`, 'error')
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  async function searchEpisode(episodeId) {
-    try {
-      const r = await fetch('/api/sonarr/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'EpisodeSearch', episodeIds: [episodeId] }),
-      })
-      const data = await r.json()
-      if (data.error) throw new Error(data.error)
-      onToast('Episode search queued…', 'info')
-      pollCommand(data.id, (status, result) => {
-        if (status === 'completed' && result === 'successful') {
-          onToast('Episode search completed — check downloads', 'success')
-        } else if (status === 'completed' && result === 'skipped') {
-          onToast('Episode search skipped (no indexers returned results)', 'info')
-        } else if (status === 'failed' || result === 'unsuccessful') {
-          onToast('Episode search failed — no results found', 'error')
-        } else if (status === 'timeout') {
-          onToast('Episode search is taking a while — check Sonarr for status', 'info')
-        }
-      })
-    } catch (e) {
-      onToast(`Search failed: ${e.message}`, 'error')
-    }
+    try { await actions.searchSeries(show) } finally { setSearching(false) }
   }
 
   async function deleteSeasonFiles(sn) {
-    const eps = (episodes || []).filter(e => e.seasonNumber === sn && e.hasFile)
-    if (!eps.length) throw new Error('No downloaded files remain. Check episode monitoring in Sonarr.')
-    try {
-      await deleteAndUnmonitor(eps)
-      onToast(`Season ${sn}: files deleted and episodes unmonitored in Sonarr`, 'info')
-    } finally { await fetchEpisodes() }
+    try { await actions.deleteSeasonFiles(sn, episodes) } finally { await fetchEpisodes() }
   }
 
   async function removeSeries(deleteFiles) {
-    await checkedFetch(`/api/sonarr/series/${show.id}?deleteFiles=${deleteFiles}`, { method: 'DELETE' })
-    onToast(`“${show.title}” removed from Sonarr${deleteFiles ? ' and files deleted' : '; files kept'}`, 'info')
+    await actions.removeSeries(show, deleteFiles)
     onRemoved()
   }
 
@@ -276,14 +198,9 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
         <span className={`expand-icon ${expanded ? "open" : ""}`} aria-hidden="true"><Icon name="caret-down" /></span>
       </div>
 
-      {confirmRemoveSeries && <ConfirmSheet title="Remove series from Sonarr?"
-        description={`“${show.title}” will leave Sonarr. Choose whether to keep its files or delete them from disk.`}
-        actions={[{ label: 'Remove from Sonarr — Keep Files', run: () => removeSeries(false) },
-          { label: 'Delete and Remove from Sonarr', run: () => removeSeries(true) }]}
+      {confirmRemoveSeries && <RemoveSeriesSheet show={show} onRemove={removeSeries}
         onClose={() => setConfirmRemoveSeries(false)} />}
-      {confirmSeasonDelete !== null && <ConfirmSheet title={`Delete Season ${confirmSeasonDelete} files?`}
-        description={`Delete downloaded Season ${confirmSeasonDelete} files of “${show.title}” and unmonitor those episodes in Sonarr. The series stays in your library.`}
-        actions={[{ label: 'Delete and Unmonitor', run: () => deleteSeasonFiles(confirmSeasonDelete) }]}
+      {confirmSeasonDelete !== null && <SeasonDeleteSheet show={show} season={confirmSeasonDelete} onDelete={deleteSeasonFiles}
         onClose={() => { setConfirmSeasonDelete(null); fetchEpisodes() }} />}
       {expanded && (
         <div className="show-episodes">
@@ -312,33 +229,12 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
                     {missingCount > 0 && (
                       <button
                         className="btn btn-attn btn-xs"
-                        onClick={async e => {
+                        onClick={e => {
                           e.stopPropagation()
                           const ids = eps
                             .filter(e => !e.hasFile && e.airDateUtc && new Date(e.airDateUtc) < new Date())
                             .map(e => e.id)
-                          if (!ids.length) return
-                          try {
-                            const r = await fetch('/api/sonarr/command', {
-                              method:'POST',
-                              headers:{'Content-Type':'application/json'},
-                              body: JSON.stringify({name:'EpisodeSearch', episodeIds: ids}),
-                            })
-                            const data = await r.json()
-                            if (data.error) throw new Error(data.error)
-                            onToast(`Searching ${ids.length} missing episodes in S${sn}…`, 'info')
-                            pollCommand(data.id, (status, result) => {
-                              if (status === 'completed' && result === 'successful') {
-                                onToast(`S${sn} search complete — check downloads`, 'success')
-                              } else if (status === 'failed' || result === 'unsuccessful') {
-                                onToast(`S${sn} search failed — no results found`, 'error')
-                              } else if (status === 'timeout') {
-                                onToast(`S${sn} search is taking a while — check Sonarr`, 'info')
-                              }
-                            })
-                          } catch(e) {
-                            onToast(`Failed: ${e.message}`, 'error')
-                          }
+                          actions.searchSeason(sn, ids)
                         }}
                       >
                         Search {missingCount} Missing
@@ -355,13 +251,10 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
                     <EpisodeRow
                       key={ep.id}
                       ep={ep}
-                      onSearch={searchEpisode}
+                      onSearch={actions.searchEpisode}
                       onInteractiveSearch={setInteractiveEp}
                       onRefresh={fetchEpisodes}
-                      onDeleted={err => {
-                        if (err) onToast(`Delete failed: ${err}`, 'error')
-                        else { onToast('Episode deleted and unmonitored', 'info'); fetchEpisodes() }
-                      }}
+                      onDelete={async episode => { await actions.deleteEpisode(episode); fetchEpisodes() }}
                     />
                   ))}
                 </div>

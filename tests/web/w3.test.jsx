@@ -81,6 +81,26 @@ test('history load more increases limit and disappears at total', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
   await screen.findByText('Item 15'); expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
 })
+test('Classic Movies view toggle reads List / Posters / Small posters and Small keeps non-link tiles (criteria 25, 26)', async () => {
+  vi.stubGlobal('fetch', vi.fn(async url => reply(url.includes('identify') ? { version: '1.9A1' } : [
+    { id: 1, title: 'Tile movie', year: 2024, studio: 'Studio', hasFile: false, monitored: true, isAvailable: true },
+  ])))
+  const { container } = render(<MoviesTab onToast={() => {}} />); await screen.findByText('Tile movie')
+  const group = screen.getByLabelText('Movie view')
+  expect([...group.querySelectorAll('button')].map(b => b.textContent)).toEqual(['List', 'Posters', 'Small posters'])
+  fireEvent.click(screen.getByRole('button', { name: 'Small posters', exact: true }))
+  expect(localStorage.getItem('arrview.ui.v1.movies.view')).toBe('"small"')
+  expect(container.querySelector('.movies-grid.movies-small')).not.toBeNull()
+  const tile = container.querySelector('.movie-tile')
+  expect(tile).toHaveAttribute('title', 'Tile movie')
+  expect(tile.querySelector('a')).toBeNull()
+  const hash = window.location.hash
+  fireEvent.click(tile.querySelector('.tile-art'))
+  expect(window.location.hash).toBe(hash)
+  fireEvent.click(screen.getByRole('button', { name: 'Posters', exact: true }))
+  expect(container.querySelector('.movies-grid.movies-posters .movie-tile')).not.toHaveAttribute('title')
+  expect(container.querySelector('.movie-tile a')).toBeNull()
+})
 test('recently downloaded sorts by file import date, view persists, legacy removal is explained', async () => {
   vi.stubGlobal('fetch', vi.fn(async url => reply(url.includes('identify') ? { version: '1.07' } : [
     { id: 1, title: 'Older import', hasFile: true, movieFile: { id: 10, dateAdded: '2020-01-01' } },

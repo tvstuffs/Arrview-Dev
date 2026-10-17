@@ -81,6 +81,7 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
             ref={inputRef}
             className="nzb-search-input"
             type="text"
+            aria-label="Search for something to download"
             placeholder="Search for something to download…"
             value={query}
             autoFocus

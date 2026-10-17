@@ -32,6 +32,7 @@ function route(url) {
 }
 beforeEach(() => {
   localStorage.clear()
+  localStorage.setItem('arrview.ui.v1.layout', '"classic"')
   Object.defineProperty(document, 'hidden', { configurable: true, value: false })
   vi.stubGlobal('fetch', vi.fn(async url => route(String(url))))
 })

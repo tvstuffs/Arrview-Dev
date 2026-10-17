@@ -143,3 +143,18 @@
 @media (max-width: 639px) {
   .movies-grid.movies-posters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 8px; }
 }
+
+/* Small posters: roughly twice the columns; title and sub-line stay for assistive tech only. */
+.movies-grid.movies-small {
+  grid-template-columns: repeat(auto-fill, minmax(min(84px, 100%), 1fr));
+  gap: 12px 8px;
+}
+.movies-small .tile-title, .movies-small .tile-sub {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.movies-small .tile-art .media-poster { font-size: 22px; }
+.movies-small .tile-badge { display: none; }
+@media (max-width: 639px) {
+  .movies-grid.movies-small { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 6px; }
+  .movies-small .tile-actions-row { display: flex; flex-wrap: wrap; justify-content: center; }
+}

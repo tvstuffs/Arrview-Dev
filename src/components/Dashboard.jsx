@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Icon from './Icon.jsx'
 import UpcomingTab from './UpcomingTab'
 import DownloadsTab from './DownloadsTab.jsx'
@@ -6,64 +6,39 @@ import ShowsTab from './ShowsTab.jsx'
 import MoviesTab from './MoviesTab.jsx'
 import ConfigPage from './ConfigPage.jsx'
 import NzbSearchModal from './NzbSearchModal.jsx'
+import ModernShell from './modern/ModernShell.jsx'
 import { usePreference, oneOf } from '../hooks/usePreference'
-import { ServerEventsProvider, useVisiblePolling } from '../hooks/lifecycle'
+import { ServerEventsProvider } from '../hooks/lifecycle'
+import { usePhone } from '../hooks/usePhone'
+import { useServiceStatus, SERVICE_LABELS as labels } from '../hooks/useServiceStatus'
+import { TABS, LAYOUTS, availableTabs } from '../sections'
 import './Dashboard.css'
 
-const TABS = [
-  { id: 'downloads', label: 'Downloads', icon: 'tray-arrow-down', service: 'sabnzbd' },
-  { id: 'shows', label: 'Shows', icon: 'television-simple', service: 'sonarr' },
-  { id: 'upcoming', label: 'Upcoming', icon: 'calendar-dots', service: 'sonarr' },
-  { id: 'movies', label: 'Movies', icon: 'film-slate', service: 'radarr' },
-  { id: 'search', label: 'Search', icon: 'magnifying-glass', service: 'nzbhydra' },
-  { id: 'settings', label: 'Settings', icon: 'gear-six' },
-]
-const labels = { sabnzbd: 'SABnzbd', nzbhydra: 'NZBHydra', sonarr: 'Sonarr', radarr: 'Radarr' }
-const PHONE_QUERY = '(max-width: 639px)'
-
-// True below 640 px: the bottom bar drops Settings and the header gear takes over.
-function usePhone() {
-  const read = () => typeof window.matchMedia === 'function' && window.matchMedia(PHONE_QUERY).matches === true
-  const [phone, setPhone] = useState(read)
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined
-    const query = window.matchMedia(PHONE_QUERY)
-    const update = () => setPhone(query.matches === true)
-    update()
-    query.addEventListener?.('change', update)
-    return () => query.removeEventListener?.('change', update)
-  }, [])
-  return phone
-}
-
+// The `layout` preference picks the shell; the shared `tab` preference records the current section.
 export default function Dashboard(props) {
-  return <ServerEventsProvider><DashboardContent {...props} /></ServerEventsProvider>
+  const [layout, setLayout] = usePreference('layout', 'modern', oneOf(LAYOUTS))
+  const Shell = layout === 'classic' ? ClassicShell : ModernShell
+  return <ServerEventsProvider><Shell key={layout} {...props} layout={layout} onLayoutChange={setLayout} /></ServerEventsProvider>
 }
-function DashboardContent({ config, onConfigSaved }) {
+
+function ClassicShell({ config, onConfigSaved, layout, onLayoutChange }) {
   const [savedTab, setActiveTab] = usePreference('tab', 'downloads', oneOf(TABS.map(tab => tab.id)))
-  const tabs = TABS.filter(tab => !tab.service || (config[tab.service]?.url && config[tab.service]?.apikey))
+  const tabs = availableTabs(config)
   const activeTab = tabs.some(tab => tab.id === savedTab) ? savedTab : tabs[0].id
   const previousTab = useRef(activeTab === 'settings' ? tabs[0].id : activeTab)
   const [selectedShow, setSelectedShow] = useState(null)
-  const [serviceStatus, setServiceStatus] = useState({})
   const [toasts, setToasts] = useState([])
   const phone = usePhone()
+  const { status: serviceStatus } = useServiceStatus(config)
   const navTabs = phone ? tabs.filter(tab => tab.id !== 'settings') : tabs
+  // Classic ignores hash routes: drop a stale Modern URL so a reload does not re-enter it.
+  useEffect(() => { if (window.location.hash) window.history.replaceState(null, '', window.location.pathname + window.location.search) }, [])
   function navigate(tab) { if (activeTab !== 'settings') previousTab.current = activeTab; setActiveTab(tab) }
   function addToast(message, type = 'info') {
     const id = `${Date.now()}-${Math.random()}`
     setToasts(prev => [...prev, { id, message, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
   }
-  const checkServices = useCallback(async () => {
-    const checks = {}
-    await Promise.allSettled(Object.keys(labels).filter(svc => config[svc]?.url && config[svc]?.apikey).map(async svc => {
-      try { checks[svc] = (await fetch(`/api/${svc}/ping`)).ok ? 'online' : 'offline' }
-      catch { checks[svc] = 'offline' }
-    }))
-    setServiceStatus(checks)
-  }, [config])
-  useVisiblePolling(checkServices, 60000, true, config)
   function returnFromSettings() { setActiveTab(previousTab.current === 'settings' ? tabs[0].id : previousTab.current) }
 
   return <div className="dashboard">
@@ -94,6 +69,7 @@ function DashboardContent({ config, onConfigSaved }) {
     </nav>
     <main className="dashboard-content">
       {activeTab === 'settings' && <ConfigPage initialConfig={config} onBack={returnFromSettings}
+        layout={layout} onLayoutChange={onLayoutChange}
         onSave={next => { onConfigSaved(next); returnFromSettings() }} />}
       {activeTab === 'downloads' && <DownloadsTab onToast={addToast} canSearch={Boolean(config.nzbhydra)} />}
       {activeTab === 'upcoming' && <UpcomingTab onShow={id => { setSelectedShow(id); navigate('shows') }} />}

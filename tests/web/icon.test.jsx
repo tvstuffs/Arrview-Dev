@@ -20,15 +20,21 @@ test('Icon fill weight differs from regular where a fill glyph exists and falls 
   const trash = weight => render(<Icon name="trash" weight={weight} />).container.querySelector('path').getAttribute('d')
   expect(trash('fill')).toBe(trash('regular'))
 })
+test('the Modern layout icons are defined in regular weight', () => {
+  for (const name of ['plus', 'dots-three', 'squares-four', 'grid-nine', 'list']) {
+    expect(ICON_NAMES).toContain(name)
+    expect(render(<Icon name={name} />).container.querySelector('path').getAttribute('d')).toMatch(/^M/)
+  }
+})
 test('unknown icon names render nothing', () => {
   const { container } = render(<Icon name="no-such-icon" />)
   expect(container).toBeEmptyDOMElement()
 })
 test('every exported name renders and every name used in the app resolves', () => {
   for (const name of ICON_NAMES) expect(render(<Icon name={name} />).container.querySelector('svg')).not.toBeNull()
-  const dir = path.resolve(__dirname, '../../src/components')
+  const base = path.resolve(__dirname, '../../src/components')
   const used = new Set()
-  for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.jsx'))) {
+  for (const [dir, file] of [base, path.join(base, 'modern')].flatMap(d => fs.readdirSync(d).filter(f => f.endsWith('.jsx')).map(f => [d, f]))) {
     const source = fs.readFileSync(path.join(dir, file), 'utf8')
     for (const m of source.matchAll(/<Icon name="([a-z-]+)"/g)) used.add(m[1])
     for (const m of source.matchAll(/<Icon name=\{([^}]*)\}/g)) for (const q of m[1].matchAll(/'([a-z-]+)'/g)) used.add(q[1])

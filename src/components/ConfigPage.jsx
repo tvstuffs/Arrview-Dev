@@ -129,7 +129,7 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
   )
 }
 
-export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
+export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout, onLayoutChange, hideHeader = false }) {
   const [config, setConfig] = useState(() => ({
     sabnzbd:  { url: '', apikey: '', ...initialConfig.sabnzbd  },
     nzbhydra: { url: '', apikey: '', ...initialConfig.nzbhydra },
@@ -231,14 +231,21 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack }) {
   return (
     <div className="config-page">
       <div className="config-container">
-        <header className="config-header">
+        {!hideHeader && <header className="config-header">
           <img className="config-logo" src="/arrview-icon.svg" alt="ArrView" width="72" height="72" />
           <h1>ArrView</h1>
           <p className="text-secondary">
             Configure your media server connections to get started.
             Enter the URL and API key for each service you want to monitor.
           </p>
-        </header>
+        </header>}
+
+        {layout && onLayoutChange && <fieldset className="layout-choice">
+          <legend>Layout</legend>
+          {[['modern', 'Modern'], ['classic', 'Classic']].map(([value, label]) => <label key={value}>
+            <input type="radio" name="layout" value={value} checked={layout === value} onChange={() => onLayoutChange(value)} /> {label}
+          </label>)}
+        </fieldset>}
 
         <section className="card" aria-label="Service checklist"><h2>Services</h2>
           <p className="text-muted">Configured connections (use Test below to verify connectivity).</p>

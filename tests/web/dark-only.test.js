@@ -15,6 +15,11 @@ function walk(dir, out = []) {
 }
 const sources = [...walk('src'), 'index.html', 'public/offline.html', 'public/offline.css', 'public/offline.js', 'vite.config.js']
 
+test('the scanned sources cover the Modern components and the shared media helpers', () => {
+  for (const file of ['src/media.js', 'src/sections.js', 'src/components/modern/ModernShell.jsx', 'src/components/modern/ShowPage.jsx',
+    'src/components/modern/MoviePage.jsx', 'src/components/modern/modern.css', 'src/components/MediaSheets.jsx']) expect(sources, file).toContain(file)
+})
+
 const CANVAS = '#0b0b0c'
 const INTER_SHA256 = '693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3'
 const INTER_LICENSE_SHA256 = '262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a'
