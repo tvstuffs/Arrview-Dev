@@ -72,7 +72,7 @@ test('release search: warning on error, question on empty, protocol icons with l
   view.unmount()
 
   const release = (guid, protocol, extra = {}) => ({ guid, title: `Release ${guid}`, protocol, indexer: 'Idx', approved: true, rejections: [], ...extra })
-  vi.stubGlobal('fetch', vi.fn(async () => reply([release('a', 'usenet'), release('b', 'torrent', { seeders: 12 })])))
+  vi.stubGlobal('fetch', vi.fn(async () => reply([release('a', 'usenet'), release('b', 'torrent', { seeders: 12 }), release('c', 'usenet', { approved: false, rejections: ['Not an upgrade', 'Too small'] })])))
   view = render(<ReleaseSearchModal episode={episode} seriesTitle="Show" onClose={() => {}} onToast={() => {}} />)
   await screen.findByText('Release a')
   const badge = label => [...document.body.querySelectorAll('.badge')].find(b => b.textContent === label)
@@ -82,6 +82,9 @@ test('release search: warning on error, question on empty, protocol icons with l
   expect(seeders).toHaveTextContent('12')
   expect(seeders.querySelector('path').getAttribute('d')).toBe(pathOf('arrow-up', 'regular'))
   expect(seeders.textContent).not.toMatch(/[←-⇿]/)
+  const rejection = document.body.querySelector('.release-rejection')
+  expect(rejection).toHaveTextContent('Not an upgrade +1')
+  expect(rejection.querySelector('svg path').getAttribute('d')).toBe(warning)
 })
 
 test('NZB search: warning on error, question on no results', async () => {

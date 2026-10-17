@@ -219,7 +219,7 @@ function ReleaseRow({ release, grabbing, grabbed, onGrab, rejected }) {
           )}
           {rejections.length > 0 && (
             <span className="release-rejection" title={rejections.join(' · ')}>
-              {rejections[0]}{rejections.length > 1 ? ` +${rejections.length - 1}` : ''}
+              <Icon name="warning" />{rejections[0]}{rejections.length > 1 ? ` +${rejections.length - 1}` : ''}
             </span>
           )}
         </div>

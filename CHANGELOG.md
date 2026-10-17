@@ -10,9 +10,13 @@
   - Inter 4.1 (variable, SIL OFL 1.1) is self-hosted under `public/fonts/inter/` and added
     to the service-worker precache, so it renders offline. No third-party font request.
   - Phosphor icons (2.1.1, MIT, licence in `licenses/`) as inline SVG replace every emoji
-    and glyph icon. Icon-only buttons keep their accessible names; a few gain a `title`.
-    Where no matching Phosphor icon is bundled, the episode-description button uses a caret,
-    error states show text only, and protocol markers read "Usenet" and "Torrent".
+    and glyph icon; no emoji or symbol glyphs remain. Icon-only buttons keep their
+    accessible names; a few gain a `title`. The episode-description button uses `info`
+    (filled while open), error states and release rejections use `warning`, empty states
+    use `question`, release protocol badges use `newspaper` (Usenet) and `plant` (Torrent)
+    beside the text, and seeders show `arrow-up` with the count. The episode status badge
+    now reads "Downloaded" with a check icon. The Monitor toggle keeps one width in its
+    idle and "Saving…" states, so the row no longer shifts.
   - New neutral dark tokens replace the GitHub-style palette. Cyan is for live activity
     and focus only, amber for missing items and Search Missing actions, red for
     destructive actions. Progress fills are solid; there are no glows. Primary buttons

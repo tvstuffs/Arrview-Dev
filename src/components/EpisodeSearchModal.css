@@ -116,3 +116,4 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.release-rejection > svg { vertical-align: -2px; margin-right: 4px; }
