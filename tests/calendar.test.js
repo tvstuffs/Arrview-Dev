@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const express = require('express');
+const APP_VERSION = require('./helpers/app-version');
 
 test('calendar proxy contract', async (t) => {
   let lastRequest;
@@ -42,7 +43,7 @@ test('calendar proxy contract', async (t) => {
   const base = `http://127.0.0.1:${server.address().port}`;
   const interval = '?start=2026-09-13T00:00:00Z&end=2026-09-28T00:00:00Z';
   await t.test('version identifies calendar-capable server', async () => {
-    assert.equal((await (await fetch(base + '/api/arrview/identify')).json()).version, '1.10.2');
+    assert.equal((await (await fetch(base + '/api/arrview/identify')).json()).version, APP_VERSION);
   });
   await t.test('forwards window, key, embedded series and monitored-only policy', async () => {
     const response = await fetch(base + '/api/sonarr/calendar' + interval);

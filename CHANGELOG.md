@@ -1,7 +1,18 @@
 # ArrView server development changelog
 
-## Unreleased — Docker environment seeding, masked keys, safer saves
+## 1.9A1 (unreleased) — Docker environment seeding, masked keys, safer saves
 
+- **Version 1.9A1.** This build starts the pre-2.0 track. Each build increments the A
+  number (1.9A2, 1.9A3, …) until 2.0. The label is display text, and it sorts below
+  1.10.2 if compared as numbers, so clients must detect features through the
+  `capabilities` list in `GET /api/arrview/identify`, never by comparing versions.
+  ArrView's own clients only display the version. Tests read the label from `server.js`
+  (`tests/helpers/app-version.js`), so a bump is a one-line change.
+  - *Human check:* Settings shows "ArrView v1.9A1", and `GET /api/health` and
+    `GET /api/arrview/identify` report `1.9A1`. An iOS app in ArrView Server (proxy) mode
+    still connects and shows the version (shipped 1.0 and the current Dev build). Direct
+    mode doesn't read the server version. Not verified: a running Docker image and real
+    iOS/tvOS devices.
 - Services can be configured from container environment variables
   (`ARRVIEW_HOST`, `ARRVIEW_<SVC>_API_KEY` / `_API_KEY_FILE`, `ARRVIEW_<SVC>_URL`).
   A service with both a key and an address is env-managed: applied on every read,

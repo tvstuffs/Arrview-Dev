@@ -13,7 +13,10 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // Canonical user-facing app version. Surfaced in the Settings page and the
 // /api/arrview/identify endpoint (the iOS app reads it from there).
-const APP_VERSION = '1.10.2';
+// Pre-2.0 track: each build increments the A number (1.9A1, 1.9A2, ...). The label
+// is display text; clients detect features through `capabilities`, never by
+// comparing versions (1.9A1 sorts below 1.10.2 as numbers).
+const APP_VERSION = '1.9A1';
 
 app.use(express.json());
 // Mutating API calls must declare a JSON body. Without this guard a request

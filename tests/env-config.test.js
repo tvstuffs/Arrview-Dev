@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { startUpstream, startServer } = require('./helpers/server-harness');
+const APP_VERSION = require('./helpers/app-version');
 
 const KEY = 'env-fixture-secret-key';
 const stored = port => ({
@@ -238,7 +239,7 @@ test('no ARRVIEW_* variables leaves behaviour unchanged (criterion 18)', async t
   assert.deepEqual(s.logs.filter(l => l.startsWith('[config]')), []);
   const identify = await (await fetch(s.base + '/api/arrview/identify')).json();
   assert.deepEqual(identify, {
-    app: 'arrview', version: '1.10.2',
+    app: 'arrview', version: APP_VERSION,
     capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit'],
     services: { sabnzbd: true, sonarr: true, radarr: true, nzbhydra: true },
   });
