@@ -4,7 +4,7 @@ import Icon from '../Icon.jsx'
 // Artwork with an ordered fallback chain. `srcs` holds already-validated URLs (see artUrl in media.js).
 // A load error advances to the next URL; only an exhausted (or empty) list shows the placeholder.
 export default function ArtImage({ srcs = [], className = '', width, height, eager = false, ambient = false, icon = 'film-slate' }) {
-  const list = srcs.filter(Boolean)
+  const list = [...new Set(srcs.filter(Boolean))]
   const key = list.join('\n')
   const [failure, setFailure] = useState({ key, count: 0 })
   const index = failure.key === key ? failure.count : 0

@@ -16,6 +16,8 @@ test('the neutral focus ring rule is declared with the text colour (D29)', () =>
   const rule = rules.find(r => r.selector === '.m-shell :focus-visible')
   expect(rule).toBeDefined()
   expect(rule.body).toMatch(/outline:\s*2px solid var\(--text\)/)
+  const fields = rules.find(r => r.selector.startsWith('.m-shell.m-shell input:focus-visible'))
+  expect(fields.body).toMatch(/outline:\s*2px solid var\(--text\)/)
 })
 test('every selector is prefixed m- (Classic CSS stays untouched)', () => {
   for (const { selector } of rules) {
@@ -41,7 +43,7 @@ test('gradients appear only as scrims and masks over artwork, boxes only on the 
 })
 test('tiles, rows and bars carry no outlines other than the focus ring (criterion 11)', () => {
   for (const { selector, body } of rules) {
-    if (selector === '.m-shell :focus-visible') continue
+    if (/:focus-visible/.test(selector)) continue
     expect(body, selector).not.toMatch(/outline\s*:\s*[1-9]/)
   }
 })

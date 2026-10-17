@@ -167,6 +167,12 @@ test('ArtImage restarts the chain when its sources change', () => {
   view.rerender(<ArtImage srcs={[null, undefined]} />)
   expect(view.container.querySelector('img')).toBeNull()
 })
+test('ArtImage skips duplicate URLs so a failing image reaches the placeholder', () => {
+  const view = render(<ArtImage srcs={['https://a.invalid/1.jpg', 'https://a.invalid/1.jpg']} />)
+  fireEvent.error(view.container.querySelector('img'))
+  expect(view.container.querySelector('img')).toBeNull()
+  expect(view.container.querySelector('.m-art-empty')).not.toBeNull()
+})
 test('hero actions: Search Missing only when missing, Monitored toggle, Open in Sonarr only with url and slug (criterion 18)', async () => {
   const fetchMock = stubFetch({ '/api/sonarr/command': () => reply({ id: 7 }), '/api/sonarr/series/1': (url, init) => init?.method === 'PUT' ? reply({}) : reply(url.includes('/episodes') ? episodes : series) })
   const toast = vi.fn(); detail('1', toast)

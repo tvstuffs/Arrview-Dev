@@ -1,4 +1,8 @@
 const { test, expect } = require('@playwright/test')
+const { seedClassic } = require('./classic.cjs')
+
+// Everything in this file exercises the Classic layout.
+test.beforeEach(({ context }) => seedClassic(context))
 
 async function fit(page, root = 'body') {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -25,6 +29,7 @@ async function close(page) { await page.getByRole('button', { name: 'Close dialo
 for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1024, 1280]) {
   test(`all tabs and sheets fit ${width}px touch viewport`, async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true, colorScheme: 'dark' })
+    await seedClassic(context)
     const page = await context.newPage()
     await page.goto('https://localhost:18778')
     await expect(page.getByText('Bytes history')).toBeVisible()
@@ -65,6 +70,8 @@ for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1024, 1280]) {
     await tab(page, 'Movies'); await expect(page.getByText('Fixture Movie with a long descriptive title')).toBeVisible(); await fit(page)
     await page.getByRole('button', { name: 'Interactive Search', exact: true }).click(); await expect(page.getByText('Fixture.Show.S01E02.1080p.Long.Release.Name')).toBeVisible(); await fit(page, 'dialog'); await close(page)
     await page.getByRole('button', { name: 'Delete Fixture Movie with a long descriptive title' }).click(); await fit(page, 'dialog'); await close(page)
+    await page.getByRole('button', { name: 'Small posters', exact: true }).click(); await fit(page)
+    await expect(page.getByRole('button', { name: 'Small posters', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await page.getByRole('button', { name: 'Posters', exact: true }).click(); await fit(page)
     // Poster wall actions stay reachable and at least 44 px on touch and phones.
     for (const name of ['Download', 'Interactive Search', 'Monitored: Fixture Movie with a long descriptive title', 'Delete Fixture Movie with a long descriptive title']) {
@@ -85,6 +92,7 @@ for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1024, 1280]) {
 for (const width of [320, 1024]) {
   test(`monitor toggle keeps one width, centred content and 44 px touch size while saving (${width}px)`, async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true, colorScheme: 'dark' })
+    await seedClassic(context)
     const page = await context.newPage()
     await page.goto('https://localhost:18778')
     await expect(page.getByText('Bytes history')).toBeVisible()
@@ -215,6 +223,7 @@ test('removed services cannot leave a restored tab blank', async ({ page }) => {
 test('sidebar at 1024 and 1280, horizontal bar at 834, bottom bar with five tabs below 640', async ({ browser }) => {
   for (const [width, layout] of [[1024, 'sidebar'], [1280, 'sidebar'], [834, 'bar'], [640, 'bar'], [390, 'bottom']]) {
     const context = await browser.newContext({ viewport: { width, height: 800 }, ignoreHTTPSErrors: true })
+    await seedClassic(context)
     const page = await context.newPage()
     await page.goto('https://localhost:18778')
     await expect(page.getByText('Bytes history')).toBeVisible()
@@ -237,6 +246,7 @@ test('sidebar at 1024 and 1280, horizontal bar at 834, bottom bar with five tabs
 
 test('phone bar shows only the available non-Settings tabs when a service is missing', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 800 }, ignoreHTTPSErrors: true })
+  await seedClassic(context)
   const page = await context.newPage()
   await page.route('**/api/config', route => route.fulfill({ json: { sonarr: { url: 'http://example.invalid', apikey: 'fixture' } } }))
   await page.goto('https://localhost:18778')

@@ -12,6 +12,8 @@
 }
 /* Neutral focus ring inside the shell (specificity above the global rule, which stays for Classic). */
 .m-shell :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+/* Form fields: the global text-input focus rule is more specific than the line above. */
+.m-shell.m-shell input:focus-visible, .m-shell.m-shell select:focus-visible, .m-shell.m-shell textarea:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .m-shell h1:focus-visible { outline: none; }
 .m-shell h1:focus { outline: none; }
 .m-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

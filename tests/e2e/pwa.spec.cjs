@@ -1,6 +1,10 @@
 const { test, expect } = require('@playwright/test')
 const sharp = require('sharp')
 const APP_VERSION = require('../helpers/app-version')
+const { seedClassic } = require('./classic.cjs')
+
+// The PWA coverage drives the Classic layout (Modern is the default for new installs).
+test.beforeEach(({ context }) => seedClassic(context))
 
 // Below 640 px Settings is the header gear; from 640 px up it is in the navigation.
 async function openSettings(page) {
@@ -119,6 +123,7 @@ test('settings save keeps active tab and does not reload document', async ({ pag
 for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1280]) {
   test(`W1 install-help and offline layout at ${width}px`, async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true })
+    await seedClassic(context)
     const page = await context.newPage()
     await page.goto('https://localhost:18778/')
     await openSettings(page)
@@ -148,6 +153,7 @@ for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1280]) {
 
 test('insecure HTTP has no worker and explains Android shortcut', async ({ browser }) => {
   const context = await browser.newContext({ userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/130 Mobile' })
+  await seedClassic(context)
   const page = await context.newPage()
   await page.goto('http://arrview.test:18779')
   expect(await page.evaluate(() => window.isSecureContext)).toBe(false)

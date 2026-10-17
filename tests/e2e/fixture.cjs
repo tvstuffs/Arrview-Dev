@@ -26,12 +26,12 @@ const upstream = http.createServer((req, res) => {
   if (url.pathname.endsWith('/rootfolder')) return res.end(JSON.stringify([{ path: '/media/library' }]))
   if (url.pathname.endsWith('/release')) return res.end(JSON.stringify([{ guid: 'r1', title: 'Fixture.Show.S01E02.1080p.Long.Release.Name', size: 1073741824, ageHours: 3, indexer: 'Fixture indexer', approved: true, quality: { quality: { name: 'HDTV-1080p' } } }, { guid: 'r2', title: 'Fixture.Show.S01E02.Rejected.Release', size: 2147483648, ageHours: 6, indexer: 'Another indexer', approved: false, rejections: ['Quality is not wanted in this profile'] }]))
   if (url.pathname.endsWith('/episode')) return res.end(JSON.stringify([
-    { id: 11, seriesId: 1, seasonNumber: 1, episodeNumber: 1, title: 'Downloaded episode with a long descriptive title', overview: 'Episode description for an accessible information control.', hasFile: true, episodeFileId: 101, airDateUtc: '2020-01-01T00:00:00Z' },
-    { id: 12, seriesId: 1, seasonNumber: 1, episodeNumber: 2, title: 'Missing episode with a long title', overview: 'Another episode description.', hasFile: false, airDateUtc: '2020-01-02T00:00:00Z' },
+    { id: 11, seriesId: 1, seasonNumber: 1, episodeNumber: 1, title: 'Downloaded episode with a long descriptive title', overview: 'Episode description for an accessible information control.', hasFile: true, episodeFileId: 101, airDateUtc: '2020-01-01T00:00:00Z', runtime: 42, images: [{ coverType: 'screenshot', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }] },
+    { id: 12, seriesId: 1, seasonNumber: 1, episodeNumber: 2, title: 'Missing episode with a long title', overview: 'Another episode description.', hasFile: false, airDateUtc: '2020-01-02T00:00:00Z', images: [{ coverType: 'screenshot', remoteUrl: 'https://localhost:18778/__fixture/broken.png' }] },
     { id: 13, seriesId: 1, seasonNumber: 1, episodeNumber: 3, title: 'Upcoming episode', hasFile: false, airDateUtc: '2099-01-01T00:00:00Z' },
   ]))
-  if (url.pathname.endsWith('/series')) return res.end(JSON.stringify([{ id: 1, title: 'Fixture Show with a long title', titleSlug: 'fixture-show', year: 2024, network: 'Fixture Network', images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], status: 'continuing', seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 1 } }] }]))
-  if (url.pathname.endsWith('/movie')) return res.end(JSON.stringify([{ id: 2, title: 'Fixture Movie with a long descriptive title', year: 2024, studio: 'Fixture Studio', images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], monitored: true, isAvailable: true, hasFile: false, overview: 'A movie description to verify wrapping and action controls.' }]))
+  if (url.pathname.endsWith('/series')) return res.end(JSON.stringify([{ id: 1, title: 'Fixture Show with a long title', titleSlug: 'fixture-show', year: 2024, network: 'Fixture Network', genres: ['Drama', 'Mystery', 'Thriller', 'Comedy'], overview: 'A fixture overview that is long enough to need clamping when it is shown in the hero on any screen size. It keeps going so that three lines are never enough for it, and says nothing real.', monitored: true, images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }, { coverType: 'fanart', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], status: 'continuing', seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 1 } }] }]))
+  if (url.pathname.endsWith('/movie')) return res.end(JSON.stringify([{ id: 2, title: 'Fixture Movie with a long descriptive title', year: 2024, studio: 'Fixture Studio', images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }, { coverType: 'fanart', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], monitored: true, isAvailable: true, hasFile: false, overview: 'A movie description to verify wrapping and action controls.' }]))
   if (url.searchParams.get('t') === 'search') return res.end(JSON.stringify({ channel: { item: [{ title: 'A lengthy fixture NZB result title', guid: 'nzb1', link: 'https://example.invalid/fixture.nzb', size: 1073741824 }] } }))
   if (url.pathname.includes('/command')) return res.end(JSON.stringify({ id: 99, status: 'completed', result: 'successful' }))
   res.end(JSON.stringify({ version: '4.0', caps: { server: { title: 'fixture' } } }))
@@ -42,6 +42,7 @@ upstream.listen(0, '127.0.0.1', () => {
   fs.writeFileSync(path.join(root, 'config.json'), JSON.stringify(config))
   const app = express()
   let workerRevision = 0
+  app.get('/__fixture/broken.png', (req, res) => res.sendStatus(404))
   app.get('/__fixture/requests', (req, res) => res.json(requests))
   app.post('/__fixture/reset-requests', (req, res) => { requests = []; res.sendStatus(204) })
   app.post('/__fixture/update-worker', (req, res) => { workerRevision += 1; res.sendStatus(204) })

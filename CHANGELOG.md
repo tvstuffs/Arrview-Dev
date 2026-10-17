@@ -1,5 +1,93 @@
 # ArrView server development changelog
 
+## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
+
+### Modern layout (factory job 003)
+
+- **Web client only.** No server, dependency, service-worker or version change.
+  - **Modern is the new default layout; Classic stays as an option.** Settings has a
+    "Layout" choice (Modern or Classic). It applies at once, is remembered on the
+    device (`layout` preference) and does not need Save. Switching keeps the section you
+    are in (a show or movie page opens its Shows or Movies tab in Classic).
+  - **Hash routes.** `#/downloads`, `#/shows`, `#/shows/<id>`, `#/upcoming`, `#/movies`,
+    `#/movies/<id>`, `#/search` and `#/settings`. Links, the browser Back and Forward
+    buttons, reload and deep links all work. An empty or unknown address is replaced
+    (no extra history entry); a missing id shows a "Not found" page with a link back.
+  - **Navigation.** A top bar from 640 px (brand, five links, Settings gear) and a
+    five-link bottom bar on phones with the Settings gear in the page header. The bar is
+    translucent over a show or movie page. Focus moves to the page heading when the page
+    changes.
+  - **A banner instead of service pills.** "Can't reach Sonarr" (or Radarr, SABnzbd,
+    NZBHydra) with Retry and a Settings link, shown on the pages that depend on that
+    service, one strip per offline service. It never shows before the first check.
+  - **Shows and Movies libraries** with Large posters, Small posters and List views
+    (remembered per section in `shows.view` and `movies.view`), meta line, filter
+    chips, sort, search, an amber missing count and, for movies, Download All Missing.
+    Unmonitored titles read "Unmonitored" with a grey poster; movies that are not out
+    yet show their next digital or physical date.
+  - **Show page** (hero, up to three genres, progress, Search Missing, Monitored, Open in
+    Sonarr, a More button for removal) with season chips, per-season search and delete,
+    and episode rows with stills, runtime, status and the existing episode actions.
+  - **Movie page** (poster, status or file line, Download, Interactive Search, Monitored,
+    Delete…). Movie tiles show their actions on hover or keyboard focus where the pointer
+    can hover; touch devices open the page instead.
+  - **Classic gains one thing:** the Movies view toggle reads List, Posters and Small
+    posters (stored `movies.view = small`). Classic is otherwise unchanged.
+  - The Modern shell reuses Downloads, Upcoming, Search and Settings as they are (jobs
+    004 and 005 restyle Downloads and Upcoming); a visually hidden "Downloads" heading
+    gives that page its `<h1>`. The Search field gained an accessible name.
+  - The focus ring inside the Modern shell is neutral (light) rather than cyan; cyan is
+    kept for live activity.
+  - Artwork uses the smallest suitable TMDB size (tiles `w342`, show and movie pages
+    `w780`/`w1280`) and falls back from a failing image to the next candidate and then to
+    a placeholder.
+  - Internal: search and removal code shared by both layouts moved to
+    `src/hooks/useMediaActions.js` and `src/components/MediaSheets.jsx` with the toast and
+    sheet wording unchanged; pure helpers are in `src/media.js`. The Phosphor icons
+    `plus`, `dots-three`, `squares-four`, `grid-nine` and `list` were added.
+
+#### Human test plan
+
+1. Open the web app on a desktop with no stored layout (a fresh browser profile or after
+   clearing site data). Check: it opens the Modern layout at `#/downloads`; Settings
+   shows "Layout" with Modern selected.
+2. In Settings choose Classic. Check: the Classic layout appears at once, Settings stays
+   open, and a reload keeps Classic. Choose Modern again.
+3. From Shows open a show, then from Movies open a movie. Use the browser Back and
+   Forward buttons and reload on each page. Open `#/shows/<id>` in a new tab.
+4. Stop Sonarr (or give ArrView a wrong Sonarr address), reload Shows. Check: one
+   "Can't reach Sonarr" strip with Retry and Settings; Movies shows no strip. Start Sonarr
+   again and press Retry: the strip disappears.
+5. On Shows and Movies switch between Large posters, Small posters and List, reload, and
+   check each choice is remembered per section.
+6. Open a show with several seasons. Check hero art, the season chips (newest first),
+   "Search N Missing", episode stills and runtimes, and the Downloaded, Missing and
+   Upcoming episode states.
+7. Open the movie page of a missing movie and of a movie with a file. Check the status
+   line, the Download button only for the missing one, and that Delete… offers the same
+   options as before.
+8. In Movies (Large) hover a tile and Tab through it. Check Download, Interactive Search,
+   Monitored and Delete appear over the poster.
+9. In Classic Movies choose Small posters and check the tiles are about half as wide
+   with no visible titles.
+10. Resize to 640 px and 639 px (or use a phone): top bar at 640, bottom bar at 639.
+
+Human checks that automated tests cannot judge:
+
+- Hero feathering, and that the artwork never collides with the title on real artwork
+  (try bright, dark and busy backdrops, at about 1024 px and 1440 px).
+- How the desaturated stills (missing episodes) and greyscale posters look.
+- Amber (missing) and cyan (live) restraint across all screens; the translucent top bar
+  over a bright backdrop.
+- Feel of the tile hover overlay on a real desktop.
+- Safe areas (bottom bar, Settings gear, the round back and gear buttons) on a real
+  iPhone, including landscape.
+- A live Sonarr and Radarr run: real episode stills and runtimes appear (the fixture
+  stills are local images; the real Sonarr `images` shape for episodes is unverified from
+  this repo alone), and real `digitalRelease` and `physicalRelease` values show as dates.
+- The Classic-versus-Modern preference after a real upgrade from 1.9A2: an existing
+  `movies.view = posters` user sees Large posters in Modern and Posters in Classic.
+
 ## 1.9A2 (unreleased) — Web redesign foundation, Classic layout and server routes
 
 - **Version 1.9A2.** Merges factory jobs 001 (server routes) and 002 (foundation and
