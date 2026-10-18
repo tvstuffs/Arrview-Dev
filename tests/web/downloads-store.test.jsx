@@ -417,3 +417,104 @@ test('history: a delayed response for the old limit is dropped and cannot overwr
   expect(result.current.slots.map(item => item.nzo_id)).toEqual(['thirty', 'thirty-b'])
   expect(pending).toHaveLength(2)
 })
+test('history: unmounting the hook before its pending request resolves starts no queued rerun', async () => {
+  const world = makeWorld()
+  const pending = pendingHistory(world)
+  const { unmount, rerender } = renderHook(({ limit }) => useDownloadHistory({ slots: [], limit }), { initialProps: { limit: 15 } })
+  await settle()
+  rerender({ limit: 30 })
+  await settle()
+  expect(pending).toHaveLength(1)
+  unmount()
+  await act(async () => { pending[0].resolve(historyBody('late')); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  await advance(30000)
+  expect(pending).toHaveLength(1)
+})
+test('history: a slot leaving while the document is hidden starts no request until it is visible again, then exactly one (deferred SABnzbd response)', async () => {
+  const world = makeWorld({ status: 'Paused', slots: [slot('n1', { status: 'Paused' }), slot('n2', { status: 'Paused' })] })
+  const out = { current: null }
+  function HistoryProbe() { out.current = useDownloadHistory({ slots: useDownloads().slots, limit: 15, enabled: true }); return null }
+  const view = render(<LibraryProvider><DownloadsProvider config={CONFIG}><Need spec={{ sab: true, page: true }} /><HistoryProbe /></DownloadsProvider></LibraryProvider>)
+  mounted.push(view.unmount)
+  await settle()
+  const history = () => world.count('/api/sabnzbd/history')
+  const gate = deferred()
+  world.gate.sab = gate.promise
+  world.slots = [slot('n1', { status: 'Paused' })]
+  await advance(10000); await settle()
+  const before = history()
+  hidden = true
+  await act(async () => { gate.resolve(); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  await advance(30000)
+  expect(history()).toBe(before)
+  hidden = false
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(history()).toBe(before + 1)
+})
+test('an arr request pending when the provider unmounts starts no queued rerun', async () => {
+  const gate = deferred()
+  const world = makeWorld({ status: 'Paused', slots: [slot('n1', { status: 'Paused' })], gate: { sonarr: gate.promise } })
+  const view = mount([{ sab: true, sonarr: 'any' }])
+  await settle()
+  world.slots = [slot('n1', { status: 'Paused' }), slot('n2', { status: 'Paused' })]
+  await advance(10000)
+  expect(world.sonarrCount()).toBe(1)
+  view.unmount()
+  await act(async () => { gate.resolve(); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  await advance(30000)
+  expect(world.sonarrCount()).toBe(1)
+})
+
+test('SABnzbd: an explicit refresh during a poll is coalesced into one rerun, and the older response cannot overwrite the newer', async () => {
+  const gate = deferred()
+  const world = makeWorld({ status: 'Paused', slots: [slot('n1', { status: 'Paused' })] })
+  const { latest } = mount([{ sab: true }])
+  await settle()
+  const before = world.sab()
+  world.gate.sab = gate.promise
+  await advance(10000)
+  expect(world.sab()).toBe(before + 1)
+  world.slots = [slot('n1', { status: 'Paused' }), slot('n2', { status: 'Paused' })]
+  await act(async () => { latest.current.refresh(); latest.current.refresh() })
+  expect(world.sab()).toBe(before + 1)
+  await act(async () => { gate.resolve(); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(world.sab()).toBe(before + 2)
+  expect(latest.current.slots.map(item => item.nzo_id)).toEqual(['n1', 'n2'])
+})
+test('SABnzbd: an action completing after the last consumer left, or while the document is hidden, requests nothing until visible', async () => {
+  const world = makeWorld({ status: 'Paused', slots: [slot('n1', { status: 'Paused' })] })
+  const { latest, rerender } = mount([{ sab: true }])
+  await settle()
+  const refresh = latest.current.refresh
+  rerender([])
+  await settle()
+  const afterLeave = world.sab()
+  await act(async () => { refresh(); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(world.sab()).toBe(afterLeave)
+  rerender([{ sab: true }])
+  await settle()
+  expect(world.sab()).toBe(afterLeave + 1)
+
+  hidden = true
+  const base = world.sab()
+  await act(async () => { latest.current.refresh(); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(world.sab()).toBe(base)
+  hidden = false
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(world.sab()).toBe(base + 1)
+})
+test('SABnzbd: a cadence change during a request does not start a second concurrent request', async () => {
+  const gate = deferred()
+  const world = makeWorld({ slots: [slot('n1')] })
+  const view = mount([{ sab: true }])
+  await settle()
+  const before = world.sab()
+  world.gate.sab = gate.promise
+  await advance(10000)
+  expect(world.sab()).toBe(before + 1)
+  view.rerender([{ sab: true, page: true }])
+  await settle()
+  expect(world.sab()).toBe(before + 1)
+  await act(async () => { gate.resolve(); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(world.sab()).toBe(before + 2)
+})

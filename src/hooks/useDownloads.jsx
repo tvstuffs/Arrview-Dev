@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useVisiblePolling } from './lifecycle'
+import { useSingleFlight } from './useSingleFlight'
 import { useIdentity } from '../components/modern/LibraryProvider.jsx'
 import { buildQueueItems, leadItem, pillItem } from '../downloads'
 
@@ -37,30 +38,19 @@ async function readQueue(url) {
 // Sonarr / Radarr queue: a discovery fetch per change of the SABnzbd id set, an interval only while a registered
 // need has a record to follow (or while recovering from an error). At most one request is in flight.
 function useArrQueue(service, { on, needs, slots, slotKey, data, setData }) {
-  const inflight = useRef(false)
-  const rerun = useRef(false)
   const attempted = useRef(null)
   const latestKey = useRef(slotKey)
   latestKey.current = slotKey
   const open = useRef(false)
-  const run = useRef(null)
   // Every request entry (discovery, interval, deferred rerun) re-checks the latest gates.
-  run.current = async () => {
-    if (document.hidden || !open.current) return
-    inflight.current = true
+  const { trigger: discover, tick } = useSingleFlight(async () => {
     attempted.current = latestKey.current
     try {
       const body = await readQueue(`/api/${service}/queue`)
       if (!Array.isArray(body?.records)) throw new Error('Unexpected response')
       setData({ records: body.records, answered: true, error: false })
     } catch { setData(previous => ({ ...previous, error: true })) }
-    finally {
-      inflight.current = false
-      if (rerun.current) { rerun.current = false; if (attempted.current !== latestKey.current) run.current() }
-    }
-  }
-  const tick = useCallback(() => { if (!inflight.current) return run.current() }, [])
-  const discover = useCallback(() => { if (inflight.current) { rerun.current = true; return } return run.current() }, [])
+  }, { eligible: () => open.current, rerunIf: () => attempted.current !== latestKey.current })
 
   const registered = needs.filter(entry => entry.spec[service] !== undefined)
   const wanted = on && registered.length > 0 && slots.length > 0
@@ -103,14 +93,17 @@ export function DownloadsProvider({ config, children }) {
     return () => setNeeds(list => list.filter(item => item !== entry))
   }, [])
 
-  const fetchSab = useCallback(async () => {
+  const sabNeeded = sabOn && needs.some(entry => entry.spec.sab)
+  const sabOpen = useRef(false)
+  sabOpen.current = sabNeeded
+  // Polling, cadence changes and explicit refreshes (after Pause/Resume/Remove) share one coordinated request path.
+  const { trigger: fetchSab } = useSingleFlight(async () => {
     try {
       const body = await readQueue('/api/sabnzbd/queue')
       if (!body?.queue) throw new Error('Unexpected response')
       setSab({ queue: body.queue, error: null, answered: true })
     } catch (e) { setSab(previous => ({ ...previous, error: e.message || 'Request failed', answered: true })) }
-  }, [])
-  const sabNeeded = sabOn && needs.some(entry => entry.spec.sab)
+  }, { eligible: () => sabOpen.current })
   const pageNeeded = needs.some(entry => entry.spec.page)
   const downloading = sab.queue?.status === 'Downloading'
   useVisiblePolling(fetchSab, pageNeeded && downloading ? 2000 : 10000, sabNeeded)
@@ -161,11 +154,8 @@ export function useDownloadHistory({ slots, limit, enabled = true }) {
   // for a limit that is no longer current is dropped.
   const latest = useRef({ limit, enabled })
   latest.current = { limit, enabled }
-  const inflight = useRef(false)
-  const again = useRef(false)
-  const fetchHistory = useCallback(async () => {
-    if (inflight.current) { again.current = true; return }
-    inflight.current = true
+  // Entry is gated on mounted, visible and enabled; a trigger blocked by a gate is owed until the document is visible.
+  const { trigger: fetchHistory } = useSingleFlight(async () => {
     const asked = latest.current.limit
     try {
       const body = await readQueue(`/api/sabnzbd/history?limit=${asked}`)
@@ -173,11 +163,7 @@ export function useDownloadHistory({ slots, limit, enabled = true }) {
       const history = body?.history
       setState({ slots: history?.slots || [], total: Number.isFinite(Number(history?.noofslots)) ? Number(history.noofslots) : null, error: null })
     } catch (e) { if (asked === latest.current.limit) setState(previous => ({ ...previous, error: e.message || 'Request failed' })) }
-    finally {
-      inflight.current = false
-      if (again.current) { again.current = false; if (latest.current.enabled && !document.hidden) fetchHistory() }
-    }
-  }, [])
+  }, { eligible: () => latest.current.enabled })
   useVisiblePolling(fetchHistory, 10000, enabled, limit)
   const key = slots.map(slot => slot.nzo_id).sort().join('\n')
   const previous = useRef(null)
