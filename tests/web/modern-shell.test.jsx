@@ -98,9 +98,9 @@ test('a valid hash beats the preference, and an unavailable section goes to the 
   first.unmount()
   go('#/shows/1')
   view({ radarr: config.radarr })
-  await screen.findByRole('heading', { level: 1, name: 'Movies' })
-  expect(window.location.hash).toBe('#/movies')
-  expect(navNames()).toEqual(['Movies'])
+  await screen.findByRole('heading', { level: 1, name: 'Upcoming' })
+  expect(window.location.hash).toBe('#/upcoming')
+  expect(navNames()).toEqual(['Upcoming', 'Movies'])
 })
 
 test('nav links change the hash and the page; the active link has aria-current; detail routes mark their parent (criteria 5, 8)', async () => {
@@ -186,7 +186,7 @@ test('Add Show opens the existing add modal', async () => {
 
 // ---- Service banner (criterion 10, D28) ----
 const BANNER_ROWS = [
-  ['#/downloads', ['SABnzbd', 'NZBHydra']], ['#/shows', ['Sonarr']], ['#/shows/1', ['Sonarr']], ['#/upcoming', ['Sonarr']],
+  ['#/downloads', ['SABnzbd', 'NZBHydra']], ['#/shows', ['Sonarr']], ['#/shows/1', ['Sonarr']], ['#/upcoming', ['Sonarr', 'Radarr']],
   ['#/movies', ['Radarr']], ['#/movies/11', ['Radarr']], ['#/search', ['NZBHydra', 'SABnzbd']], ['#/settings', []],
 ]
 const pingOf = service => `/api/${service}/ping`

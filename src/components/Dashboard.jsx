@@ -72,7 +72,7 @@ function ClassicShell({ config, onConfigSaved, layout, onLayoutChange }) {
         layout={layout} onLayoutChange={onLayoutChange}
         onSave={next => { onConfigSaved(next); returnFromSettings() }} />}
       {activeTab === 'downloads' && <DownloadsTab onToast={addToast} canSearch={Boolean(config.nzbhydra)} />}
-      {activeTab === 'upcoming' && <UpcomingTab onShow={id => { setSelectedShow(id); navigate('shows') }} />}
+      {activeTab === 'upcoming' && <UpcomingTab config={config} onShow={id => { setSelectedShow(id); navigate('shows') }} onMovie={() => navigate('movies')} />}
       {activeTab === 'shows' && <ShowsTab selectedShow={selectedShow} onSelected={() => setSelectedShow(null)} onUpcoming={() => navigate('upcoming')} onToast={addToast} sonarrUrl={config.sonarr?.url} nzbhydraUrl={config.nzbhydra?.url} />}
       {activeTab === 'movies' && <MoviesTab onToast={addToast} />}
       {activeTab === 'search' && <NzbSearchModal embedded onToast={addToast} canDownload={Boolean(config.sabnzbd)} />}

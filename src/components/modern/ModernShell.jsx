@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import Icon from '../Icon.jsx'
 import DownloadsTab from '../DownloadsTab.jsx'
-import UpcomingTab from '../UpcomingTab.jsx'
 import ConfigPage from '../ConfigPage.jsx'
 import NzbSearchModal from '../NzbSearchModal.jsx'
 import { SheetClassContext } from '../Sheet.jsx'
@@ -12,6 +11,7 @@ import ShowsPage from './ShowsPage.jsx'
 import ShowPage from './ShowPage.jsx'
 import MoviesPage from './MoviesPage.jsx'
 import MoviePage from './MoviePage.jsx'
+import UpcomingPage from './UpcomingPage.jsx'
 import { usePreference, oneOf } from '../../hooks/usePreference'
 import { usePhone } from '../../hooks/usePhone'
 import { useHashRoute } from '../../hooks/useHashRoute'
@@ -22,7 +22,7 @@ import './modern.css'
 const NAV_TABS = TABS.filter(tab => tab.id !== 'settings')
 // Which services a page depends on (in strip order). Only configured, offline services show a strip.
 const PAGE_SERVICES = {
-  downloads: ['sabnzbd', 'nzbhydra'], shows: ['sonarr'], upcoming: ['sonarr'], movies: ['radarr'],
+  downloads: ['sabnzbd', 'nzbhydra'], shows: ['sonarr'], upcoming: ['sonarr', 'radarr'], movies: ['radarr'],
   search: ['nzbhydra', 'sabnzbd'], settings: [],
 }
 
@@ -96,10 +96,7 @@ export default function ModernShell({ config, onConfigSaved, layout, onLayoutCha
     <h1 className="m-sr">Downloads</h1>
     <DownloadsTab onToast={addToast} canSearch={Boolean(config.nzbhydra)} />
   </>
-  else if (section === 'upcoming') page = <>
-    {phone && <div className="m-gear-row"><SettingsLink /></div>}
-    <UpcomingTab onShow={showId => { if (showId) navigate(`/shows/${showId}`) }} />
-  </>
+  else if (section === 'upcoming') page = <UpcomingPage config={config} phone={phone} />
   else if (section === 'search') page = <>
     <PageHeader title="Search" phone={phone} gear />
     <NzbSearchModal embedded onToast={addToast} canDownload={Boolean(config.sabnzbd)} />

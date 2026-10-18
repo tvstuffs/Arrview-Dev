@@ -216,6 +216,46 @@
 .m-ep-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .m-ok { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); font-size: 12px; font-weight: 600; }
 
+/* -- Upcoming --------------------------------------------------------------- */
+.m-agenda { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 32px 28px; align-items: start; }
+.m-agenda-day { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0 12px; min-width: 0; }
+.m-agenda-date { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 0; color: var(--text-2); font-size: 12px; font-weight: 500; line-height: 1.3; text-align: center; }
+.m-agenda-month { min-height: 14px; color: var(--text-3); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.m-agenda-num { color: var(--text); font-size: 28px; font-weight: 700; line-height: 1.1; }
+.m-agenda-day.is-past .m-agenda-num { color: var(--text-3); }
+.m-agenda-weekday { text-transform: uppercase; letter-spacing: .04em; }
+.m-agenda-rel { min-height: 14px; font-size: 11px; }
+.m-agenda-day.is-today .m-agenda-rel { color: var(--live); font-weight: 600; }
+.m-agenda-tiles { list-style: none; display: flex; flex-direction: column; gap: 18px; min-width: 0; margin: 0; padding: 0; }
+.m-agenda-tiles li { min-width: 0; }
+.m-utile { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: inherit; text-decoration: none; }
+.m-utile-stack { position: relative; display: block; }
+.m-utile.is-drop .m-utile-stack { margin-top: 12px; }
+.m-utile.is-drop .m-utile-stack::before { content: ""; position: absolute; left: 12px; right: 12px; top: -6px; bottom: 6px; border-radius: 8px; background: var(--raised-2); }
+.m-utile.is-drop .m-utile-stack::after { content: ""; position: absolute; left: 24px; right: 24px; top: -12px; bottom: 12px; border-radius: 8px; background: var(--raised); }
+.m-utile-box { position: relative; display: block; z-index: 1; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; background: var(--raised); }
+.m-utile-still { position: absolute; left: 0; top: 0; height: 100%; }
+.m-utile-blur { position: absolute; left: -8%; top: -8%; width: 116%; height: 116%; object-fit: cover; filter: blur(18px); opacity: .55; pointer-events: none; }
+.m-utile-box .m-utile-poster { position: absolute; left: 50%; top: 6%; width: auto; height: 88%; transform: translateX(-50%); border-radius: 4px; }
+.m-utile-badges { position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 2; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 4px; }
+.m-utile-badgerow { display: flex; flex-wrap: wrap; gap: 4px; }
+.m-utile-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; background: rgba(0, 0, 0, .72); color: var(--text); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.m-utile-badge.is-ok { color: var(--ok); }
+.m-utile-badge.is-attn { color: var(--attn); }
+.m-utile-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.m-utile-meta { color: var(--text-2); font-size: 12px; overflow-wrap: anywhere; }
+.m-ulist { display: flex; flex-direction: column; gap: 24px; }
+.m-ulist-day { margin: 0 0 6px; color: var(--text-2); font-size: 14px; font-weight: 600; }
+.m-ulist-rows { list-style: none; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; }
+.m-ulist-row { display: grid; grid-template-columns: 96px 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 44px; padding: 8px; border-radius: 12px; color: inherit; text-decoration: none; }
+.m-ulist-row:hover { background: var(--raised); }
+.m-ulist-time { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.m-ulist-thumb { width: 40px; border-radius: 4px; }
+.m-ulist-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-ulist-state { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.m-ulist-state.is-ok { color: var(--ok); }
+.m-uerror { margin-bottom: 16px; }
+
 /* -- Phones ----------------------------------------------------------------- */
 @media (max-width: 639px) {
   .m-shell { --m-pad-l: max(12px, env(safe-area-inset-left)); --m-pad-r: max(12px, env(safe-area-inset-right)); }
@@ -246,8 +286,14 @@
   .m-ep-actions { grid-column: 1 / -1; justify-content: flex-start; }
   .m-ep-overview { display: none; }
   .m-row-actions { margin-left: 0; justify-content: flex-start; }
+  .m-agenda { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .m-agenda-day { grid-template-columns: 50px minmax(0, 1fr); gap: 0 10px; }
+  .m-agenda-num { font-size: 24px; }
+  .m-ulist-row { grid-template-columns: 72px 40px minmax(0, 1fr); }
+  .m-ulist-state { grid-column: 3; }
 }
 @media (pointer: coarse), (max-width: 639px) {
+  .m-shell .m-upcoming .m-chips button, .m-shell .m-uerror .btn { min-height: 44px; }
   .m-shell .m-navlink, .m-shell .m-iconbtn, .m-shell .m-back, .m-shell .m-banner-btn, .m-shell .m-textlink, .m-shell .m-row-link { min-height: 44px; min-width: 44px; }
   .m-shell .m-roundbtn, .m-shell .m-iconbtn { width: 44px; height: 44px; }
   .m-shell .m-viewtoggle button { width: 44px; height: 44px; }

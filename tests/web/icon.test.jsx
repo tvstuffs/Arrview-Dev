@@ -26,6 +26,15 @@ test('the Modern layout icons are defined in regular weight', () => {
     expect(render(<Icon name={name} />).container.querySelector('path').getAttribute('d')).toMatch(/^M/)
   }
 })
+test('the Upcoming icons (stack, monitor-play, disc) render from the staged Phosphor regular set', () => {
+  const staged = { 'stack': 'M230.91,172A8,8,0,0,1,228,182.91', 'monitor-play': 'M208,40H48A24,24,0,0,0,24,64V176', 'disc': 'M128,24A104,104,0,1,0,232,128' }
+  for (const [name, start] of Object.entries(staged)) {
+    expect(ICON_NAMES).toContain(name)
+    const d = render(<Icon name={name} />).container.querySelector('path').getAttribute('d')
+    expect(d.startsWith(start), name).toBe(true)
+    expect(render(<Icon name={name} weight="fill" />).container.querySelector('path').getAttribute('d')).toBe(d)
+  }
+})
 test('unknown icon names render nothing', () => {
   const { container } = render(<Icon name="no-such-icon" />)
   expect(container).toBeEmptyDOMElement()

@@ -34,8 +34,11 @@ test('the border guard rejects a focus-visible border on a tile and allows only 
   expect(borderViolations(parseRules(`${SHEET_FIELD_SELECTOR} { outline: 2px solid var(--text); border-color: var(--hair-2); }`))).toEqual([])
   expect(borderViolations(parseRules(`${SHEET_FIELD_SELECTOR} { border: 1px solid red; }`))).toHaveLength(1)
 })
-test('Modern CSS never references the live colour and has no light colour scheme (criteria 11, 33)', () => {
-  expect(css).not.toMatch(/--live/)
+test('Modern CSS uses the live colour exactly once, for the Today label, and has no light colour scheme (criteria 11, 33; job 004 D23)', () => {
+  expect(css.match(/--live/g)).toHaveLength(1)
+  const today = rules.find(r => r.selector === '.m-agenda-day.is-today .m-agenda-rel')
+  expect(today).toBeDefined()
+  expect(today.body).toMatch(/var\(--live\)/)
   expect(css).not.toMatch(/prefers-color-scheme/)
   expect(css).not.toMatch(/color-scheme/)
 })
@@ -97,4 +100,12 @@ test('clamps and aspect ratios the criteria rely on are declared', () => {
   expect(rules.find(r => r.selector === '.m-ep-overview').body).toMatch(/-webkit-line-clamp:\s*2/)
   expect(rules.find(r => r.selector === '.m-art-poster').body).toMatch(/aspect-ratio:\s*2 \/ 3/)
   expect(rules.find(r => r.selector === '.m-art-still').body).toMatch(/aspect-ratio:\s*16 \/ 9/)
+  expect(rules.find(r => r.selector === '.m-utile-box').body).toMatch(/aspect-ratio:\s*16 \/ 9/)
+})
+test('Upcoming tiles use flat colours: no borders, shadows or gradients, and the stacked-card look is pseudo-elements (job 004 D17, D23)', () => {
+  const upcoming = rules.filter(r => /\.m-(agenda|utile|ulist|uerror)/.test(r.selector))
+  expect(upcoming.length).toBeGreaterThan(20)
+  for (const { selector, body } of upcoming) expect(body, selector).not.toMatch(/gradient|box-shadow|border(?!-radius)/)
+  expect(rules.some(r => r.selector === '.m-utile.is-drop .m-utile-stack::before')).toBe(true)
+  expect(rules.some(r => r.selector === '.m-utile.is-drop .m-utile-stack::after')).toBe(true)
 })

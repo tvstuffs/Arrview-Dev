@@ -7,9 +7,9 @@ export const VIEW_OPTIONS = [
 ]
 export const VIEW_VALUES = VIEW_OPTIONS.map(option => option.value)
 
-export default function ViewToggle({ value, onChange }) {
+export default function ViewToggle({ value, onChange, options = VIEW_OPTIONS }) {
   return <div className="m-viewtoggle" role="group" aria-label="View">
-    {VIEW_OPTIONS.map(option => <button key={option.value} aria-pressed={value === option.value} aria-label={option.label} title={option.label}
+    {options.map(option => <button key={option.value} aria-pressed={value === option.value} aria-label={option.label} title={option.label}
       onClick={() => onChange(option.value)}><Icon name={option.icon} /></button>)}
   </div>
 }
