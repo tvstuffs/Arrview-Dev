@@ -43,15 +43,86 @@ function radarrCalendar() {
   ]
 }
 
+// ---- Downloads scenarios (POST /__fixture/downloads { scenario }, POST /__fixture/clock { now }) ----
+// legacy: the original responses, byte for byte. rich: every kind of download. empty / empty-noart: nothing queued. paused: one paused slot.
+const SCENARIOS = ['legacy', 'rich', 'empty', 'empty-noart', 'paused']
+let scenario = 'legacy'
+let fixtureNow = null
+const MINUTE = 60000, DAY = 86400000
+const LEGACY_QUEUE = { queue: { status: 'Downloading', kbpersec: '1024', timeleft: '00:10:00', slots: [{ nzo_id: 'queue1', filename: 'A long fixture download title for mobile layout verification', status: 'Downloading', percentage: '25', mb: '1024', mbleft: '768', cat: 'tv', timeleft: '00:10:00' }] } }
+const LEGACY_HISTORY = { history: { slots: [
+  { nzo_id: 'bytes', name: 'Bytes history', bytes: 1073741824, status: 'Completed' },
+  { nzo_id: 'mb', name: 'Legacy history', mb: '512', status: 'Completed' },
+] } }
+const SHOW = { id: 1, title: 'Fixture Show with a long title', year: 2024, images: [artFor('poster'), artFor('fanart')] }
+const SECOND_SHOW = { id: 6, title: 'Second Fixture Show', year: 2023, images: [artFor('poster')] }
+const MOVIE = { id: 2, title: 'Fixture Movie with a long descriptive title', year: 2024 }
+const sabSlot = (id, filename, cat, status, pct, mb, extra = {}) =>
+  ({ nzo_id: id, filename, cat, status, percentage: String(pct), mb: String(mb), mbleft: String(Math.round(mb * (100 - pct) / 100)), timeleft: '0:01:10', ...extra })
+const EP_RELEASE = 'Fixture.Show.with.a.long.title.S01E02.2160p.WEB-DL.DV.HDR.Atmos.x265-GRP'
+const MOVIE_RELEASE = 'Fixture.Movie.with.a.long.descriptive.title.2024.1080p.BluRay.x264-GRP'
+const LONG_SOFTWARE = 'Fixture.Editor.3.2.1.x64.Setup.With.A.Very.Long.Release.Name.That.Must.Wrap.Instead.Of.Scrolling.Sideways.On.A.Narrow.Phone.Screen.Because.It.Is.Long-GRP'
+function sabSlots() {
+  if (scenario === 'rich') return [
+    sabSlot('ep1', EP_RELEASE, 'tv', 'Downloading', 64, 9216),
+    sabSlot('mv1', MOVIE_RELEASE, 'movies', 'Paused', 12, 4096),
+    sabSlot('mu1', 'Fixture.Artist-Fixture.Album-FLAC-24bit-GRP', 'music', 'Downloading', 30, 512),
+    sabSlot('sw1', LONG_SOFTWARE, 'software', 'Queued', 0, 300),
+    sabSlot('tv2', 'Unlisted.Fixture.Show.S01E01.1080p.WEB-DL-GRP', 'tv', 'Downloading', 10, 1500),
+    sabSlot('SABnzbd_nzo_CaseFix', 'Fixture.Case.Show.S01E01.720p.HDTV-GRP', 'tv', 'Downloading', 5, 700),
+  ]
+  if (scenario === 'paused') return [sabSlot('pz1', EP_RELEASE, 'tv', 'Paused', 40, 2048)]
+  return []
+}
+function sabQueue() {
+  const slots = sabSlots()
+  const status = scenario === 'paused' ? 'Paused' : slots.length ? 'Downloading' : 'Idle'
+  return { queue: { status, kbpersec: status === 'Downloading' ? '48230' : '0', timeleft: slots.length && status === 'Downloading' ? '0:20:00' : '0:00:00', noofslots: slots.length, slots } }
+}
+function sabHistory(limit) {
+  const now = fixtureNow ?? Date.now()
+  const at = ms => Math.floor((now - ms) / 1000)
+  const done = (id, name, completed, extra = {}) => ({ nzo_id: id, name, bytes: 1073741824, status: 'Completed', completed: at(completed), category: 'tv', ...extra })
+  const unmatched = done('h4', 'Fixture.Unmatched.Thing.S01E01.720p.HDTV-GRP', 5 * DAY)
+  const slots = scenario === 'rich' ? [
+    done('h1', 'Fixture.Show.with.a.long.title.S01E01.1080p.HDTV-GRP', 25 * MINUTE),
+    done('h2', MOVIE_RELEASE, DAY, { category: 'movies', bytes: 2147483648 }),
+    done('h3', 'Fixture.Failed.Download-GRP', 3 * DAY, { status: 'Failed', category: '*' }),
+    unmatched,
+  ] : scenario === 'empty' ? [
+    done('h1', 'Fixture.Show.with.a.long.title.S01E01.1080p.HDTV-GRP', 25 * MINUTE),
+    unmatched,
+  ] : scenario === 'empty-noart' ? [unmatched, done('h5', 'Fixture.Another.Unmatched.Item-GRP', 2 * DAY, { category: 'software' })] : []
+  return { history: { noofslots: slots.length, slots: slots.slice(0, limit) } }
+}
+// A second show with no queue record, served in rich only (the negative polling test).
+const secondSeries = () => ({ ...SECOND_SHOW, titleSlug: 'second-fixture-show', network: 'Fixture Network', genres: [], overview: 'A second fixture show.', monitored: true, status: 'continuing',
+  seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 1 } }] })
+// Raw Sonarr / Radarr queue records (the server maps them): rich matches ep1 and mv1 exactly, and one record differs from its slot by case only.
+function arrQueue(params) {
+  const sonarr = params.has('includeSeries')
+  const record = (downloadId, extra) => ({ id: 1, title: 'Fixture queue record', status: 'downloading', size: 1000, sizeleft: 500, timeleft: '00:01:10', trackedDownloadStatus: 'ok', trackedDownloadState: 'downloading', downloadId, ...extra })
+  let records = []
+  if (scenario === 'rich' || scenario === 'paused') {
+    const id = scenario === 'paused' ? 'pz1' : 'ep1'
+    if (sonarr) {
+      records = [record(id, { quality: { quality: { name: 'WEBDL-2160p' } }, seriesId: 1, episodeId: 12, series: SHOW,
+        episode: { id: 12, seasonNumber: 1, episodeNumber: 2, title: 'Missing episode with a long title', airDateUtc: '2020-01-02T00:00:00Z' } })]
+      if (scenario === 'rich') records.push(record('SABnzbd_nzo_casefix', { seriesId: 1, episodeId: 11, series: SHOW, episode: { id: 11, seasonNumber: 1, episodeNumber: 1, title: 'Case fixture', airDateUtc: '2020-01-01T00:00:00Z' } }))
+    } else if (scenario === 'rich') {
+      records = [record('mv1', { quality: { quality: { name: 'Bluray-1080p' } }, movieId: 2, movie: { ...MOVIE, images: [artFor('poster')] } })]
+    }
+  }
+  return { page: 1, pageSize: 100, totalRecords: records.length, records }
+}
+
 const upstream = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost')
   requests.push({ method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams) })
   res.setHeader('Content-Type', 'application/json')
-  if (url.searchParams.get('mode') === 'queue') return res.end(JSON.stringify({ queue: { status: 'Downloading', kbpersec: '1024', timeleft: '00:10:00', slots: [{ nzo_id: 'queue1', filename: 'A long fixture download title for mobile layout verification', status: 'Downloading', percentage: '25', mb: '1024', mbleft: '768', cat: 'tv', timeleft: '00:10:00' }] } }))
-  if (url.searchParams.get('mode') === 'history') return res.end(JSON.stringify({ history: { slots: [
-    { nzo_id: 'bytes', name: 'Bytes history', bytes: 1073741824, status: 'Completed' },
-    { nzo_id: 'mb', name: 'Legacy history', mb: '512', status: 'Completed' },
-  ] } }))
+  if (url.searchParams.get('mode') === 'queue') return res.end(JSON.stringify(scenario === 'legacy' ? LEGACY_QUEUE : sabQueue()))
+  if (url.searchParams.get('mode') === 'history') return res.end(JSON.stringify(scenario === 'legacy' ? LEGACY_HISTORY : sabHistory(Number(url.searchParams.get('limit')) || 15)))
+  if (url.pathname.endsWith('/queue')) return res.end(JSON.stringify(arrQueue(url.searchParams)))
   // All four fake services share this upstream and path; the server asks Sonarr with includeSeries and Radarr without.
   if (url.pathname.endsWith('/calendar')) return res.end(JSON.stringify(url.searchParams.has('includeSeries') ? sonarrCalendar() : radarrCalendar()))
   if (url.pathname.endsWith('/lookup')) return res.end(JSON.stringify([{ title: 'A long fixture lookup result with descriptive text', tvdbId: 201, tmdbId: 201, year: 2024, overview: 'Fixture overview', seasons: [] }]))
@@ -63,7 +134,7 @@ const upstream = http.createServer((req, res) => {
     { id: 12, seriesId: 1, seasonNumber: 1, episodeNumber: 2, title: 'Missing episode with a long title', overview: 'Another episode description.', hasFile: false, airDateUtc: '2020-01-02T00:00:00Z', images: [{ coverType: 'screenshot', remoteUrl: 'https://localhost:18778/__fixture/broken.png' }] },
     { id: 13, seriesId: 1, seasonNumber: 1, episodeNumber: 3, title: 'Upcoming episode', hasFile: false, airDateUtc: '2099-01-01T00:00:00Z' },
   ]))
-  if (url.pathname.endsWith('/series')) return res.end(JSON.stringify([{ id: 1, title: 'Fixture Show with a long title', titleSlug: 'fixture-show', year: 2024, network: 'Fixture Network', genres: ['Drama', 'Mystery', 'Thriller', 'Comedy'], overview: 'A fixture overview that is long enough to need clamping when it is shown in the hero on any screen size. It keeps going so that three lines are never enough for it, and says nothing real.', monitored: true, images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }, { coverType: 'fanart', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], status: 'continuing', seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 1 } }] }]))
+  if (url.pathname.endsWith('/series')) return res.end(JSON.stringify([{ id: 1, title: 'Fixture Show with a long title', titleSlug: 'fixture-show', year: 2024, network: 'Fixture Network', genres: ['Drama', 'Mystery', 'Thriller', 'Comedy'], overview: 'A fixture overview that is long enough to need clamping when it is shown in the hero on any screen size. It keeps going so that three lines are never enough for it, and says nothing real.', monitored: true, images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }, { coverType: 'fanart', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], status: 'continuing', seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 1 } }] }, ...(scenario === 'rich' ? [secondSeries()] : [])]))
   if (url.pathname.endsWith('/movie')) return res.end(JSON.stringify([{ id: 2, title: 'Fixture Movie with a long descriptive title', year: 2024, studio: 'Fixture Studio', images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }, { coverType: 'fanart', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], monitored: true, isAvailable: true, hasFile: false, overview: 'A movie description to verify wrapping and action controls.' }]))
   if (url.searchParams.get('t') === 'search') return res.end(JSON.stringify({ channel: { item: [{ title: 'A lengthy fixture NZB result title', guid: 'nzb1', link: 'https://example.invalid/fixture.nzb', size: 1073741824 }] } }))
   if (url.pathname.includes('/command')) return res.end(JSON.stringify({ id: 99, status: 'completed', result: 'successful' }))
@@ -78,6 +149,16 @@ upstream.listen(0, '127.0.0.1', () => {
   app.get('/__fixture/broken.png', (req, res) => res.sendStatus(404))
   app.get('/__fixture/requests', (req, res) => res.json(requests))
   app.post('/__fixture/reset-requests', (req, res) => { requests = []; res.sendStatus(204) })
+  // Which fake download data the upstream serves, and the instant its history `completed` values count back from (null = the real clock).
+  app.post('/__fixture/downloads', express.json(), (req, res) => {
+    if (!SCENARIOS.includes(req.body?.scenario)) return res.status(400).json({ error: 'unknown scenario' })
+    scenario = req.body.scenario; res.sendStatus(204)
+  })
+  app.post('/__fixture/clock', express.json(), (req, res) => {
+    const now = req.body?.now
+    if (now !== null && !Number.isFinite(now)) return res.status(400).json({ error: 'now must be a number or null' })
+    fixtureNow = now; res.sendStatus(204)
+  })
   app.post('/__fixture/update-worker', (req, res) => { workerRevision += 1; res.sendStatus(204) })
   app.get('/sw.js', (req, res) => {
     res.type('application/javascript').set('Cache-Control', 'no-cache').send(

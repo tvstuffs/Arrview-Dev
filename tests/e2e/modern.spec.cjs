@@ -470,7 +470,7 @@ test('coarse pointers: every focusable Modern control is at least 44 x 44 with t
 })
 test('the neutral focus ring also covers reused Downloads controls on wide screens (criteria 11, 30)', async ({ page }) => {
   await open(page, '/downloads')
-  await page.getByRole('button', { name: 'Refresh downloads' }).focus()
+  await page.getByRole('button', { name: 'Pause All' }).focus()
   await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab')
   const color = await page.evaluate(() => getComputedStyle(document.activeElement).outlineColor)
   expect(color).toBe(TEXT)
@@ -561,7 +561,8 @@ test('the active phone tab uses the fill icon and inactive tabs the regular one 
 })
 test('a deep link to a show or movie before the library loads ends with focus on the real <h1> (criterion 31)', async ({ page }) => {
   for (const [kind, api, title, hash] of [['shows', 'sonarr/series', SHOW, '/shows/1'], ['movies', 'radarr/movies', MOVIE, '/movies/2']]) {
-    await open(page, '/downloads')
+    // Start on Search: the Downloads page now loads the series and movie lists for History matching, which would cache them.
+    await open(page, '/search')
     let release
     const gate = new Promise(resolve => { release = resolve })
     await page.route(`**/api/${api}`, async route => { await gate; await route.continue() })

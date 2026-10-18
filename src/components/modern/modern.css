@@ -305,10 +305,11 @@
 .m-dl-progress .m-live-bar { height: 6px; border-radius: 3px; }
 .m-dl-progress-text { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0 0; color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
 .m-dl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
-.m-dl-glass { border: 0; background: rgba(255, 255, 255, .16); color: var(--text); }
-.m-dl-glass:hover:not(:disabled) { background: rgba(255, 255, 255, .26); color: var(--text); }
-.m-dl-iconbtn { border: 0; background: var(--raised-2); color: var(--text); }
-.m-dl-iconbtn:hover:not(:disabled) { background: #2d2d31; }
+.m-dl .m-dl-glass { border: 0; background: rgba(255, 255, 255, .16); color: var(--text); }
+.m-dl .m-dl-glass:hover:not(:disabled) { background: rgba(255, 255, 255, .26); color: var(--text); }
+.m-dl .m-dl-iconbtn { border: 0; background: var(--raised-2); color: var(--text); }
+.m-dl .m-dl-iconbtn:hover:not(:disabled) { background: #2d2d31; }
+.m-dl .m-dl-iconbtn.btn-icon-danger:hover:not(:disabled) { background: var(--danger-bg); color: var(--danger); }
 .m-dl-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; }
 .m-dl-section { min-width: 0; }
 .m-dl-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 12px; margin-bottom: 12px; }
