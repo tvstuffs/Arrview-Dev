@@ -507,28 +507,24 @@ test('sheets opened from Modern use the neutral focus ring; Classic sheets stay 
   await open(page, '/shows')
   await page.getByRole('button', { name: 'Add Show', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  colours = await dialogRingColours(page)
-  // The initially focused search input and every select must draw a solid neutral outline and no cyan border.
-  const focusInfo = () => page.evaluate(() => { const s = getComputedStyle(document.activeElement); return { tag: document.activeElement.tagName, style: s.outlineStyle, width: s.outlineWidth, color: s.outlineColor, border: s.borderTopColor } })
-  // The dialog opens with focus on a button, not the search input, so focus the input explicitly.
-  await page.getByRole('dialog').locator('input[type="text"]').first().focus()
+  // The search input (focused on open) and every control after it must draw a solid neutral outline and no cyan border.
+  const focusInfo = () => page.evaluate(() => { const s = getComputedStyle(document.activeElement); return { tag: document.activeElement.tagName, role: document.activeElement.getAttribute('role'), popup: document.activeElement.getAttribute('aria-haspopup'), style: s.outlineStyle, width: s.outlineWidth, color: s.outlineColor, border: s.borderTopColor } })
   await expect(page.getByRole('dialog').locator('input[type="text"]').first()).toBeFocused()
   const search = await focusInfo()
   expect(search.tag).toBe('INPUT')
   expect(search).toMatchObject({ style: 'solid', width: '2px', color: TEXT })
   expect(search.border).not.toBe(LIVE)
   await page.getByPlaceholder('Search for a tv show…').fill('fixture')
-  await page.getByRole('button', { name: 'Select A long fixture lookup result with descriptive text' }).click()
-  const selects = page.getByRole('dialog').locator('select:not([disabled])')
-  const selectCount = await selects.count()
-  expect(selectCount).toBeGreaterThan(0)
-  for (let i = 0; i < selectCount; i++) {
-    await selects.nth(i).focus()
-    const info = await focusInfo()
-    expect(info.tag).toBe('SELECT')
-    expect(info).toMatchObject({ style: 'solid', width: '2px', color: TEXT })
-    expect(info.border).not.toBe(LIVE)
-  }
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Select A long fixture lookup result with descriptive text' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('dialog').getByRole('button', { name: /Quality Profile/ })).toContainText('Fixture Standard')
+  // Walk the search field, a result, the two pickers and the two switches with the keyboard.
+  const walked = []
+  // Two selectable results (the third is already in the library and skipped), two pickers, two switches, then Cancel and Add.
+  for (let i = 0; i < 8; i++) { await page.keyboard.press('Tab'); walked.push(await focusInfo()) }
+  expect(walked.filter(w => w.tag === 'BUTTON' && w.popup === 'listbox')).toHaveLength(2)
+  expect(walked.filter(w => w.role === 'switch')).toHaveLength(2)
+  expect(walked.some(w => w.tag === 'BUTTON' && w.popup === null)).toBe(true) // a result
+  for (const info of walked) { expect(info).toMatchObject({ style: 'solid', width: '2px', color: TEXT }); expect(info.border).not.toBe(LIVE) }
   colours = await dialogRingColours(page)
   for (const c of colours) { expect(c.style).toBe('solid'); expect(c.color).toBe(TEXT) }
   await page.keyboard.press('Escape')
@@ -538,14 +534,13 @@ test('sheets opened from Modern use the neutral focus ring; Classic sheets stay 
   await page.getByRole('button', { name: '+ Add Movie', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.getByRole('dialog')).not.toHaveClass(/m-sheet/)
-  colours = await dialogRingColours(page)
-  expect(colours.some(c => c.color === LIVE)).toBe(true)
-  for (const c of colours) if (c.style === 'solid') expect(c.color).toBe(LIVE)
   // Classic sheet text input is unchanged: global rule removes the outline and draws the cyan border.
-  await page.getByRole('dialog').locator('input[type="text"]').first().focus()
   await expect(page.getByRole('dialog').locator('input[type="text"]').first()).toBeFocused()
   expect(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle)).toBe('none')
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.activeElement).borderTopColor)).toBe(LIVE)
+  colours = await dialogRingColours(page)
+  expect(colours.some(c => c.color === LIVE)).toBe(true)
+  for (const c of colours) if (c.style === 'solid') expect(c.color).toBe(LIVE)
 })
 test('the active phone tab uses the fill icon and inactive tabs the regular one (criterion 8)', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 402, height: 800 }, hasTouch: true, isMobile: true, ignoreHTTPSErrors: true })

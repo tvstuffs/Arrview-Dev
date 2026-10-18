@@ -2,6 +2,40 @@
 
 ## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
 
+### Add Show / Add Movie (factory job 006)
+
+- **Web client only.** No server, dependency, service-worker or `APP_VERSION` change. One
+  rebuilt Add sheet serves both layouts (Modern and Classic).
+  - **Default quality profile.** The profile that most of your library already uses is
+    pre-selected (ties go to the profile listed first; an empty library gives the first
+    profile). The root folder is pre-selected the same way. Both can be changed for each
+    add; nothing is remembered between adds, because Sonarr and Radarr save the pick on the
+    item. The profile picker says "Used by N of your M shows" (movies for Radarr) for the
+    profile currently shown, and tags the library default "Default".
+  - **Named tiers.** Each profile shows a tier worked out from the qualities it allows
+    ("HD · 1080p", "HD · 720p–1080p", "UHD · 4K", "SD to 4K" and so on). A profile with
+    nothing derivable, or the SD-to-720p range, shows its name only. Root folders show their
+    free space ("2.1 TB free").
+  - **New sheet.** Search field, a row of result posters (the first result not already in
+    your library is selected for you; selecting never adds anything), the selected result's
+    poster, meta line and three-line overview, the two pickers (custom listboxes with full
+    keyboard support: arrows, Home, End, Enter, Space, Escape, Tab), the Monitored and search
+    switches, and a footer with Cancel and "Add Show" / "Add Movie" that always stays on
+    screen. On phones it is a bottom sheet with a grabber and the footer respects the
+    bottom safe area. The dialog title and button changed from "Add TV Show" to "Add Show".
+  - **Focus fix.** The search field takes keyboard focus as the sheet opens. `Sheet` gained
+    two optional props (`footer`, `initialFocus`); other sheets are unchanged.
+  - **Human test plan (not verified by an agent).** Open Add Show in both layouts and
+    confirm the search field is focused. Confirm the pre-selected profile carries "Default"
+    and the "Used by N of your M shows" text matches your library. Check the tier labels of
+    your real profiles (especially Remux and "Any") and the free space of each root folder.
+    Pick another profile and folder, add a show, and confirm in Sonarr that it kept both;
+    repeat for a movie in Radarr, then delete the test items. At phone width open the quality
+    list and confirm Cancel and Add never leave the screen. On a real iPhone check the
+    bottom sheet, grabber, safe area and the soft keyboard. With VoiceOver or a keyboard, open
+    a picker, move through it, and confirm Escape closes the list but not the sheet in
+    Safari and Firefox as well as Chrome.
+
 ### Downloads (factory job 005)
 
 - **Web client only.** No server, dependency, service-worker or version change; Classic
