@@ -2,6 +2,53 @@
 
 ## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
 
+### Upcoming (factory job 004)
+
+- **Web client only.** No server, dependency, service-worker or version change.
+  - **Movies in Upcoming.** Radarr digital and physical releases appear next to Sonarr
+    episodes (from `GET /api/radarr/calendar`, only when the server reports the
+    `radarrCalendar` capability). Cinema dates are never shown. A release is a calendar
+    date: its UTC date part is the day, so it never shifts with the time zone. A movie
+    whose digital and physical dates fall on the same day appears once, as Digital.
+  - **Season drops collapse.** Episodes of one series that air at the same instant become
+    one entry ("S3 · Episodes 1–8", "S3 · 3 episodes", or "S2, S3 · 9 episodes" across
+    seasons). Always on, in both layouts.
+  - **Modern: filter chips and views.** All / TV / Movies chips (shown when both Sonarr and
+    Radarr are available) and a Thumbnails / List toggle; both choices are remembered
+    (`upcoming.filter`, `upcoming.view`). Thumbnails is an agenda of day sections with
+    16:9 tiles, a stacked-card look and an "N episodes" badge for drops, and movie tiles
+    with a Digital or Physical badge. Today's label is the one cyan use in Modern.
+  - **Classic** keeps its list and gains the collapsed drops and the movie releases
+    (a movie row opens the Movies tab).
+  - **Section availability.** Upcoming now appears when Sonarr or Radarr is configured.
+  - New icons: `stack`, `monitor-play`, `disc` (Phosphor regular, checksum-verified).
+  - Test-only: the monitor-toggle e2e test no longer races the service worker (it creates
+    its context with the worker blocked); two other tests that gate on `page.route` got the
+    same option.
+- **Human test plan** (placeholders only; use a stack with real Sonarr and Radarr):
+  1. Open `#/upcoming` in Modern with both services. Confirm the All / TV / Movies chips and
+     the Thumbnails / List toggle; pick TV, then Movies, then List, reload, and confirm both
+     choices stayed.
+  2. Find a season premiere that released all episodes at once. Confirm one tile reads
+     "S<n> · Episodes 1–N" with an "N episodes" badge, not N tiles.
+  3. Find a movie with a digital or physical release in the next 14 days. Confirm the
+     Digital or Physical badge and the "Movie · Digital release" line, and that a movie that
+     is only in cinemas is not listed.
+  4. In List view confirm the day headings (for example "Tomorrow Saturday, Oct 17") and the
+     right-hand state (Downloaded, Missing, "N of M", or the stack icon with "N episodes").
+  5. Click a tile: an episode or drop opens the show page; a movie opens the movie page.
+  6. Stop Sonarr (or Radarr): the page shows "Cannot reach Sonarr" with a Retry button and
+     still lists the other service's items.
+  7. Switch to Classic in Settings: Upcoming is a list with collapsed drops and movie rows;
+     tapping a movie row opens the Movies tab.
+  8. Set the device or browser time zone to one far from the server's (for example UTC-8 and
+     UTC+13) and confirm a movie released on a given date stays on that date.
+  - Look-checks (only a person can judge): the stacked-card look and the blurred movie
+    background on real artwork; the cyan Today label against the amber and neutral palette;
+    agenda density at 360 to 400 px columns; touch feel and safe areas on a real iPhone;
+    real Radarr `digitalRelease` / `physicalRelease` values (assumed `T00:00:00Z`) and
+    `physicalReleaseNote` text.
+
 ### Modern layout (factory job 003)
 
 - **Web client only.** No server, dependency, service-worker or version change.

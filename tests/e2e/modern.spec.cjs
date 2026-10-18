@@ -74,7 +74,7 @@ test('routes: links, Back/Forward, reload and deep links render each page (crite
   await page.goForward(); await expect(heading(page)).toHaveText(SHOW)
   await page.reload(); await expect(heading(page)).toHaveText(SHOW)
   await nav.getByRole('link', { name: 'Upcoming' }).click(); await expect(heading(page)).toHaveText('Upcoming')
-  await page.getByRole('button', { name: new RegExp(SHOW) }).click()
+  await page.getByRole('link', { name: new RegExp(`^${SHOW}, season 1, episode 2,`) }).click()
   await expect(heading(page)).toHaveText(SHOW)
   await nav.getByRole('link', { name: 'Movies' }).click(); await expect(heading(page)).toHaveText('Movies')
   await page.getByRole('link', { name: MOVIE }).click({ position: { x: 8, y: 8 } }); await expect(heading(page)).toHaveText(MOVIE)
