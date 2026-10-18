@@ -2,6 +2,30 @@
 
 ## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
 
+### NZBHydra connectivity check (factory job 007)
+
+- **Server only.** No web, dependency, service-worker or `APP_VERSION` change.
+  - **What was wrong.** `GET /api/nzbhydra/ping` reported a working NZBHydra2 as unavailable
+    (503), so the "Can't reach NZBHydra" banner (Modern) and the offline pill (Classic) showed
+    for a healthy server. The check required a `caps` key, but NZBHydra2 answers
+    `t=caps&o=json` without one (its top-level keys are `server`, `limits`, `registration`,
+    `searching`, `categories`).
+  - **What is accepted now.** A JSON object with no `error` key and either a `caps` object or
+    at least one object under `server`, `searching` or `categories`.
+  - **Still rejected (503, same fixed body).** An HTML login page at HTTP 200, a non-object
+    body (array, string, `null`), any body with an `error` key, a redirect (not followed) and
+    a timeout (still 10 seconds). The 503 body never contains the upstream address or key.
+  - **Unchanged.** Sonarr, Radarr and SABnzbd pings, `GET /api/nzbhydra/status`, the 404 for an
+    unknown service and the 503 "Service not configured".
+  - **Released servers.** Servers back to 1.09 share the false result; the fix reaches people
+    only when they run a server build containing it.
+- **Test plan** (not verified by an agent):
+  1. With a working NZBHydra2 configured, check both layouts. Modern: no "Can't reach
+     NZBHydra" banner. Classic: the NZBHydra pill shows connected.
+  2. Set a wrong NZBHydra URL in Settings. The banner or pill reports it within one status
+     poll. Restore the URL afterwards.
+  3. In the iOS app, if it shows NZBHydra's status from the server, it shows connected.
+
 ### Add Show / Add Movie (factory job 006)
 
 - **Web client only.** No server, dependency, service-worker or `APP_VERSION` change. One

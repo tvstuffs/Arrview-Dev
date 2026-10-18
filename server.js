@@ -79,7 +79,11 @@ app.get('/api/:service/ping', async (req, res) => {
       });
       // Some services return a login page or API error with HTTP 200.
       const data = response.data;
-      if (isHydra ? (!data?.caps || data.error) : !data?.version) {
+      // NZBHydra2 answers caps without a `caps` key (server, limits, searching, categories).
+      const isObject = v => typeof v === 'object' && v !== null && !Array.isArray(v);
+      const hydraOk = isObject(data) && !Object.prototype.hasOwnProperty.call(data, 'error')
+        && (isObject(data.caps) || isObject(data.server) || isObject(data.searching) || isObject(data.categories));
+      if (isHydra ? !hydraOk : !data?.version) {
         throw new Error('Invalid service response');
       }
     }
