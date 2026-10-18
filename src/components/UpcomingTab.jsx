@@ -15,7 +15,7 @@ function badgeText(entry) {
 function subtitle(entry) {
   if (entry.kind !== 'episode') return entry.subtitle
   const ep = entry.firstEpisode
-  return `S${pad(entry.season)}E${pad(entry.episodeNumbers[0])} · ${ep.title}`
+  return `S${pad(entry.season)}E${pad(entry.episodeNumbers[0])}${ep?.title ? ` · ${ep.title}` : ''}`
 }
 
 export default function UpcomingTab({ config, onShow, onMovie }) {
