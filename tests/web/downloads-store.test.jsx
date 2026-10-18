@@ -26,8 +26,15 @@ function makeWorld(overrides = {}) {
       if (world.gate.identify) await world.gate.identify
       return world.identify === 'fail' ? reply({ error: 'down' }, false) : reply({ capabilities: world.capabilities })
     }
-    if (url.startsWith('/api/sabnzbd/queue')) return world.fail.sab ? reply({ error: 'SAB down' }, false) : reply({ queue: { status: world.status, kbpersec: '48230', timeleft: '0:10:00', slots: world.slots } })
-    if (url.startsWith('/api/sabnzbd/history')) return reply({ history: { slots: world.history, noofslots: world.history.length } })
+    if (url.startsWith('/api/sabnzbd/queue')) {
+      const answer = world.fail.sab ? reply({ error: 'SAB down' }, false) : reply({ queue: { status: world.status, kbpersec: '48230', timeleft: '0:10:00', slots: world.slots } })
+      if (world.gate.sab) await world.gate.sab
+      return answer
+    }
+    if (url.startsWith('/api/sabnzbd/history')) {
+      if (world.onHistory) { const body = await world.onHistory(url); if (body) return reply(body) }
+      return reply({ history: { slots: world.history, noofslots: world.history.length } })
+    }
     for (const service of ['sonarr', 'radarr']) {
       if (url.startsWith(`/api/${service}/queue`)) {
         if (world.gate[service]) await world.gate[service]
@@ -270,6 +277,38 @@ test('a new id sends one request per needing service and a second one waits for 
   await settle()
   expect(world.sonarrCount()).toBe(2)
 })
+test('a SABnzbd answer that lands while the document is hidden starts no arr request until it is visible again, then exactly one each (criterion 10)', async () => {
+  const gate = deferred()
+  const world = makeWorld({ status: 'Paused', slots: [slot('n1', { status: 'Paused' })], gate: { sab: gate.promise } })
+  mount([DOWNLOADS])
+  await settle()
+  expect(world.sab()).toBe(1)
+  hidden = true
+  await act(async () => { gate.resolve(); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(world.sonarrCount() + world.radarrCount()).toBe(0)
+  await advance(30000)
+  expect(world.sonarrCount() + world.radarrCount()).toBe(0)
+  hidden = false
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect([world.sonarrCount(), world.radarrCount()]).toEqual([1, 1])
+})
+test('a deferred discovery rerun is dropped when the last consumer leaves or the queue empties before the earlier request resolves (criterion 10)', async () => {
+  for (const change of ['consumer', 'queue']) {
+    const gate = deferred()
+    const world = makeWorld({ status: 'Paused', slots: [slot('n1', { status: 'Paused' })], gate: { sonarr: gate.promise } })
+    const view = mount([{ sab: true, sonarr: 'any' }])
+    await settle()
+    expect(world.sonarrCount()).toBe(1)
+    world.slots = [slot('n1', { status: 'Paused' }), slot('n2', { status: 'Paused' })]
+    await advance(10000)
+    expect(world.sonarrCount()).toBe(1)
+    if (change === 'consumer') { view.rerender([]); await settle() } else { world.slots = []; await advance(10000) }
+    await act(async () => { gate.resolve(); await vi.advanceTimersByTimeAsync(1) }); await settle()
+    expect(world.sonarrCount()).toBe(1)
+    await advance(30000)
+    expect(world.sonarrCount()).toBe(1)
+  }
+})
 test('an arr error keeps a 10 s retry while a need is registered and clears it on success (criterion 10, 12)', async () => {
   const world = makeWorld({ status: 'Paused', slots: [slot('n1', { status: 'Paused' })], sonarr: [sonarrRecord('n1', 2)], fail: { sonarr: true } })
   const { latest } = mount([{ sab: true, sonarr: { seriesId: 1 } }])
@@ -336,4 +375,45 @@ test('history is not refetched on every queue poll: every 10 s, on a limit chang
   rerender({ limit: 30 })
   await settle()
   expect(history()).toBe(6)
+})
+function pendingHistory(world) {
+  const pending = []
+  world.onHistory = url => { const entry = { url, ...deferred() }; pending.push(entry); return entry.promise }
+  return pending
+}
+const historyBody = (...ids) => ({ history: { slots: ids.map(id => ({ nzo_id: id, name: id, status: 'Completed' })), noofslots: ids.length } })
+test('history: an interval tick and a slot disappearing while a request is pending never overlap; one rerun follows (criterion 11)', async () => {
+  const world = makeWorld()
+  const pending = pendingHistory(world)
+  const slots = { current: [slot('a'), slot('b')] }
+  const { result, rerender } = renderHook(({ limit }) => useDownloadHistory({ slots: slots.current, limit }), { initialProps: { limit: 15 } })
+  await settle()
+  expect(pending).toHaveLength(1)
+  await advance(10000)
+  slots.current = [slot('a')]
+  rerender({ limit: 15 })
+  await settle()
+  expect(pending).toHaveLength(1)
+  await act(async () => { pending[0].resolve(historyBody('old')); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(pending).toHaveLength(2)
+  expect(result.current.slots.map(item => item.nzo_id)).toEqual(['old'])
+  await act(async () => { pending[1].resolve(historyBody('new')); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(pending).toHaveLength(2)
+  expect(result.current.slots.map(item => item.nzo_id)).toEqual(['new'])
+})
+test('history: a delayed response for the old limit is dropped and cannot overwrite the new limit (criterion 11)', async () => {
+  const world = makeWorld()
+  const pending = pendingHistory(world)
+  const { result, rerender } = renderHook(({ limit }) => useDownloadHistory({ slots: [], limit }), { initialProps: { limit: 15 } })
+  await settle()
+  expect(pending.map(entry => entry.url)).toEqual(['/api/sabnzbd/history?limit=15'])
+  rerender({ limit: 30 })
+  await settle()
+  expect(pending).toHaveLength(1)
+  await act(async () => { pending[0].resolve(historyBody('fifteen')); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(result.current.slots).toBeNull()
+  expect(pending.map(entry => entry.url)).toEqual(['/api/sabnzbd/history?limit=15', '/api/sabnzbd/history?limit=30'])
+  await act(async () => { pending[1].resolve(historyBody('thirty', 'thirty-b')); await vi.advanceTimersByTimeAsync(1) }); await settle()
+  expect(result.current.slots.map(item => item.nzo_id)).toEqual(['thirty', 'thirty-b'])
+  expect(pending).toHaveLength(2)
 })

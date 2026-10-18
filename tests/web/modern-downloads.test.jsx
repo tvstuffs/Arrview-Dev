@@ -4,7 +4,7 @@ import { render, screen, within, fireEvent, waitFor, act } from '@testing-librar
 import Dashboard from '../../src/components/Dashboard'
 import DownloadsPage from '../../src/components/modern/DownloadsPage.jsx'
 import { LibraryProvider } from '../../src/components/modern/LibraryProvider.jsx'
-import { DownloadsProvider } from '../../src/hooks/useDownloads.jsx'
+import { DownloadsProvider, useDownloadNeeds } from '../../src/hooks/useDownloads.jsx'
 import { collapse, sortEntries, entryLabel } from '../../src/upcoming'
 import { reply, config, stubFetch, stubMedia, resetEnvironment, series as librarySeries, movies as libraryMovies, episodes as libraryEpisodes } from './modern-helpers'
 
@@ -53,6 +53,29 @@ beforeEach(() => {
 afterEach(() => {
   restoreMedia(); vi.useRealTimers(); vi.unstubAllGlobals()
   if (originalZone === undefined) delete process.env.TZ; else process.env.TZ = originalZone
+})
+
+// ---- Navigating to Downloads after the pill latched ready (criterion 22) ----
+function PillNeed() { useDownloadNeeds({ sab: true }); return null }
+test('navigating to Downloads from another wide route shows only the loading state until the arr answers, never unmatched items (criterion 22)', async () => {
+  const gate = deferred()
+  const fn = world({ slots: [slot('ep1', { filename: SHOW_RELEASE })], sonarr: [sonarrRecord('ep1')],
+    overrides: { '/api/sonarr/queue': async () => { await gate.promise; return reply(envelope([sonarrRecord('ep1')])) } } })
+  const tree = onDownloads => <LibraryProvider><DownloadsProvider config={config}><PillNeed />{onDownloads && <DownloadsPage config={config} phone={false} onToast={vi.fn()} canSearch />}</DownloadsProvider></LibraryProvider>
+  const { rerender } = render(tree(false))
+  await waitFor(() => expect(requests(fn, '/api/sabnzbd/queue')).toBeGreaterThan(0))
+  await act(async () => { await new Promise(done => setTimeout(done, 50)) })
+  expect(requests(fn, '/api/sonarr/queue')).toBe(0)
+  rerender(tree(true))
+  await screen.findByText('Loading downloads…')
+  await waitFor(() => expect(requests(fn, '/api/sonarr/queue')).toBeGreaterThan(0))
+  await act(async () => { await new Promise(done => setTimeout(done, 50)) })
+  expect(screen.getByText('Loading downloads…')).toBeInTheDocument()
+  expect(screen.queryByText(SHOW_RELEASE)).toBeNull()
+  expect(screen.queryByText('Not in Sonarr')).toBeNull()
+  gate.resolve()
+  expect(await screen.findByRole('heading', { level: 2, name: 'Fixture Show' })).toBeInTheDocument()
+  expect(screen.queryByText('Loading downloads…')).toBeNull()
 })
 
 // ---- Hero (criteria 14 to 16) ----

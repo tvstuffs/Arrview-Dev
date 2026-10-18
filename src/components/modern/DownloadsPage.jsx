@@ -190,7 +190,9 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
   }
 
   const gear = phone && <div className="m-gear-row"><SettingsLink /></div>
-  if (!dl.ready) return <div className="empty-state" role="status"><h1 className="m-sr" data-m-placeholder>Downloads</h1><span className="spinner" /><span>Loading downloads…</span></div>
+  // `ready` stays latched once reached, so a page opened later also waits for its own arr answers (no unmatched flash).
+  const awaitingArr = dl.slots.length > 0 && ['sonarr', 'radarr'].some(service => dl.arr[service] === 'idle' || dl.arr[service] === 'pending')
+  if (!dl.ready || awaitingArr) return <div className="empty-state" role="status"><h1 className="m-sr" data-m-placeholder>Downloads</h1><span className="spinner" /><span>Loading downloads…</span></div>
   if (dl.error) return <>
     {gear}
     <div className="empty-state">

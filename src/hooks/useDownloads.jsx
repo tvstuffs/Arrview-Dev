@@ -42,8 +42,11 @@ function useArrQueue(service, { on, needs, slots, slotKey, data, setData }) {
   const attempted = useRef(null)
   const latestKey = useRef(slotKey)
   latestKey.current = slotKey
+  const open = useRef(false)
   const run = useRef(null)
+  // Every request entry (discovery, interval, deferred rerun) re-checks the latest gates.
   run.current = async () => {
+    if (document.hidden || !open.current) return
     inflight.current = true
     attempted.current = latestKey.current
     try {
@@ -61,6 +64,7 @@ function useArrQueue(service, { on, needs, slots, slotKey, data, setData }) {
 
   const registered = needs.filter(entry => entry.spec[service] !== undefined)
   const wanted = on && registered.length > 0 && slots.length > 0
+  open.current = wanted
   const ids = new Set(slots.map(slot => slot.nzo_id))
   const followed = data.records.filter(record => typeof record?.downloadId === 'string' && ids.has(record.downloadId))
   const live = scope => {
@@ -74,8 +78,12 @@ function useArrQueue(service, { on, needs, slots, slotKey, data, setData }) {
 
   useEffect(() => {
     if (!slotKey) attempted.current = null
-    if (!wanted || attempted.current === slotKey) return
-    discover()
+    if (!wanted) return
+    // Discovery skipped while hidden is picked up when the document becomes visible again.
+    const catchUp = () => { if (!document.hidden && attempted.current !== slotKey) discover() }
+    catchUp()
+    document.addEventListener('visibilitychange', catchUp)
+    return () => document.removeEventListener('visibilitychange', catchUp)
   }, [wanted, slotKey, discover])
   useVisiblePolling(tick, 10000, active)
   return { wanted }
@@ -149,13 +157,27 @@ export function DownloadsProvider({ config, children }) {
 // Recent History for the Downloads page: on mount, when the limit changes, every 10 s, and once when a slot id leaves the queue.
 export function useDownloadHistory({ slots, limit, enabled = true }) {
   const [state, setState] = useState({ slots: null, total: null, error: null })
+  // One request at a time across every trigger; a trigger that arrives meanwhile queues one rerun, and a response
+  // for a limit that is no longer current is dropped.
+  const latest = useRef({ limit, enabled })
+  latest.current = { limit, enabled }
+  const inflight = useRef(false)
+  const again = useRef(false)
   const fetchHistory = useCallback(async () => {
+    if (inflight.current) { again.current = true; return }
+    inflight.current = true
+    const asked = latest.current.limit
     try {
-      const body = await readQueue(`/api/sabnzbd/history?limit=${limit}`)
+      const body = await readQueue(`/api/sabnzbd/history?limit=${asked}`)
+      if (asked !== latest.current.limit) return
       const history = body?.history
       setState({ slots: history?.slots || [], total: Number.isFinite(Number(history?.noofslots)) ? Number(history.noofslots) : null, error: null })
-    } catch (e) { setState(previous => ({ ...previous, error: e.message || 'Request failed' })) }
-  }, [limit])
+    } catch (e) { if (asked === latest.current.limit) setState(previous => ({ ...previous, error: e.message || 'Request failed' })) }
+    finally {
+      inflight.current = false
+      if (again.current) { again.current = false; if (latest.current.enabled && !document.hidden) fetchHistory() }
+    }
+  }, [])
   useVisiblePolling(fetchHistory, 10000, enabled, limit)
   const key = slots.map(slot => slot.nzo_id).sort().join('\n')
   const previous = useRef(null)
