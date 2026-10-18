@@ -2,6 +2,10 @@
 
 ## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
 
+- **Version 1.9A3.** Local test build of the web redesign: factory jobs 003–006 (the art-led
+  layout and the Classic/Modern switch, Upcoming, Downloads, the Add flow) merged into `main`
+  on top of 1.9A2. Not pushed: pushing `main` publishes it to the `dev` channel.
+
 ### NZBHydra connectivity check (factory job 007)
 
 - **Server only.** No web, dependency, service-worker or `APP_VERSION` change.
