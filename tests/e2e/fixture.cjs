@@ -131,7 +131,8 @@ const upstream = http.createServer((req, res) => {
     { title: 'Fixture result already in the library', tvdbId: 203, tmdbId: 203, id: 77, year: 2021, overview: 'Already added.', seasons: [], images: [{ coverType: 'poster', remoteUrl: ART }] },
   ]))
   // Profile 2 is the one the fixture library uses, so the default differs from the first profile listed.
-  const allowedLeaf = (id, name, resolution, allowed = true) => ({ quality: { id, name, resolution }, allowed })
+  // Sonarr and Radarr send every single quality with an empty `items` array, so the fixture does too.
+  const allowedLeaf = (id, name, resolution, allowed = true) => ({ quality: { id, name, resolution }, items: [], allowed })
   if (url.pathname.endsWith('/qualityprofile')) return res.end(JSON.stringify([
     { id: 1, name: 'Fixture HD 1080p', items: [allowedLeaf(7, 'Bluray-1080p', 1080)] },
     { id: 2, name: 'Fixture Standard', items: [allowedLeaf(4, 'HDTV-720p', 720), allowedLeaf(9, 'HDTV-1080p', 1080)] },

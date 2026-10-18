@@ -13,6 +13,15 @@
   Every job passed its reviews and the full test suites before it was merged.
   - *Human check:* Settings shows "ArrView v1.9A3", and `GET /api/health` and
     `GET /api/arrview/identify` report `1.9A3`. Then run the job test plans below.
+- **Fix: quality tiers were missing in the Add sheet.** This was found in the first 1.9A3 container,
+  before anyone tested it. The Quality Profile picker showed no tier ("UHD · 4K", "HD · 1080p", ...)
+  for any real profile.
+  - **Cause:** Sonarr and Radarr send every single quality with an empty `items` list, and the tier code
+    treated that as a group and skipped it.
+  - **Fix:** only a non-empty list now counts as a group.
+  - **Tests:** the unit tests and the e2e fixture now use the real shape.
+  - *Human check:* open Add Movie and Add Show, search, and pick a result. The picker shows each profile
+    with its tier (for example "Ultra-HD · UHD · 4K") and the Default tag.
 
 ### NZBHydra connectivity check (factory job 007)
 

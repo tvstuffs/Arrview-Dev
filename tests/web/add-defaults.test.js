@@ -29,6 +29,17 @@ test('the leaf flag wins over its group flag', () => {
   expect(tier([group([leaf(2160, false)])])).toBeNull()
 })
 
+// The shape Sonarr and Radarr really send: every single quality carries an empty `items` array
+// (checked against both APIs on 2026-10-18; the first 1.9A3 build showed no tier at all because of it).
+const apiLeaf = (resolution, allowed = true) => ({ ...leaf(resolution, allowed), items: [] })
+
+test('real API shape: single qualities carry an empty items array', () => {
+  expect(tier([apiLeaf(2160)])).toBe('UHD · 4K')
+  expect(tier([apiLeaf(0, false), group([apiLeaf(480), apiLeaf(480)]), apiLeaf(2160, false)])).toBe('SD')
+  expect(tier([group([apiLeaf(720), apiLeaf(1080)]), apiLeaf(1080), apiLeaf(2160, false)])).toBe('HD · 720p–1080p')
+  expect(tier([apiLeaf(480, false), apiLeaf(720, false)])).toBeNull()
+})
+
 test('nothing derivable gives no tier', () => {
   expect(qualityTier({ id: 1, name: 'P' })).toBeNull()
   expect(qualityTier({ id: 1, name: 'P', items: [] })).toBeNull()

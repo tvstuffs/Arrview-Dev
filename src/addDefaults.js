@@ -15,7 +15,9 @@ function collectBuckets(items, found) {
   if (!Array.isArray(items)) return
   for (const entry of items) {
     if (!entry || typeof entry !== 'object') continue
-    if (Array.isArray(entry.items)) collectBuckets(entry.items, found) // groups are containers only
+    // Groups are containers only. Sonarr and Radarr also send every single quality with `items: []`,
+    // so only a non-empty list marks a group.
+    if (Array.isArray(entry.items) && entry.items.length > 0) collectBuckets(entry.items, found)
     else if (entry.quality && typeof entry.quality === 'object' && entry.allowed === true) {
       const bucket = bucketOf(Number(entry.quality.resolution))
       if (bucket) found.add(bucket)
