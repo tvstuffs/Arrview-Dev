@@ -35,6 +35,16 @@ test('the Upcoming icons (stack, monitor-play, disc) render from the staged Phos
     expect(render(<Icon name={name} weight="fill" />).container.querySelector('path').getAttribute('d')).toBe(d)
   }
 })
+test('the Downloads glyph icons (file, package, music-notes, book-open) render from the staged Phosphor regular set', () => {
+  const staged = { 'file': 'M213.66,82.34l-56-56A8,8,0,0,0,152,24H56', 'package': 'M223.68,66.15,135.68,18a15.88,15.88,0,0,0-15.36,0',
+    'music-notes': 'M212.92,17.69a8,8,0,0,0-6.86-1.45l-128,32', 'book-open': 'M232,48H160a40,40,0,0,0-32,16A40,40,0,0,0,96,48H24' }
+  for (const [name, start] of Object.entries(staged)) {
+    expect(ICON_NAMES).toContain(name)
+    const d = render(<Icon name={name} />).container.querySelector('path').getAttribute('d')
+    expect(d.startsWith(start), name).toBe(true)
+    expect(render(<Icon name={name} weight="fill" />).container.querySelector('path').getAttribute('d')).toBe(d)
+  }
+})
 test('unknown icon names render nothing', () => {
   const { container } = render(<Icon name="no-such-icon" />)
   expect(container).toBeEmptyDOMElement()
