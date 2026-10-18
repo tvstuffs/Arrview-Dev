@@ -34,13 +34,38 @@ test('the border guard rejects a focus-visible border on a tile and allows only 
   expect(borderViolations(parseRules(`${SHEET_FIELD_SELECTOR} { outline: 2px solid var(--text); border-color: var(--hair-2); }`))).toEqual([])
   expect(borderViolations(parseRules(`${SHEET_FIELD_SELECTOR} { border: 1px solid red; }`))).toHaveLength(1)
 })
-test('Modern CSS uses the live colour exactly once, for the Today label, and has no light colour scheme (criteria 11, 33; job 004 D23)', () => {
-  expect(css.match(/--live/g)).toHaveLength(1)
+test('the live colour appears only in .m-live-* rules and the Today label, and there is no light colour scheme (job 005 criterion 31; job 004 D23)', () => {
   const today = rules.find(r => r.selector === '.m-agenda-day.is-today .m-agenda-rel')
   expect(today).toBeDefined()
   expect(today.body).toMatch(/var\(--live\)/)
+  const using = rules.filter(r => /--live/.test(r.body))
+  expect(using.length).toBeGreaterThan(5)
+  for (const { selector, body } of using) {
+    if (selector === today.selector) continue
+    for (const part of selector.split(',').map(s => s.trim())) expect(part, `${selector} { ${body} }`).toMatch(/^\.m-live/)
+  }
+  // Every occurrence of --live sits in a rule body (none in a selector, a comment-free property name or a custom property).
+  expect(css.match(/--live/g)).toHaveLength(rules.reduce((total, r) => total + (r.body.match(/--live/g) || []).length, 0))
+  expect(css).not.toMatch(/--live\s*:/)
   expect(css).not.toMatch(/prefers-color-scheme/)
   expect(css).not.toMatch(/color-scheme/)
+})
+test('the live dot pulses, and reduced motion switches the pulse off (job 005 criterion 26)', () => {
+  expect(css).toMatch(/@keyframes m-live-pulse/)
+  expect(rules.find(r => r.selector === '.m-live-dot').body).toMatch(/animation:\s*m-live-pulse/)
+  expect(rules.find(r => r.selector === '.m-live-dot.is-static').body).toMatch(/animation:\s*none/)
+  const block = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
+  expect(block).toMatch(/\.m-live-dot\s*\{\s*animation:\s*none;?\s*\}/)
+})
+test('Downloads rules are flat: no borders, shadows or gradients (job 005 criterion 31)', () => {
+  const downloads = rules.filter(r => /\.m-(dl|live)-/.test(r.selector) && !r.selector.startsWith('.m-live-pill:hover'))
+  expect(downloads.length).toBeGreaterThan(40)
+  for (const { selector, body } of downloads) expect(body, selector).not.toMatch(/gradient|box-shadow/)
+  for (const { selector, body } of downloads) for (const decl of body.split(';')) {
+    const match = /^\s*border(?!-radius)[\w-]*\s*:\s*(.*)$/.exec(decl)
+    if (match) expect(match[1].trim(), selector).toMatch(/^(0|none)$/)
+  }
+  expect(rules.find(r => r.selector === '.m-live-bar > span').body).not.toMatch(/gradient/)
 })
 test('the neutral focus ring rule is declared with the text colour (D29)', () => {
   const rule = rules.find(r => r.selector === '.m-shell :focus-visible')

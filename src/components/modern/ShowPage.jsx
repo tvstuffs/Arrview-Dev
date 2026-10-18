@@ -6,8 +6,10 @@ import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from '../Med
 import ArtImage from './ArtImage.jsx'
 import NotFound from './NotFound.jsx'
 import { SettingsLink } from './PageHeader.jsx'
+import { EpisodeLive } from './DownloadStatus.jsx'
 import { useSeries } from './LibraryProvider.jsx'
 import { showStats } from './ShowsPage.jsx'
+import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
 import { useMediaActions } from '../../hooks/useMediaActions'
 import { useVisiblePolling, useServerEvents } from '../../hooks/lifecycle'
 import { artUrl, episodeState } from '../../media'
@@ -15,10 +17,10 @@ import { artUrl, episodeState } from '../../media'
 const capitalise = text => text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
 const goToShows = () => { window.location.hash = '/shows' }
 
-function EpisodeItem({ ep, fanart, onSearch, onInteractive, onDelete }) {
+function EpisodeItem({ ep, fanart, live, onSearch, onInteractive, onDelete }) {
   const state = episodeState(ep)
   const date = ep.airDateUtc ? new Date(ep.airDateUtc).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : null
-  const meta = [`Episode ${ep.episodeNumber}`, date, state === 'missing' ? 'Missing' : state === 'upcoming' ? 'Upcoming' : null].filter(Boolean)
+  const meta = [`Episode ${ep.episodeNumber}`, date, state === 'missing' && !live ? 'Missing' : state === 'upcoming' ? 'Upcoming' : null].filter(Boolean)
   return <li className={`m-ep is-${state}`}>
     <div className="m-still">
       <ArtImage srcs={[artUrl(ep, 'screenshot', 'still'), fanart]} className="m-art-still" width="320" height="180" icon="television-simple" />
@@ -30,11 +32,12 @@ function EpisodeItem({ ep, fanart, onSearch, onInteractive, onDelete }) {
       {ep.overview && <p className="m-ep-overview">{ep.overview}</p>}
     </div>
     <div className="m-ep-actions">
+      {live && <EpisodeLive item={live} />}
       {state === 'downloaded' && <>
         <span className="m-ok"><Icon name="check" />Downloaded</span>
         <button className="btn btn-icon btn-icon-danger" aria-label={`Delete and unmonitor ${ep.title}`} title="Delete from disk and unmonitor" onClick={() => onDelete(ep)}><Icon name="trash" /></button>
       </>}
-      {state === 'missing' && <>
+      {state === 'missing' && !live && <>
         <button className="btn btn-attn btn-sm" onClick={() => onSearch(ep.id)}><Icon name="download-simple" /> Download</button>
         <button className="btn btn-icon" aria-label="Interactive search — pick a release manually" title="Interactive search — pick a release manually" onClick={() => onInteractive(ep)}><Icon name="magnifying-glass" /></button>
       </>}
@@ -44,6 +47,7 @@ function EpisodeItem({ ep, fanart, onSearch, onInteractive, onDelete }) {
 
 function ShowDetail({ show, phone, onToast, config, refresh }) {
   const actions = useMediaActions(onToast)
+  const downloads = useDownloads()
   const [episodes, setEpisodes] = useState(null)
   const [selected, setSelected] = useState(null)
   const [searching, setSearching] = useState(false)
@@ -130,7 +134,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
               {downloaded > 0 && <button className="btn btn-icon" aria-label={`More actions for Season ${season}`} title={`More actions for Season ${season}`} onClick={() => setConfirmSeason(season)}><Icon name="dots-three" /></button>}
             </div>
             <ul className="m-episodes">
-              {eps.map(ep => <EpisodeItem key={ep.id} ep={ep} fanart={fanart} onSearch={actions.searchEpisode} onInteractive={setInteractiveEp} onDelete={setConfirmEpisode} />)}
+              {eps.map(ep => <EpisodeItem key={ep.id} ep={ep} fanart={fanart} live={episodeState(ep) === 'downloaded' ? null : downloads.byEpisode(ep.id)} onSearch={actions.searchEpisode} onInteractive={setInteractiveEp} onDelete={setConfirmEpisode} />)}
             </ul>
           </>}
     </section>
@@ -148,6 +152,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
 export default function ShowPage({ id, phone, onToast, config }) {
   const { series, loading, error, refresh } = useSeries()
   const numeric = /^\d+$/.test(id) ? Number(id) : NaN
+  useDownloadNeeds({ sab: true, sonarr: { seriesId: Number.isSafeInteger(numeric) ? numeric : null } })
   if (!Number.isSafeInteger(numeric)) return <NotFound kind="show" />
   if (loading) return <div className="empty-state" role="status"><h1 className="m-sr" data-m-placeholder>Show</h1><span className="spinner" /><span>Loading show…</span></div>
   if (error) return <div className="empty-state">

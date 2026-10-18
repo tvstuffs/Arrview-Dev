@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import Icon from '../Icon.jsx'
-import DownloadsTab from '../DownloadsTab.jsx'
 import ConfigPage from '../ConfigPage.jsx'
 import NzbSearchModal from '../NzbSearchModal.jsx'
 import { SheetClassContext } from '../Sheet.jsx'
@@ -12,6 +11,9 @@ import ShowPage from './ShowPage.jsx'
 import MoviesPage from './MoviesPage.jsx'
 import MoviePage from './MoviePage.jsx'
 import UpcomingPage from './UpcomingPage.jsx'
+import DownloadsPage from './DownloadsPage.jsx'
+import DownloadPill from './DownloadPill.jsx'
+import { DownloadsProvider } from '../../hooks/useDownloads.jsx'
 import { usePreference, oneOf } from '../../hooks/usePreference'
 import { usePhone } from '../../hooks/usePhone'
 import { useHashRoute } from '../../hooks/useHashRoute'
@@ -91,11 +93,7 @@ export default function ModernShell({ config, onConfigSaved, layout, onLayoutCha
   const common = { phone, onToast: addToast, config }
 
   let page = null
-  if (section === 'downloads') page = <>
-    {phone && <div className="m-gear-row"><SettingsLink /></div>}
-    <h1 className="m-sr">Downloads</h1>
-    <DownloadsTab onToast={addToast} canSearch={Boolean(config.nzbhydra)} />
-  </>
+  if (section === 'downloads') page = <DownloadsPage config={config} phone={phone} onToast={addToast} canSearch={Boolean(config.nzbhydra)} />
   else if (section === 'upcoming') page = <UpcomingPage config={config} phone={phone} />
   else if (section === 'search') page = <>
     <PageHeader title="Search" phone={phone} gear />
@@ -114,10 +112,11 @@ export default function ModernShell({ config, onConfigSaved, layout, onLayoutCha
     {phone && <Icon name={tab.icon} weight={section === tab.id ? 'fill' : 'regular'} />}<span>{tab.label}</span>
   </a>
 
-  return <SheetClassContext.Provider value="m-sheet"><LibraryProvider><div className={`m-shell${phone ? ' is-phone' : ''}`}>
+  return <SheetClassContext.Provider value="m-sheet"><LibraryProvider><DownloadsProvider config={config}><div className={`m-shell${phone ? ' is-phone' : ''}`}>
     {!phone && <header className={`m-topbar${hero && !offline.length ? ' is-overlay' : ''}`}>
       <a className="m-brand" href="#/downloads"><img src="/arrview-icon.svg" alt="" width="28" height="28" /><span>ArrView</span></a>
       <nav className="m-topnav" aria-label="Main navigation">{navTabs.map(link)}</nav>
+      <DownloadPill />
       <SettingsLink />
     </header>}
     <ServiceBanner services={offline} onRetry={check} />
@@ -126,5 +125,5 @@ export default function ModernShell({ config, onConfigSaved, layout, onLayoutCha
     <div className="toast-container" aria-live="polite" aria-atomic="false">
       {toasts.map(t => <div key={t.id} className={`toast toast-${t.type}`}>{t.message}</div>)}
     </div>
-  </div></LibraryProvider></SheetClassContext.Provider>
+  </div></DownloadsProvider></LibraryProvider></SheetClassContext.Provider>
 }

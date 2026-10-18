@@ -18,7 +18,9 @@ const sources = [...walk('src'), 'index.html', 'public/offline.html', 'public/of
 test('the scanned sources cover the Modern components and the shared media helpers', () => {
   for (const file of ['src/media.js', 'src/sections.js', 'src/components/modern/ModernShell.jsx', 'src/components/modern/ShowPage.jsx',
     'src/components/modern/MoviePage.jsx', 'src/components/modern/modern.css', 'src/components/MediaSheets.jsx',
-    'src/upcoming.js', 'src/hooks/useUpcoming.js', 'src/components/modern/UpcomingPage.jsx']) expect(sources, file).toContain(file)
+    'src/upcoming.js', 'src/hooks/useUpcoming.js', 'src/components/modern/UpcomingPage.jsx',
+    'src/downloads.js', 'src/hooks/useDownloads.jsx', 'src/components/modern/DownloadsPage.jsx', 'src/components/modern/DownloadPill.jsx',
+    'src/components/modern/DownloadStatus.jsx']) expect(sources, file).toContain(file)
 })
 
 const CANVAS = '#0b0b0c'

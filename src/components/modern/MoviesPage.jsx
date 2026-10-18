@@ -6,7 +6,10 @@ import ViewToggle, { VIEW_VALUES } from './ViewToggle.jsx'
 import FilterChips from './FilterChips.jsx'
 import ArtImage from './ArtImage.jsx'
 import MovieActions, { useHoverCapable } from './MovieActions.jsx'
+import { DownloadBar, MovieLiveText } from './DownloadStatus.jsx'
 import { useMovies } from './LibraryProvider.jsx'
+import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
+import { liveStatus } from '../../downloads'
 import { useMediaActions } from '../../hooks/useMediaActions'
 import { usePreference, textPreference, oneOf } from '../../hooks/usePreference'
 import { artUrl, isMovieMissing, nextRelease, releaseLabel, getMovieStatus, MOVIE_STATUS } from '../../media'
@@ -25,24 +28,26 @@ export function movieMeta(movie, now = Date.now()) {
   return { text: 'Missing', attn: true, grey: true }
 }
 
-function MovieTile({ movie, small, hover, ...rest }) {
+function MovieTile({ movie, small, hover, live, ...rest }) {
   const meta = movieMeta(movie)
   const metaId = `movie-meta-${movie.id}`
+  const label = live && small ? `${movie.title}, ${liveStatus(live).tileText}` : movie.title
   return <li className="m-tilewrap">
-    <a className="m-tile" href={`#/movies/${movie.id}`} aria-label={movie.title} title={small ? movie.title : undefined} aria-describedby={small ? undefined : metaId}>
+    <a className="m-tile" href={`#/movies/${movie.id}`} aria-label={label} title={small ? movie.title : undefined} aria-describedby={small ? undefined : metaId}>
       <span className={`m-poster${meta.grey ? ' is-grey' : ''}`}>
         <ArtImage srcs={[artUrl(movie, 'poster', 'grid')]} className="m-art-poster" width="200" height="300" />
+        {live && <DownloadBar pct={live.pct} tone={live.status === 'paused' ? 'attn' : 'live'} overlay />}
       </span>
       {!small && <>
         <span className="m-tile-title">{movie.title}</span>
-        <span className={`m-tile-meta${meta.attn ? ' is-attn' : ''}`} id={metaId}>{meta.text}</span>
+        <span className={`m-tile-meta${meta.attn && !live ? ' is-attn' : ''}`} id={metaId}>{live ? <MovieLiveText item={live} /> : meta.text}</span>
       </>}
     </a>
     {hover && <div className="m-overlay"><MovieActions movie={movie} variant={small ? 'overlay-small' : 'overlay'} {...rest} /></div>}
   </li>
 }
 
-function MovieRow({ movie, ...rest }) {
+function MovieRow({ movie, live, ...rest }) {
   const meta = movieMeta(movie)
   const studio = [movie.year, movie.studio].filter(Boolean).join(' · ')
   return <li className="m-row">
@@ -51,7 +56,7 @@ function MovieRow({ movie, ...rest }) {
       <span className="m-row-text">
         <span className="m-row-title">{movie.title}</span>
         {studio && <span className="m-row-meta">{studio}</span>}
-        <span className={`m-row-meta${meta.attn ? ' m-attn' : ''}`}>{movie.hasFile ? 'Downloaded' : meta.text}</span>
+        <span className={`m-row-meta${meta.attn && !live ? ' m-attn' : ''}`}>{live ? <MovieLiveText item={live} /> : movie.hasFile ? 'Downloaded' : meta.text}</span>
       </span>
     </a>
     <div className="m-row-actions"><MovieActions movie={movie} variant="row" {...rest} /></div>
@@ -69,6 +74,8 @@ export default function MoviesPage({ phone, onToast }) {
   const [adding, setAdding] = useState(false)
   const actions = useMediaActions(onToast)
   const hover = useHoverCapable()
+  useDownloadNeeds({ sab: true, radarr: 'any' })
+  const downloads = useDownloads()
 
   let body
   if (loading) body = <div className="empty-state" role="status"><span className="spinner" /><span>Loading movies…</span></div>
@@ -120,8 +127,8 @@ export default function MoviesPage({ phone, onToast }) {
           <span>No movies match your filter</span>
         </div>
         : view === 'list'
-          ? <ul className="m-list">{filtered.map(movie => <MovieRow key={movie.id} movie={movie} {...shared} />)}</ul>
-          : <ul className={`m-grid ${view === 'small' ? 'is-small' : 'is-large'}`}>{filtered.map(movie => <MovieTile key={movie.id} movie={movie} small={view === 'small'} hover={hover} {...shared} />)}</ul>}
+          ? <ul className="m-list">{filtered.map(movie => <MovieRow key={movie.id} movie={movie} live={downloads.byMovie(movie.id)} {...shared} />)}</ul>
+          : <ul className={`m-grid ${view === 'small' ? 'is-small' : 'is-large'}`}>{filtered.map(movie => <MovieTile key={movie.id} movie={movie} small={view === 'small'} hover={hover} live={downloads.byMovie(movie.id)} {...shared} />)}</ul>}
     </>
   }
   return <div className="m-page">
