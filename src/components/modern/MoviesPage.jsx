@@ -134,6 +134,6 @@ export default function MoviesPage({ phone, onToast }) {
   return <div className="m-page">
     <PageHeader title="Movies" phone={phone} addLabel="Add Movie" onAdd={() => setAdding(true)} gear />
     {body}
-    {adding && <AddMediaModal type="movie" onClose={() => setAdding(false)} onAdded={refresh} onToast={onToast} />}
+    {adding && <AddMediaModal type="movie" library={movies} onClose={() => setAdding(false)} onAdded={refresh} onToast={onToast} />}
   </div>
 }

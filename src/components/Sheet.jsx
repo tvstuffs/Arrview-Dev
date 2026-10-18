@@ -7,7 +7,8 @@ import './Sheet.css'
 // so its sheets get the neutral focus ring. Classic provides nothing and keeps the default.
 export const SheetClassContext = createContext('')
 
-export default function Sheet({ title, children, onClose, busy = false, className = '' }) {
+// `footer` renders after the scrolling content and stays visible; `initialFocus` is a ref focused right after showModal().
+export default function Sheet({ title, children, onClose, busy = false, className = '', footer = null, initialFocus = null }) {
   const themeClass = useContext(SheetClassContext)
   const dialog = useRef(null)
   const titleId = useId()
@@ -16,6 +17,7 @@ export default function Sheet({ title, children, onClose, busy = false, classNam
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     dialog.current.showModal()
+    initialFocus?.current?.focus()
     return () => {
       document.body.style.overflow = overflow
       if (previous?.isConnected) previous.focus()
@@ -33,6 +35,7 @@ export default function Sheet({ title, children, onClose, busy = false, classNam
         <button className="btn btn-ghost" aria-label="Close dialog" title="Close dialog" disabled={busy} onClick={onClose}><Icon name="x" /></button>
       </header>
       <div className="sheet-content">{children}</div>
+      {footer}
     </dialog>, document.body,
   )
 }

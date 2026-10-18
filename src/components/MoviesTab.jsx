@@ -232,6 +232,7 @@ export default function MoviesTab({ onToast }) {
       {showAddModal && (
         <AddMediaModal
           type="movie"
+          library={movies}
           onClose={() => setShowAddModal(false)}
           onAdded={fetchMovies}
           onToast={onToast}

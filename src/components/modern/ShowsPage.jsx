@@ -126,6 +126,6 @@ export default function ShowsPage({ phone, onToast }) {
   return <div className="m-page">
     {header}
     {body}
-    {adding && <AddMediaModal type="show" onClose={() => setAdding(false)} onAdded={refresh} onToast={onToast} />}
+    {adding && <AddMediaModal type="show" library={series} onClose={() => setAdding(false)} onAdded={refresh} onToast={onToast} />}
   </div>
 }

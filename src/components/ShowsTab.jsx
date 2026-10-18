@@ -423,6 +423,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
       {showAddModal && (
         <AddMediaModal
           type="show"
+          library={series}
           onClose={() => setShowAddModal(false)}
           onAdded={fetchSeries}
           onToast={onToast}

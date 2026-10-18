@@ -1,6 +1,7 @@
 import Sheet from './Sheet'
-import { useState, useEffect, useRef } from 'react'
-import Icon from './Icon.jsx'
+import { useState, useEffect, useRef, useId } from 'react'
+import ListPicker from './ListPicker.jsx'
+import { qualityTier, defaultProfile, defaultRootFolder, usageText, formatFreeSpace } from '../addDefaults.js'
 import './AddMediaModal.css'
 
 // Returns the best poster URL from a Sonarr/Radarr result object
@@ -13,42 +14,47 @@ function getPoster(item) {
   return null
 }
 
-function ResultCard({ item, selected, onSelect, type }) {
-  const poster = getPoster(item)
-  const alreadyAdded = !!item.id
-  const isSelected = selected && (type === 'show' ? selected.tvdbId === item.tvdbId : selected.tmdbId === item.tmdbId)
+const sameItem = (a, b, type) => !!a && !!b && (type === 'show' ? a.tvdbId === b.tvdbId : a.tmdbId === b.tmdbId)
 
+function Poster({ item, className }) {
+  const poster = getPoster(item)
   return (
-    <div
-      role="button" tabIndex={alreadyAdded ? -1 : 0} aria-disabled={alreadyAdded} aria-label={`Select ${item.title}`}
-      onKeyDown={e => { if (!alreadyAdded && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(item) } }}
-      className={`result-card ${isSelected ? 'selected' : ''} ${alreadyAdded ? 'already-added' : ''}`}
-      onClick={() => !alreadyAdded && onSelect(item)}
-    >
-      <div className="result-poster">
-        {poster
-          ? <img src={poster} alt={item.title} loading="lazy" />
-          : <div className="result-poster-placeholder">{item.title[0]}</div>
-        }
-      </div>
-      <div className="result-info">
-        <div className="result-title font-semibold">{item.title}</div>
-        <div className="result-meta text-xs text-muted">
-          {item.year > 0 && <span>{item.year}</span>}
-          {type === 'show' && item.status && <span>{item.status}</span>}
-          {type === 'show' && item.network && <span>{item.network}</span>}
-          {type === 'movie' && item.studio && <span>{item.studio}</span>}
-        </div>
-        {item.overview && (
-          <p className="result-overview text-xs text-secondary">{item.overview}</p>
-        )}
-        {alreadyAdded && <span className="badge badge-muted text-xs">Already in library</span>}
-      </div>
+    <div className={className}>
+      {poster
+        ? <img src={poster} alt="" loading="lazy" />
+        : <div className="result-poster-placeholder">{item.title?.[0]}</div>}
     </div>
   )
 }
 
-export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
+function ResultTile({ item, selected, onSelect, type }) {
+  const alreadyAdded = !!item.id
+  return (
+    <button
+      type="button" tabIndex={alreadyAdded ? -1 : 0} aria-disabled={alreadyAdded} aria-pressed={selected}
+      aria-label={`Select ${item.title}`}
+      className={`result-tile${selected ? ' selected' : ''}${alreadyAdded ? ' already-added' : ''}`}
+      onClick={() => { if (!alreadyAdded) onSelect(item) }}
+    >
+      <Poster item={item} className="result-poster" />
+      <span className="result-title font-semibold">{item.title}</span>
+      <span className="result-meta text-xs text-muted">{item.year > 0 ? item.year : ''}</span>
+      {alreadyAdded && <span className="badge badge-muted text-xs">Already in library</span>}
+    </button>
+  )
+}
+
+function metaLine(item, type) {
+  const parts = [
+    item.year > 0 ? item.year : null,
+    type === 'show' ? item.network : item.studio,
+    Array.isArray(item.genres) && item.genres.length ? item.genres.slice(0, 3).join(', ') : null,
+  ]
+  return parts.filter(Boolean).join(' · ')
+}
+
+// `library` is the list the page already holds (series or movies); without it the sheet fetches the list once.
+export default function AddMediaModal({ type, library, onClose, onAdded, onToast }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
@@ -57,18 +63,18 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
   // Config options
   const [qualityProfiles, setQualityProfiles] = useState([])
   const [rootFolders, setRootFolders] = useState([])
-  const [qualityProfileId, setQualityProfileId] = useState('')
-  const [rootFolderPath, setRootFolderPath] = useState('')
+  const [fetchedLibrary, setFetchedLibrary] = useState({ status: 'loading', items: null })
+  const [pickedProfile, setPickedProfile] = useState(null)
+  const [pickedFolder, setPickedFolder] = useState(null)
   const [monitored, setMonitored] = useState(true)
   const [searchOnAdd, setSearchOnAdd] = useState(true)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState(null)
 
   const inputRef = useRef(null)
+  const usageId = useId()
   const prefix = type === 'show' ? '/api/sonarr' : '/api/radarr'
-
-  // Focus input on open
-  useEffect(() => { inputRef.current?.focus() }, [])
+  const needsLibraryFetch = !Array.isArray(library)
 
   // Load quality profiles + root folders
   useEffect(() => {
@@ -76,33 +82,62 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
       fetch(`${prefix}/qualityprofiles`).then(r => r.json()),
       fetch(`${prefix}/rootfolders`).then(r => r.json()),
     ]).then(([qp, rf]) => {
-      const profiles = Array.isArray(qp) ? qp : []
-      const folders  = Array.isArray(rf) ? rf : []
-      setQualityProfiles(profiles)
-      setRootFolders(folders)
-      if (profiles.length) setQualityProfileId(String(profiles[0].id))
-      if (folders.length)  setRootFolderPath(folders[0].path)
+      setQualityProfiles(Array.isArray(qp) ? qp : [])
+      setRootFolders(Array.isArray(rf) ? rf : [])
     }).catch(() => {})
   }, [prefix])
+
+  // The library, only when the page did not hand it over
+  useEffect(() => {
+    if (!needsLibraryFetch) return
+    let cancelled = false
+    fetch(`${prefix}/${type === 'show' ? 'series' : 'movies'}`)
+      .then(r => r.json())
+      .then(data => { if (!cancelled) setFetchedLibrary(Array.isArray(data) ? { status: 'ok', items: data } : { status: 'failed', items: null }) })
+      .catch(() => { if (!cancelled) setFetchedLibrary({ status: 'failed', items: null }) })
+    return () => { cancelled = true }
+  }, [prefix, type, needsLibraryFetch])
 
   // Debounced lookup
   useEffect(() => {
     const q = query.trim()
     if (!q) { setResults([]); return }
+    let cancelled = false
     const timer = setTimeout(async () => {
       setSearching(true)
       try {
         const r = await fetch(`${prefix}/lookup?term=${encodeURIComponent(q)}`)
         const data = await r.json()
-        setResults(Array.isArray(data) ? data.slice(0, 12) : [])
+        if (cancelled) return
+        const list = Array.isArray(data) ? data.slice(0, 12) : []
+        setResults(list)
+        setSelected(current => current ?? list.find(item => !item.id) ?? null)
       } catch {
-        setResults([])
+        if (!cancelled) setResults([])
       } finally {
-        setSearching(false)
+        if (!cancelled) setSearching(false)
       }
     }, 350)
-    return () => clearTimeout(timer)
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [query, prefix])
+
+  const lib = Array.isArray(library) ? library : fetchedLibrary.items
+  const libraryKnown = Array.isArray(lib)
+  const settled = qualityProfiles.length > 0 && rootFolders.length > 0 && (libraryKnown || fetchedLibrary.status === 'failed')
+  const defProfile = settled ? defaultProfile(qualityProfiles, libraryKnown ? lib : null) : null
+  const defFolder = settled ? defaultRootFolder(rootFolders, libraryKnown ? lib : null) : null
+  const qualityProfileId = pickedProfile ?? (defProfile ? String(defProfile.id) : '')
+  const rootFolderPath = pickedFolder ?? (defFolder ? defFolder.path : '')
+
+  const profileOptions = !settled ? [] : qualityProfiles.map(p => ({
+    value: String(p.id), name: p.name, hint: qualityTier(p),
+    tag: libraryKnown && defProfile && p.id === defProfile.id ? 'Default' : null,
+  }))
+  const folderOptions = !settled ? [] : rootFolders.map(f => {
+    const free = formatFreeSpace(f.freeSpace)
+    return { value: f.path, name: f.path, hint: free ? `${free} free` : null }
+  })
+  const usage = libraryKnown && qualityProfileId ? usageText(qualityProfileId, lib, type) : null
 
   async function handleAdd() {
     if (!selected || !qualityProfileId || !rootFolderPath) return
@@ -146,19 +181,36 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
     }
   }
 
-  const label = type === 'show' ? 'TV Show' : 'Movie'
-  const canAdd = selected && qualityProfileId && rootFolderPath
+  const label = type === 'show' ? 'Show' : 'Movie'
+  const canAdd = selected && settled && qualityProfileId && rootFolderPath
+
+  const footer = (
+    <div className="add-footer">
+      {addError && <div className="error-banner" role="alert">{addError}</div>}
+      <div className="add-footer-buttons">
+        <button type="button" className="btn btn-secondary" disabled={adding} onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-primary" onClick={handleAdd} disabled={!canAdd || adding}>
+          {adding
+            ? <><span className="spinner" style={{width:14,height:14}} /> Adding…</>
+            : `Add ${label}`
+          }
+        </button>
+      </div>
+    </div>
+  )
 
   return (
-    <Sheet title={`Add ${label}`} onClose={onClose} busy={adding}>
+    <Sheet title={`Add ${label}`} onClose={onClose} busy={adding} footer={footer} initialFocus={inputRef}>
       <div className="modal-panel" onClick={e => e.stopPropagation()}>
+        <div className="add-grabber" aria-hidden="true" />
 
         {/* Search */}
         <div className="modal-search">
           <input
             ref={inputRef}
             type="text"
-            placeholder={`Search for a ${label.toLowerCase()}…`}
+            aria-label={`Search for a ${type === 'show' ? 'show' : 'movie'}`}
+            placeholder={`Search for a ${type === 'show' ? 'tv show' : 'movie'}…`}
             value={query}
             onChange={e => { setQuery(e.target.value); setSelected(null); setAddError(null) }}
           />
@@ -166,13 +218,13 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
         </div>
 
         {/* Results */}
-        {results.length > 0 && !selected && (
+        {results.length > 0 && (
           <div className="modal-results">
             {results.map((item, i) => (
-              <ResultCard
+              <ResultTile
                 key={item.tvdbId || item.tmdbId || i}
                 item={item}
-                selected={selected}
+                selected={sameItem(selected, item, type)}
                 onSelect={setSelected}
                 type={type}
               />
@@ -185,83 +237,39 @@ export default function AddMediaModal({ type, onClose, onAdded, onToast }) {
           <div className="modal-empty text-muted text-sm">No results found for "{query}"</div>
         )}
 
-        {/* Selected item config */}
+        {/* Selected item details and config */}
         {selected && (
           <div className="modal-config">
             <div className="selected-preview">
-              {getPoster(selected) && (
-                <img src={getPoster(selected)} alt={selected.title} className="selected-poster" />
-              )}
-              <div>
-                <div className="font-semibold" style={{fontSize:15}}>{selected.title}</div>
-                <div className="text-sm text-muted">{selected.year > 0 ? selected.year : ''}</div>
-                <button className="btn btn-ghost btn-sm mt-2" onClick={() => setSelected(null)}>
-                  <Icon name="caret-left" /> Change selection
-                </button>
+              <Poster item={selected} className="selected-poster" />
+              <div className="selected-text">
+                <div className="selected-title font-semibold">{selected.title}</div>
+                {metaLine(selected, type) && <div className="selected-meta text-sm text-muted">{metaLine(selected, type)}</div>}
+                {selected.overview && <p className="selected-overview text-sm text-secondary">{selected.overview}</p>}
               </div>
             </div>
 
             <div className="config-fields">
-              <div className="config-row">
-                <label htmlFor="quality-profile">Quality Profile</label>
-                <select
-                  id="quality-profile" value={qualityProfileId}
-                  onChange={e => setQualityProfileId(e.target.value)}
-                >
-                  {qualityProfiles.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                  {qualityProfiles.length === 0 && <option>Loading…</option>}
-                </select>
-              </div>
+              <ListPicker
+                label="Quality Profile" options={profileOptions} value={qualityProfileId}
+                onChange={setPickedProfile} describedBy={usage ? usageId : undefined}
+              />
+              {usage && <p className="picker-helper text-sm text-muted" id={usageId}>{usage}</p>}
+              <ListPicker
+                label="Root Folder" icon="folder-simple" options={folderOptions} value={rootFolderPath}
+                onChange={setPickedFolder}
+              />
 
-              <div className="config-row">
-                <label htmlFor="root-folder">Root Folder</label>
-                <select
-                  id="root-folder" value={rootFolderPath}
-                  onChange={e => setRootFolderPath(e.target.value)}
-                >
-                  {rootFolders.map(f => (
-                    <option key={f.path} value={f.path}>{f.path}</option>
-                  ))}
-                  {rootFolders.length === 0 && <option>Loading…</option>}
-                </select>
-              </div>
-
-              <div className="config-checkboxes">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={monitored}
-                    onChange={e => setMonitored(e.target.checked)}
-                  />
+              <div className="config-switches">
+                <label className="switch-label">
+                  <input type="checkbox" role="switch" checked={monitored} onChange={e => setMonitored(e.target.checked)} />
                   Monitored
                 </label>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={searchOnAdd}
-                    onChange={e => setSearchOnAdd(e.target.checked)}
-                  />
+                <label className="switch-label">
+                  <input type="checkbox" role="switch" checked={searchOnAdd} onChange={e => setSearchOnAdd(e.target.checked)} />
                   {type === 'show' ? 'Search for missing episodes after add' : 'Search for movie after add'}
                 </label>
               </div>
-            </div>
-
-            {addError && <div className="error-banner">{addError}</div>}
-
-            <div className="modal-footer">
-              <button className="btn btn-secondary" disabled={adding} onClick={onClose}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                onClick={handleAdd}
-                disabled={!canAdd || adding}
-              >
-                {adding
-                  ? <><span className="spinner" style={{width:14,height:14}} /> Adding…</>
-                  : `Add ${label}`
-                }
-              </button>
             </div>
           </div>
         )}

@@ -1,5 +1,5 @@
 /* Shared sizing and focus rules apply without hiding layout overflows. */
-button:focus-visible, a:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible, [role="listbox"]:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 button, input, select, .badge { max-width: 100%; }
 input, select, .input-group, .config-container, .service-card, .movie-card, .selected-preview > div { min-width: 0; }
 input, select, button, textarea { font-family: inherit; }
@@ -25,7 +25,6 @@ input, select { font: inherit; }
 .sheet .ep-search-body, .sheet .nzb-search-body { overflow: visible; }
 .nzb-search-bar { flex-wrap: wrap; }
 .nzb-search-input { flex-basis: 160px; }
-.result-card { text-align: left; }
 .toast { overflow-wrap: anywhere; }
 /* 640-1023 px bar: icon and label side by side. */
 @media (min-width: 640px) and (max-width: 1023px) {
@@ -36,7 +35,7 @@ input, select { font: inherit; }
 @media (pointer: coarse), (max-width: 639px) {
   button, .btn, a.service-pill, select, input:not([type="checkbox"]), [role="button"], .tab-btn { min-height: 44px; min-width: 44px; }
   input:not([type="checkbox"]), select { font-size: 16px; }
-  input[type="checkbox"], .checkbox-label input[type="checkbox"] { width: 44px; height: 44px; min-width: 44px; flex: 0 0 44px; accent-color: var(--text); }
+  input[type="checkbox"], .checkbox-label input[type="checkbox"], .switch-label input[type="checkbox"] { width: 44px; height: 44px; min-width: 44px; flex: 0 0 44px; accent-color: var(--text); }
   .btn-icon, .btn-ep-info { width: 44px; height: 44px; }
   .btn-ep-info { font-size: 18px; }
   label:has(input[type="checkbox"]) { min-height: 44px; }
@@ -83,8 +82,6 @@ input, select { font: inherit; }
   .release-title, .nzb-result-title, .release-rejection { white-space: normal; overflow-wrap: anywhere; }
   .ep-search-toolbar-right { width: 100%; }
   .modal-search, .modal-config, .ep-search-toolbar, .ep-search-body, .nzb-search-bar, .nzb-search-body { padding: 12px; }
-  .selected-preview { flex-wrap: wrap; }
-  .modal-footer { flex-wrap: wrap; }
   .toast-container { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); bottom: calc(64px + env(safe-area-inset-bottom)); pointer-events: none; }
   .toast { width: 100%; max-width: none; }
 }
