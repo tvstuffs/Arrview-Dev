@@ -2,17 +2,21 @@ import Sheet from './Sheet'
 import { useState, useEffect, useRef, useId } from 'react'
 import ListPicker from './ListPicker.jsx'
 import { qualityTier, defaultProfile, defaultRootFolder, usageText, formatFreeSpace } from '../addDefaults.js'
+import { isHttpUrl } from '../media'
 import './AddMediaModal.css'
 
-// Returns the best poster URL from a Sonarr/Radarr result object
+// Returns the best http(s) poster URL from a Sonarr/Radarr result object; other schemes are never rendered
 function getPoster(item) {
-  if (item.remotePoster) return item.remotePoster
-  if (item.images) {
-    const img = item.images.find(i => i.coverType === 'poster')
-    if (img) return img.remoteUrl || img.url
+  if (isHttpUrl(item.remotePoster)) return item.remotePoster
+  if (Array.isArray(item.images)) {
+    const img = item.images.find(i => i?.coverType === 'poster')
+    if (img) return [img.remoteUrl, img.url].find(isHttpUrl) ?? null
   }
   return null
 }
+
+// A profile id is a positive safe integer exactly as the server sent it; no string coercion or truncation.
+const validProfileId = id => typeof id === 'number' && Number.isSafeInteger(id) && id > 0
 
 const sameItem = (a, b, type) => !!a && !!b && (type === 'show' ? a.tvdbId === b.tvdbId : a.tmdbId === b.tmdbId)
 
@@ -123,24 +127,31 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
 
   const lib = Array.isArray(library) ? library : fetchedLibrary.items
   const libraryKnown = Array.isArray(lib)
-  const settled = qualityProfiles.length > 0 && rootFolders.length > 0 && (libraryKnown || fetchedLibrary.status === 'failed')
-  const defProfile = settled ? defaultProfile(qualityProfiles, libraryKnown ? lib : null) : null
-  const defFolder = settled ? defaultRootFolder(rootFolders, libraryKnown ? lib : null) : null
+  // Only listed profiles with a valid id and listed folders with a path can be chosen or sent.
+  const listedProfiles = qualityProfiles.filter(p => p && validProfileId(p.id))
+  const listedFolders = rootFolders.filter(f => f && typeof f.path === 'string' && f.path !== '')
+  const settled = listedProfiles.length > 0 && listedFolders.length > 0 && (libraryKnown || fetchedLibrary.status === 'failed')
+  const defProfile = settled ? defaultProfile(listedProfiles, libraryKnown ? lib : null) : null
+  const defFolder = settled ? defaultRootFolder(listedFolders, libraryKnown ? lib : null) : null
   const qualityProfileId = pickedProfile ?? (defProfile ? String(defProfile.id) : '')
   const rootFolderPath = pickedFolder ?? (defFolder ? defFolder.path : '')
+  const chosenProfile = settled ? listedProfiles.find(p => String(p.id) === qualityProfileId) : undefined
+  const chosenFolder = settled ? listedFolders.find(f => f.path === rootFolderPath) : undefined
 
-  const profileOptions = !settled ? [] : qualityProfiles.map(p => ({
+  const profileOptions = !settled ? [] : listedProfiles.map(p => ({
     value: String(p.id), name: p.name, hint: qualityTier(p),
     tag: libraryKnown && defProfile && p.id === defProfile.id ? 'Default' : null,
   }))
-  const folderOptions = !settled ? [] : rootFolders.map(f => {
+  const folderOptions = !settled ? [] : listedFolders.map(f => {
     const free = formatFreeSpace(f.freeSpace)
     return { value: f.path, name: f.path, hint: free ? `${free} free` : null }
   })
   const usage = libraryKnown && qualityProfileId ? usageText(qualityProfileId, lib, type) : null
 
+  const canAdd = !!selected && !!chosenProfile && !!chosenFolder
+
   async function handleAdd() {
-    if (!selected || !qualityProfileId || !rootFolderPath) return
+    if (!canAdd) return
     setAdding(true)
     setAddError(null)
     try {
@@ -149,8 +160,8 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
         ? {
             ...selected,
             id: undefined, // strip id so Sonarr treats it as new
-            qualityProfileId: parseInt(qualityProfileId),
-            rootFolderPath,
+            qualityProfileId: chosenProfile.id,
+            rootFolderPath: chosenFolder.path,
             monitored,
             seasonFolder: true,
             addOptions: { searchForMissingEpisodes: searchOnAdd, monitor: 'all' },
@@ -158,8 +169,8 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
         : {
             ...selected,
             id: undefined,
-            qualityProfileId: parseInt(qualityProfileId),
-            rootFolderPath,
+            qualityProfileId: chosenProfile.id,
+            rootFolderPath: chosenFolder.path,
             monitored,
             addOptions: { searchForMovie: searchOnAdd },
           }
@@ -182,7 +193,6 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
   }
 
   const label = type === 'show' ? 'Show' : 'Movie'
-  const canAdd = selected && settled && qualityProfileId && rootFolderPath
 
   const footer = (
     <div className="add-footer">

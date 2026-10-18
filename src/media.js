@@ -65,10 +65,12 @@ export function episodeState(ep, now = Date.now()) {
 
 const TMDB_ORIGINAL = 'https://image.tmdb.org/t/p/original/'
 const TMDB_WIDTH = { grid: 'w342', detail: 'w780', backdrop: 'w1280' }
+export const isHttpUrl = value => typeof value === 'string' && /^https?:\/\//i.test(value)
+
 // First http(s) image of a cover type; TMDB originals are rewritten to the width the view needs.
 // Episode stills (size 'still') are never rewritten.
 export function artUrl(media, coverType, size) {
-  const image = (media?.images || []).find(entry => entry?.coverType === coverType && typeof entry.remoteUrl === 'string' && /^https?:\/\//i.test(entry.remoteUrl))
+  const image = (media?.images || []).find(entry => entry?.coverType === coverType && isHttpUrl(entry.remoteUrl))
   if (!image) return null
   const url = image.remoteUrl
   const width = TMDB_WIDTH[size]

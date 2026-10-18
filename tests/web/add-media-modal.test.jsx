@@ -33,12 +33,12 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); delete Element.prototype.scrollIntoView })
 
 // Fetch stub for both services; `post` handles the add request.
-function stub({ lookup = RESULTS, library = SHOWS, libraryFails = false, post = () => reply({ id: 50 }) } = {}) {
+function stub({ lookup = RESULTS, library = SHOWS, libraryFails = false, profiles = PROFILES, folders = FOLDERS, post = () => reply({ id: 50 }) } = {}) {
   const lib = (service, plural) => `/api/${service}/${plural}`
   const handlers = {}
   for (const [service, plural] of [['sonarr', 'series'], ['radarr', 'movies']]) {
-    handlers[`/api/${service}/qualityprofiles`] = () => reply(PROFILES)
-    handlers[`/api/${service}/rootfolders`] = () => reply(FOLDERS)
+    handlers[`/api/${service}/qualityprofiles`] = () => reply(profiles)
+    handlers[`/api/${service}/rootfolders`] = () => reply(folders)
     handlers[`/api/${service}/lookup`] = () => reply(lookup)
     handlers[lib(service, plural)] = () => libraryFails ? Promise.reject(new Error('down')) : reply(library)
     handlers[`/api/${service}/${service === 'sonarr' ? 'series' : 'movie'}`] = (url, init) => init?.method === 'POST' ? post(url, init) : (libraryFails ? Promise.reject(new Error('down')) : reply(library))
@@ -352,6 +352,121 @@ test('lookup is debounced by 350 ms, limited to 12 results and an empty query cl
   fireEvent.change(input, { target: { value: '' } })
   await waitFor(() => expect(screen.queryByRole('button', { name: /^Select Many/ })).toBeNull())
   expect(document.querySelector('.modal-config')).toBeNull()
+})
+
+// Posters: only http(s) URLs reach <img src>; other schemes and relative paths fall back to the placeholder.
+const POSTER_CASES = [
+  ['remotePoster', 'data:image/png;base64,AAAA', 'https://img.invalid/rp.jpg', url => ({ remotePoster: url })],
+  ['images[].remoteUrl', 'file:///poster.jpg', 'http://img.invalid/ru.jpg', url => ({ images: [{ coverType: 'poster', remoteUrl: url }] })],
+  ['images[].url', '/relative/poster.jpg', 'https://img.invalid/iu.jpg', url => ({ images: [{ coverType: 'poster', url }] })],
+]
+for (const [field, bad, good, make] of POSTER_CASES) {
+  test(`poster from ${field}: http(s) is kept unchanged, other URLs give the placeholder in the row and the preview`, async () => {
+    const lookup = [
+      { title: 'Bad Poster', tvdbId: 11, tmdbId: 11, ...make(bad) },
+      { title: 'Script Poster', tvdbId: 12, tmdbId: 12, ...make('javascript:alert(1)') },
+      { title: 'Good Poster', tvdbId: 13, tmdbId: 13, ...make(good) },
+    ]
+    stub({ lookup }); mount()
+    fireEvent.change(screen.getByRole('textbox', { name: /Search for a/ }), { target: { value: 'poster' } })
+    await screen.findByRole('button', { name: 'Select Good Poster' })
+    for (const [name, expected] of [['Bad Poster', null], ['Script Poster', null], ['Good Poster', good]]) {
+      const tile = screen.getByRole('button', { name: `Select ${name}` })
+      fireEvent.click(tile)
+      for (const root of [tile.querySelector('.result-poster'), document.querySelector('.selected-poster')]) {
+        if (expected) expect(root.querySelector('img')).toHaveAttribute('src', expected)
+        else {
+          expect(root.querySelector('img')).toBeNull()
+          expect(root.querySelector('.result-poster-placeholder')).toHaveTextContent(name[0])
+        }
+      }
+    }
+    expect(document.querySelectorAll('img[src^="data:"], img[src^="file:"], img[src^="javascript:"], img[src^="/relative"]')).toHaveLength(0)
+  })
+}
+
+// Add needs a listed profile with a strictly valid numeric id and a listed root folder; anything else never POSTs.
+const BAD_PROFILE_LISTS = [
+  ['missing id', [{ name: 'No Id', items: [leaf(1080)] }]],
+  ['null id', [{ id: null, name: 'Null Id', items: [leaf(1080)] }]],
+  ['id with trailing junk', [{ id: '2junk', name: 'Junk Id', items: [leaf(1080)] }]],
+  ['numeric string id', [{ id: '2', name: 'String Id', items: [leaf(1080)] }]],
+  ['NaN id', [{ id: NaN, name: 'NaN Id', items: [leaf(1080)] }]],
+  ['non-integer id', [{ id: 1.5, name: 'Float Id', items: [leaf(1080)] }]],
+]
+for (const [name, profiles] of BAD_PROFILE_LISTS) {
+  test(`Add stays disabled and never posts when the only profile has a ${name}`, async () => {
+    const fetchMock = stub({ profiles }); mount(); await search()
+    await waitFor(() => expect(fetchMock.calls.some(c => c.url === '/api/sonarr/qualityprofiles')).toBe(true))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(addButton('show')).toBeDisabled()
+    fireEvent.click(addButton('show'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(posts(fetchMock)).toEqual([])
+    expect(onClose).not.toHaveBeenCalled()
+  })
+}
+test('a malformed profile is not offered and the payload carries the exact id of the listed one', async () => {
+  const profiles = [{ id: '2junk', name: 'Junk Id', items: [leaf(1080)] }, { name: 'No Id', items: [leaf(1080)] }, { id: 7, name: 'Good Seven', items: [leaf(1080)] }]
+  const fetchMock = stub({ profiles, library: [] }); mount({ library: [] }); await search()
+  await waitFor(() => expect(qualityButton()).toHaveTextContent('Good Seven'))
+  const listbox = await open(qualityButton())
+  expect(within(listbox).getAllByRole('option')).toHaveLength(1)
+  fireEvent.keyDown(listbox, { key: 'Escape' })
+  expect(addButton('show')).toBeEnabled()
+  fireEvent.click(addButton('show'))
+  await waitFor(() => expect(onClose).toHaveBeenCalled())
+  expect(posts(fetchMock)[0].body.qualityProfileId).toBe(7)
+  expect(typeof posts(fetchMock)[0].body.qualityProfileId).toBe('number')
+})
+test('a folder without a path is not offered; with none listed Add never posts', async () => {
+  const fetchMock = stub({ folders: [{ freeSpace: 1024 }, { path: '' }, { path: null }] }); mount(); await search()
+  await waitFor(() => expect(fetchMock.calls.some(c => c.url === '/api/sonarr/rootfolders')).toBe(true))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+  expect(addButton('show')).toBeDisabled()
+  fireEvent.click(addButton('show'))
+  expect(posts(fetchMock)).toEqual([])
+})
+test('a picked folder that is no longer among the loaded root folders disables Add and never posts', async () => {
+  stub(); const { rerender } = mount(); await search()
+  await waitFor(() => expect(qualityButton()).toHaveTextContent('Beta Mixed'))
+  fireEvent.click(within(await open(folderButton())).getByRole('option', { name: /\/media\/a/ }))
+  expect(addButton('show')).toBeEnabled()
+  // The Add sheet is reused for the other service, whose root folders do not include the picked one.
+  const fetchMock = stub({ folders: [{ path: '/media/c', freeSpace: 1024 ** 3 }] })
+  rerender(<AddMediaModal type="movie" library={[]} onClose={onClose} onAdded={onAdded} onToast={onToast} />)
+  await waitFor(() => expect(fetchMock.calls.some(c => c.url === '/api/radarr/rootfolders')).toBe(true))
+  await waitFor(() => expect(addButton('movie')).toBeDisabled())
+  fireEvent.click(addButton('movie'))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+  expect(posts(fetchMock)).toEqual([])
+  expect(onClose).not.toHaveBeenCalled()
+})
+
+test('Enter in the search field and Enter or Space on the result row and the pickers never post', async () => {
+  const fetchMock = stub(); await ready()
+  const input = screen.getByRole('textbox', { name: /Search for a/ })
+  const tile = screen.getByRole('button', { name: 'Select Result Two' })
+  for (const key of ['Enter', ' ']) {
+    for (const target of [input, tile]) {
+      fireEvent.keyDown(target, { key }); fireEvent.keyPress(target, { key, charCode: key === ' ' ? 32 : 13 }); fireEvent.keyUp(target, { key })
+    }
+    for (const button of [qualityButton, folderButton]) {
+      fireEvent.keyDown(button(), { key })
+      fireEvent.keyUp(button(), { key })
+      const listbox = screen.queryByRole('listbox')
+      if (listbox) {
+        fireEvent.keyDown(listbox, { key })
+        fireEvent.keyUp(listbox, { key })
+      }
+      if (screen.queryByRole('listbox')) fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' })
+    }
+  }
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+  expect(posts(fetchMock)).toEqual([])
+  expect(onClose).not.toHaveBeenCalled()
+  expect(onAdded).not.toHaveBeenCalled()
+  expect(addButton('show')).toBeEnabled()
 })
 
 test('the search field is the active element after mount, also under StrictMode (criterion 22, supplement)', () => {
