@@ -2,6 +2,57 @@
 
 ## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
 
+### Downloads (factory job 005)
+
+- **Web client only.** No server, dependency, service-worker or version change; Classic
+  Downloads is untouched.
+  - **Downloads shown as shows and movies (Modern).** A SABnzbd queue item is matched to
+    Sonarr or Radarr exactly (`nzo_id` equals the record's `downloadId`) through
+    `GET /api/sonarr/queue` and `GET /api/radarr/queue`, so the page leads with the real
+    episode or movie, its artwork, the quality line ("4K · Dolby Vision · HDR · Atmos"),
+    a progress bar, the size and the time left. A season pack reads as one item
+    ("S3 · Episodes 1–8"). History is matched best-effort by parsing the release name
+    against the Sonarr and Radarr libraries.
+  - **Unmatched downloads** (manual NZBs from Search, music, software, a show that is not
+    in Sonarr) are still listed, with a category glyph tile, a tidied name, the exact
+    release name and, for a TV or movie name, a muted "Not in Sonarr" / "Not in Radarr".
+    They never borrow artwork.
+  - **Idle state.** With an empty queue the page leads with the last finished download
+    that has artwork ("Downloaded 25 min ago"), says nothing is downloading and shows
+    "Coming up" (up to three items from Upcoming, with a See all link).
+  - **Top-bar pill** (640 px and wider): a progress ring and the speed while something is
+    downloading. **Live status elsewhere:** "Downloading" with a thin bar on show-page
+    episodes, and "Downloading · 64%" / "Paused · 12%" with a bar on movie tiles, rows and
+    the movie page.
+  - **One shared poller.** SABnzbd is polled only while a visible surface needs it (the
+    top bar's pill, the Downloads page, or a show or movie surface); Sonarr and Radarr
+    queues only when a surface needs matched data, and a show or movie page whose item is
+    not downloading costs one request per change of the queue. Phones away from these
+    surfaces make no queue request.
+  - New icons: `file`, `package`, `music-notes`, `book-open` (Phosphor regular,
+    checksum-verified). Cyan is used only for live download state (`.m-live-*` rules).
+  - Test-only: the e2e fixture gains download scenarios (`legacy` keeps today's responses),
+    and the Modern deep-link focus test starts on Search because the Downloads page now
+    loads the library lists.
+- **Human test plan** (placeholders only; use a stack with real SABnzbd, Sonarr and Radarr):
+  1. During a real download open `#/downloads` in Modern. Confirm the hero is the right
+     episode or movie, the artwork fits, and the quality line matches the release.
+  2. Send a manual NZB from Search. Confirm it appears as an unmatched item with a glyph
+     tile, a tidied name and the exact release name underneath.
+  3. Pause and resume one item, then remove one through the confirm sheet. Confirm the queue
+     updates and the toast reads "Item removed from the SABnzbd queue".
+  4. Let the queue empty. Confirm the last finished download leads ("Downloaded ..."), the
+     empty-queue note shows, and Coming up lists at most three items.
+  5. At 640 px and wider confirm the top-bar pill appears only while something downloads and
+     links to Downloads; at phone width confirm there is no pill.
+  6. Open the show page of a downloading episode and the Movies grid for a downloading
+     movie. Confirm the status text and the thin bar.
+  7. Grab a whole season. Confirm it reads as one item ("S<n> · Episodes 1–N").
+  - Look-checks (only a person can judge): the fanart hero, the poster over its blurred
+    copy and the glyph tile on real artwork; cyan versus amber against the artwork; the
+    pill at 640 to 700 px; touch feel on a real iPhone; real SABnzbd statuses, `timeleft`
+    and `completed` values; that `nzo_id` really equals Sonarr's and Radarr's `downloadId`.
+
 ### Upcoming (factory job 004)
 
 - **Web client only.** No server, dependency, service-worker or version change.
