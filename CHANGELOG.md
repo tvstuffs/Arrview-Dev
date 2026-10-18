@@ -2,9 +2,17 @@
 
 ## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
 
-- **Version 1.9A3.** Local test build of the web redesign: factory jobs 003–006 (the art-led
-  layout and the Classic/Modern switch, Upcoming, Downloads, the Add flow) merged into `main`
-  on top of 1.9A2. Not pushed: pushing `main` publishes it to the `dev` channel.
+- **Version 1.9A3.** Test build of the web redesign, on top of 1.9A2. It merges factory jobs 003–007
+  into `main`:
+  - the art-led layout and the Classic/Modern switch;
+  - Upcoming;
+  - Downloads;
+  - the Add flow;
+  - the NZBHydra connectivity-check fix.
+
+  Every job passed its reviews and the full test suites before it was merged.
+  - *Human check:* Settings shows "ArrView v1.9A3", and `GET /api/health` and
+    `GET /api/arrview/identify` report `1.9A3`. Then run the job test plans below.
 
 ### NZBHydra connectivity check (factory job 007)
 
