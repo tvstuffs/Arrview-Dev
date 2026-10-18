@@ -91,7 +91,8 @@ for (const width of [305, 320, 360, 390, 402, 440, 466, 669, 834, 1024, 1280]) {
 
 for (const width of [320, 1024]) {
   test(`monitor toggle keeps one width, centred content and 44 px touch size while saving (${width}px)`, async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true, colorScheme: 'dark' })
+    // The worker answers /api requests itself, which page.route never sees; blocking it keeps the busy gate reliable.
+    const context = await browser.newContext({ viewport: { width, height: 890 }, hasTouch: true, ignoreHTTPSErrors: true, colorScheme: 'dark', serviceWorkers: 'block' })
     await seedClassic(context)
     const page = await context.newPage()
     await page.goto('https://localhost:18778')
@@ -209,15 +210,19 @@ test('short viewport sheet scrolls without losing its close button', async ({ pa
   await fit(page, 'dialog')
 })
 
-test('removed services cannot leave a restored tab blank', async ({ page }) => {
+test('removed services cannot leave a restored tab blank', async ({ browser }) => {
   // An unconfigured remembered tab must fall back to a currently available one.
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+  await seedClassic(context)
+  const page = await context.newPage()
   await page.addInitScript(() => localStorage.setItem('arrview.ui.v1.tab', JSON.stringify('movies')))
   await page.route('**/api/config', route => route.fulfill({ json: { sonarr: { url: 'http://example.invalid', apikey: 'fixture' } } }))
-  await page.goto('/')
+  await page.goto('https://localhost:18778')
   await expect(page.getByRole('button', { name: 'Shows', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('button', { name: 'Movies', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Downloads', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Search', exact: true })).toHaveCount(0)
+  await context.close()
 })
 
 test('sidebar at 1024 and 1280, horizontal bar at 834, bottom bar with five tabs below 640', async ({ browser }) => {
@@ -245,7 +250,7 @@ test('sidebar at 1024 and 1280, horizontal bar at 834, bottom bar with five tabs
 })
 
 test('phone bar shows only the available non-Settings tabs when a service is missing', async ({ browser }) => {
-  const context = await browser.newContext({ viewport: { width: 390, height: 800 }, ignoreHTTPSErrors: true })
+  const context = await browser.newContext({ viewport: { width: 390, height: 800 }, ignoreHTTPSErrors: true, serviceWorkers: 'block' })
   await seedClassic(context)
   const page = await context.newPage()
   await page.route('**/api/config', route => route.fulfill({ json: { sonarr: { url: 'http://example.invalid', apikey: 'fixture' } } }))

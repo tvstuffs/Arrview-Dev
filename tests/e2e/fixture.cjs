@@ -11,6 +11,38 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arrview-pwa-'))
 execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(root, 'key.pem'),
   '-out', path.join(root, 'cert.pem'), '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'], { stdio: 'ignore' })
 let requests = []
+
+// Calendar data is generated relative to now so the server's own window filter keeps it. Artwork uses the fixture origin.
+const ART = 'https://localhost:18778/arrview-icon.svg'
+const BROKEN = 'https://localhost:18778/__fixture/broken.png'
+const pad = n => String(n).padStart(2, '0')
+const localAt = (days, hour) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(hour, 0, 0, 0); return d.toISOString() }
+const releaseDay = days => { const d = new Date(); d.setDate(d.getDate() + days); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T00:00:00Z` }
+const artFor = (cover, remoteUrl = ART) => ({ coverType: cover, remoteUrl })
+function sonarrCalendar() {
+  const series = (id, title) => ({ id, title, images: [artFor('poster'), artFor('fanart')] })
+  const episode = (id, show, season, number, airDateUtc, extra = {}) =>
+    ({ id, seriesId: show.id, seasonNumber: season, episodeNumber: number, title: `Fixture episode ${number}`, airDateUtc, hasFile: false, series: show, ...extra })
+  const drop = series(2, 'Season Drop Fixture Show'), gap = series(3, 'Gap Fixture Show'), cross = series(4, 'Cross Season Fixture Show'), broken = series(5, 'Broken Still Fixture Show')
+  return [
+    { id: 12, seriesId: 1, seasonNumber: 1, episodeNumber: 2, title: 'Calendar fixture episode', airDateUtc: new Date().toISOString(), hasFile: false, series: { id: 1, title: 'Fixture Show with a long title' } },
+    ...Array.from({ length: 8 }, (_, i) => episode(100 + i, drop, 3, i + 1, localAt(1, 21), i === 0 ? { images: [artFor('screenshot')] } : {})),
+    ...[1, 2, 4].map((n, i) => episode(200 + i, gap, 1, n, localAt(2, 20))),
+    episode(300, cross, 1, 10, localAt(3, 19)), episode(301, cross, 2, 1, localAt(3, 19)),
+    episode(400, broken, 1, 1, localAt(3, 21), { images: [artFor('screenshot', BROKEN)] }),
+  ]
+}
+function radarrCalendar() {
+  const movie = (id, title, extra = {}) => ({ id, title, year: 2024, monitored: true, hasFile: false, isAvailable: true, status: 'released', images: [artFor('poster'), artFor('fanart')], ...extra })
+  return [
+    movie(2, 'Fixture Movie with a long descriptive title', { digitalRelease: releaseDay(2) }),
+    movie(31, 'Physical Fixture Movie', { physicalRelease: releaseDay(4), physicalReleaseNote: 'Steelbook edition' }),
+    movie(32, 'Split Release Fixture Movie', { digitalRelease: releaseDay(5), physicalRelease: releaseDay(9) }),
+    movie(33, 'Cinema Only Fixture Movie', { inCinemas: releaseDay(3), digitalRelease: releaseDay(120) }),
+    movie(34, 'Downloaded Fixture Movie', { digitalRelease: releaseDay(-1), hasFile: true }),
+  ]
+}
+
 const upstream = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost')
   requests.push({ method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams) })
@@ -20,7 +52,8 @@ const upstream = http.createServer((req, res) => {
     { nzo_id: 'bytes', name: 'Bytes history', bytes: 1073741824, status: 'Completed' },
     { nzo_id: 'mb', name: 'Legacy history', mb: '512', status: 'Completed' },
   ] } }))
-  if (url.pathname.endsWith('/calendar')) return res.end(JSON.stringify([{ id: 12, seriesId: 1, seasonNumber: 1, episodeNumber: 2, title: 'Calendar fixture episode', airDateUtc: new Date().toISOString(), hasFile: false, series: { id: 1, title: 'Fixture Show with a long title' } }]))
+  // All four fake services share this upstream and path; the server asks Sonarr with includeSeries and Radarr without.
+  if (url.pathname.endsWith('/calendar')) return res.end(JSON.stringify(url.searchParams.has('includeSeries') ? sonarrCalendar() : radarrCalendar()))
   if (url.pathname.endsWith('/lookup')) return res.end(JSON.stringify([{ title: 'A long fixture lookup result with descriptive text', tvdbId: 201, tmdbId: 201, year: 2024, overview: 'Fixture overview', seasons: [] }]))
   if (url.pathname.endsWith('/qualityprofile')) return res.end(JSON.stringify([{ id: 1, name: 'HD 1080p' }]))
   if (url.pathname.endsWith('/rootfolder')) return res.end(JSON.stringify([{ path: '/media/library' }]))
