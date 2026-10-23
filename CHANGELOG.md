@@ -1,5 +1,83 @@
 # ArrView server development changelog
 
+## 1.9A4 (unreleased) — Webhooks in Settings
+
+- **Version 1.9A4.** Adds a Webhooks card to the Settings page. Server and web client only: no new route, no
+  `capabilities` change, and nothing changes in the iOS or tvOS apps.
+  - *Human check:* Settings shows "ArrView v1.9A4", and `GET /api/health` and `GET /api/arrview/identify`
+    report `1.9A4`. Then run the test plan below.
+- **Settings now has a Webhooks card** (both layouts), between the service cards and "Add to Home Screen". It
+  appears once Sonarr or Radarr is saved, and only lists the ones that are. It holds:
+  - **ArrView address for Sonarr and Radarr.** The address those two use to reach ArrView, which can differ from
+    the one in your browser. Empty means this page's own address. A page opened as `localhost` says that Sonarr and
+    Radarr elsewhere cannot use it.
+  - **The webhook URLs** (`<address>/api/webhooks/sonarr` and `/radarr`), read-only, each with a Copy button. Copy
+    uses the Clipboard API on HTTPS or `localhost` and selects the field and uses the older copy command on a
+    plain-`http` LAN address, where browsers do not offer the API.
+  - **Three guides**, collapsed: set up the webhook in Sonarr, in Radarr, and "If it does not work". They give
+    the exact URL, the trigger names, `POST`, what a green Test means, the log line a real event writes, a
+    `curl` command that posts an event by hand, and the limits (no authentication on webhook calls; the iOS app
+    uses them in ArrView Server mode only).
+- **Where the address is stored.** `config.json`, as `"webhooks": { "baseUrl": "http://host:7777" }`.
+  - `GET /api/config` returns it. `POST /api/config` accepts `webhooks: { baseUrl }`: left out keeps the stored
+    value (a client that does not know the field cannot erase it), an empty string or `{}` clears it.
+  - The web client sends it only when it changed, so saving anything else posts exactly what it did before.
+  - It is not a Docker environment setting, and no route reads it: it only builds the URLs shown in Settings.
+- **What an address may be.** `http` or `https`, a plain host name or IP address (letters, digits, `.`, `_`, `-`,
+  or an IPv6 address in brackets), an optional port and an optional plain path. No spaces, credentials, query or
+  fragment. A missing scheme is read as `http`, trailing slashes are dropped, and a pasted full webhook URL is cut
+  back to the address. These rules are written out on both sides on purpose:
+  - **Browsers and Node disagree about URLs.** Edge accepted `http://bad host` and encoded the space, where Node
+    refuses it; found by the browser test, not by the unit tests.
+  - **The address is printed inside a shell command** that Settings shows for copying, and this API has no login,
+    so only characters that mean nothing to a shell are allowed.
+- **What the guides say was checked** against the `develop` branches of Sonarr and Radarr on 2026-10-23: the
+  Webhook connection's fields (URL, Method defaulting to POST, Username, Password, Headers), the trigger labels
+  (On File Import, On File Upgrade, On Rename, On Series Add/Delete, On Episode File Delete; On Movie Added/Delete,
+  On Movie File Delete), the older names for the first two, and the payloads (`eventType`, `series.id`, `episodes`,
+  `movie.id`). The live version of the apps was not available, so the wording is the current source's.
+- **Compatibility and rollback.**
+  - Old files load unchanged: no `webhooks` key means "this page's address".
+  - The previous build (`dev` at `1eb4790`, run on 2026-10-23) starts and serves with the key present and ignores
+    it. Its own Save rewrites the file without the key, so a saved address is lost after a rollback plus a Save,
+    with no error. A Home Screen app that has not updated yet and tries to change the address against that older
+    server gets `400 Unknown config key: webhooks`.
+- **Tests.**
+  - Server `tests/webhook-address.test.js` (5): round trip, normalising, refusals, keep and clear, Docker-managed
+    services. Browser `tests/web/webhook-settings.test.jsx` (24): the card, the address rules (the same table as the
+    server's), Copy on a secure and a plain page, the Settings page, both layouts.
+  - Browser `tests/e2e/webhooks.spec.cjs` (8): posts to the URLs Settings shows and checks that the open Shows and
+    Movies pages refetch while a Test message does nothing; saves an address and reads it from a second browser;
+    flags an address that is not one; fits at 305, 320, 390, 834 and 1280 px.
+  - Breaking the feature in twelve different ways (each rule on each side, the card, the fallback) fails the
+    matching tests.
+- **Test plan** (items marked *agent-verified* were run by the agent; the rest is yours):
+  1. *Settings.* Open Settings in Modern and in Classic. A Webhooks card sits between the services and "Add to Home
+     Screen", with the Sonarr and Radarr URLs. With the field empty the URLs use the address in your browser bar.
+     *Agent-verified* in Edge (Chromium 154) at 1280, 390 and 320 px in both layouts, against a real server.
+  2. *Address.* Type `<ArrView machine's IP>:7777`. Both URLs change as you type. Press **Save**, open Settings in
+     another browser: the address is there. Clear it, Save: back to this page's address. *Agent-verified* with a
+     second browser context and the file on disk (keys and `sabPath` of the three services unchanged).
+  3. *Copy.* On `http://localhost:7777` and on `http://<LAN IP>:7777`, press Copy and paste somewhere. You get the
+     URL both times, and "Sonarr webhook URL copied." appears. *Agent-verified* by pasting with the keyboard in the
+     same tab and another tab; not on Safari, Firefox or a phone.
+  4. *Sonarr and Radarr.* Follow the guides in the card, in each app: Settings, Connect, +, Webhook, tick the
+     triggers, paste the URL, POST, **Test** (green check), **Save**. Then import, rename or delete something and
+     watch an open Shows or Movies page change within a second or two. `docker logs arrview` shows
+     `[Sonarr webhook] <event> — series: <name>`. **Not verified by the agent: no real Sonarr or Radarr was
+     available.** *Agent-verified* with payloads shaped like theirs.
+  5. *By hand.* Run the `curl` command from "If it does not work" from another computer: `200`, one log line, and
+     open pages refresh. *Agent-verified*, running the command text exactly as the page shows it.
+  6. *iOS.* With a webhook set up and the iOS app in ArrView Server mode, an import in Sonarr or Radarr refreshes
+     its lists at once; in Connect Directly mode it does not. **Not verified**; needs a physical device (the
+     Simulator does not implement local network privacy, Apple TN3179).
+  7. *Upgrade path.* No change to anything in use before: the shipped iOS app and the existing keys are untouched.
+     Install the previous build, configure, upgrade in place: the settings and the connection survive.
+     *Agent-verified* for the file (an old-style `config.json` loads, and Save changes only the new key) and for
+     the rollback described above; not with a shipped iOS build.
+- **Not verified:** a real Sonarr or Radarr (the apps' own wording and Test button); Safari, Firefox and a
+  screen reader (the card has labels and descriptions; only Edge was run); the iOS app; behind a reverse proxy.
+
 ## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
 
 - **Version 1.9A3.** Test build of the web redesign, on top of 1.9A2. It merges factory jobs 003–007
