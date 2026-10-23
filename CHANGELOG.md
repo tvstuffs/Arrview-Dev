@@ -22,6 +22,48 @@
   - **Tests:** the unit tests and the e2e fixture now use the real shape.
   - *Human check:* open Add Movie and Add Show, search, and pick a result. The picker shows each profile
     with its tier (for example "Ultra-HD · UHD · 4K") and the Default tag.
+- **Fix: a failed Bonjour bind no longer restarts the container in a loop.** Found when the server moved
+  to a host whose own mDNS responder (TrueNAS's built-in discovery service) owns UDP port 5353 and does
+  not share it. The container exited about a second after every start, and the restart policy looped it.
+  - **Cause:** with host networking, `bonjour-service` cannot bind 5353, and `multicast-dns` reports that as
+    an asynchronous `error` event (`Unhandled 'error' event ... bind EADDRINUSE 0.0.0.0:5353`). Nothing
+    listened for it, and the `try`/`catch` around `publish()` cannot catch an event. The library's default
+    `errorCallback` also rethrows, so a failed send could end the process the same way.
+  - **Fix (`server.js`, the Bonjour block only):** an `error` listener on the library's mDNS instance and an
+    `errorCallback` now log instead of throwing, each distinct message once (the library reports one failed
+    bind twice and retries it). A startup failure other than a missing package is reported as such, not as
+    "bonjour-service not installed". Where Bonjour works, the advertisement and the
+    `Bonjour: advertising ...` log line are unchanged.
+  - **On a host that blocks the port:** the server runs normally and logs one
+    `Bonjour: bind EADDRINUSE 0.0.0.0:5353 — another mDNS responder on this host ... so iOS auto-discovery
+    is unavailable` line. Only auto-discovery is lost: the iOS app needs the address typed in. The README
+    now says so and names the two ways to get discovery back.
+  - **Tests:** `tests/bonjour-failure.test.js`, 4 tests. The main one holds a UDP port exclusively and lets
+    the real `bonjour-service` try to bind it, so the kernel raises a real `EADDRINUSE`; it fails on the old
+    code with the uncaught error above. `tests/helpers/server-harness.js` gained two options
+    (`runListenCallback`, `modules`), because no earlier test ran the `app.listen` callback where Bonjour
+    starts.
+  - **Test plan** (items marked *agent-verified* were run by the agent; the rest is yours):
+    1. *Blocked port.* Start the new container with `network_mode: host` and a restart policy on a host where
+       something else holds UDP 5353 without sharing it. Any Linux host can reproduce that:
+       `docker run -d --network host node:20-alpine node -e "require('dgram').createSocket('udp4').bind(5353); setInterval(() => {}, 1e6)"`.
+       Expect in `docker logs` the startup banner, `Bonjour: advertising ...`, then one
+       `Bonjour: bind EADDRINUSE 0.0.0.0:5353 — ...` line. `docker inspect -f '{{.RestartCount}}'` stays `0`
+       for several minutes, the web UI loads and `GET /api/health` returns `200`.
+       *Agent-verified* in a Linux VM (Node 20.20.2, host networking, `--restart unless-stopped`): the old
+       code restarted 7 times in 10 seconds with exit code 1; the new code stayed up with 0 restarts.
+    2. *Free port.* Where nothing holds 5353, the log has `Bonjour: advertising ...` and no other Bonjour
+       line, and the process owns UDP 5353. *Agent-verified* in the same VM, including a real mDNS query for
+       `_arrview._tcp.local` that returned the PTR, SRV, TXT and A records. *You:* on a physical iPhone, the
+       server appears in setup without typing an address. The Simulator cannot show this, because it does
+       not implement local network privacy (Apple TN3179).
+    3. *Both connection modes.* ArrView Server (proxy) mode against a blocked-port host works once the
+       address is typed in. Direct mode never contacts the ArrView server, so this change cannot affect it.
+    4. *Upgrade path.* No storage change, so not applicable.
+  - **Not verified:** the real TrueNAS 27 host and its real discovery daemon (an equivalent exclusive holder
+    stood in for it); discovery from an iPhone while another responder is live on the host; the Playwright
+    e2e job (CI runs it, and the web client is untouched); `bonjour-service` 1.4.4 (its source was read and
+    has the same wiring, but it was not run; the lockfile pins 1.4.1). Nothing is pushed.
 
 ### NZBHydra connectivity check (factory job 007)
 
