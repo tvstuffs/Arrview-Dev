@@ -2,8 +2,8 @@
 
 ## 1.9A4 (unreleased) — Webhooks in Settings
 
-- **Version 1.9A4.** Adds a Webhooks card to the Settings page. Server and web client only: no new route, no
-  `capabilities` change, and nothing changes in the iOS or tvOS apps.
+- **Version 1.9A4.** Adds a Webhooks card to the Settings page. Server and web client only: one new read-only
+  route (`GET /api/webhooks/last`), no `capabilities` change, and nothing changes in the iOS or tvOS apps.
   - *Human check:* Settings shows "ArrView v1.9A4", and `GET /api/health` and `GET /api/arrview/identify`
     report `1.9A4`. Then run the test plan below.
 - **Settings now has a Webhooks card** (both layouts), between the service cards and "Add to Home Screen". It
@@ -14,10 +14,32 @@
   - **The webhook URLs** (`<address>/api/webhooks/sonarr` and `/radarr`), read-only, each with a Copy button. Copy
     uses the Clipboard API on HTTPS or `localhost` and selects the field and uses the older copy command on a
     plain-`http` LAN address, where browsers do not offer the API.
+  - **Last event received.** One line per service, such as "Sonarr: Download (file import), 3 hours ago. Test
+    message received less than a minute ago." or "Radarr: No event since ArrView started 2 days ago." It
+    refreshes every five seconds while Settings is in view, at once when the tab comes back into view, and not at
+    all when no Sonarr or Radarr is saved or Settings is closed. It says what it cannot tell: that a message
+    arrived, not who sent it.
   - **Three guides**, collapsed: set up the webhook in Sonarr, in Radarr, and "If it does not work". They give
-    the exact URL, the trigger names, `POST`, what a green Test means, the log line a real event writes, a
-    `curl` command that posts an event by hand, and the limits (no authentication on webhook calls; the iOS app
-    uses them in ArrView Server mode only).
+    the exact URL, the trigger names, `POST`, what a green Test means and where the message then shows up, the
+    log line a real event writes, a `curl` command that posts an event by hand, and the limits (no
+    authentication on webhook calls; the iOS app uses them in ArrView Server mode only).
+- **What "last event" means.** `GET /api/webhooks/last` answers
+  `{ uptimeSeconds, sonarr: { event, test }, radarr: { event, test } }`, where `event` and `test` are
+  `{ eventType, ageSeconds }` or `null`.
+  - **Kept in memory only**, so a restart starts it empty (hence "since ArrView started"). Nothing is written to
+    disk and nothing is added to `config.json`.
+  - **The Test message is kept apart from the event**, so pressing Test in Sonarr never hides when a real event
+    last arrived. A Test message is noted but still changes no page: the live refresh of open pages is unchanged
+    (real events only).
+  - **Only an event type made of plain letters (1 to 40) is kept.** Webhook calls are not authenticated, so what
+    Settings shows is limited to what no one can abuse: anything else is answered 200 as before and not recorded,
+    and the page shows the type as text only.
+  - **The server counts the ages**, so a browser clock that disagrees with the server's never shows a wrong time;
+    the page adds the seconds since the answer arrived, so the text stays right between polls.
+  - **A server without the route** (an older build) answers 404: Settings says "This version of ArrView does not
+    report received events." and stops asking. A poll that fails keeps the last answer on the page.
+  - No `capabilities` entry: only the web page uses it. It is an ordinary `/api` route, so it is answered with
+    `Cache-Control: no-store` like the others and the service worker does not cache it.
 - **Where the address is stored.** `config.json`, as `"webhooks": { "baseUrl": "http://host:7777" }`.
   - `GET /api/config` returns it. `POST /api/config` accepts `webhooks: { baseUrl }`: left out keeps the stored
     value (a client that does not know the field cannot erase it), an empty string or `{}` clears it.
@@ -41,16 +63,23 @@
   - The previous build (`dev` at `1eb4790`, run on 2026-10-23) starts and serves with the key present and ignores
     it. Its own Save rewrites the file without the key, so a saved address is lost after a rollback plus a Save,
     with no error. A Home Screen app that has not updated yet and tries to change the address against that older
-    server gets `400 Unknown config key: webhooks`.
+    server gets `400 Unknown config key: webhooks`. That build has no `/api/webhooks/last`: a page from this build
+    shows the "does not report" line and the rest of the card works.
 - **Tests.**
   - Server `tests/webhook-address.test.js` (5): round trip, normalising, refusals, keep and clear, Docker-managed
-    services. Browser `tests/web/webhook-settings.test.jsx` (24): the card, the address rules (the same table as the
-    server's), Copy on a secure and a plain page, the Settings page, both layouts.
-  - Browser `tests/e2e/webhooks.spec.cjs` (8): posts to the URLs Settings shows and checks that the open Shows and
-    Movies pages refetch while a Test message does nothing; saves an address and reads it from a second browser;
-    flags an address that is not one; fits at 305, 320, 390, 834 and 1280 px.
-  - Breaking the feature in twelve different ways (each rule on each side, the card, the fallback) fails the
-    matching tests.
+    services. Server `tests/webhook-activity.test.js` (7): what is kept per service, the Test message apart, the
+    character rule, bodies that are not events, ageing, and that open pages are still told about real events and
+    still not about Test messages. Browser `tests/web/webhook-settings.test.jsx` (24): the card, the address rules
+    (the same table as the server's), Copy on a secure and a plain page, the Settings page, both layouts. Browser
+    `tests/web/webhook-activity.test.jsx` (18): reading the answer, the wording and ages, every state of the
+    section, and the polling (every five seconds, kept on failure, stopped on 404, asked only when needed).
+  - Browser `tests/e2e/webhooks.spec.cjs` (10): posts to the URLs Settings shows and checks that the open Shows and
+    Movies pages refetch while a Test message does nothing; that Settings lists each event, the Test message
+    beside it and each service on its own line, including a type that must never be shown; the 404 case; saves an
+    address and reads it from a second browser; flags an address that is not one; fits at 305, 320, 390, 834 and
+    1280 px with the longest list lines.
+  - Breaking the feature in 31 different ways (each address rule on each side, the card, the fallback, what is
+    recorded and where, the polling) fails the matching tests.
 - **Test plan** (items marked *agent-verified* were run by the agent; the rest is yours):
   1. *Settings.* Open Settings in Modern and in Classic. A Webhooks card sits between the services and "Add to Home
      Screen", with the Sonarr and Radarr URLs. With the field empty the URLs use the address in your browser bar.
@@ -66,17 +95,28 @@
      watch an open Shows or Movies page change within a second or two. `docker logs arrview` shows
      `[Sonarr webhook] <event> — series: <name>`. **Not verified by the agent: no real Sonarr or Radarr was
      available.** *Agent-verified* with payloads shaped like theirs.
-  5. *By hand.* Run the `curl` command from "If it does not work" from another computer: `200`, one log line, and
-     open pages refresh. *Agent-verified*, running the command text exactly as the page shows it.
-  6. *iOS.* With a webhook set up and the iOS app in ArrView Server mode, an import in Sonarr or Radarr refreshes
+  5. *Last event received.* With Settings open, press Test in Sonarr: within about five seconds the Sonarr line
+     says "Test message received less than a minute ago." and its event part is unchanged. Import, rename or
+     delete something: the line says what happened, such as "Download (file import), less than a minute ago.",
+     and keeps the Test sentence. Do the same in Radarr. Restart the container: both lines say "No event since
+     ArrView started less than a minute ago." *Agent-verified* in Edge (Chromium 154) against a real server in a
+     Linux VM, with payloads shaped like theirs: the Test message appeared 5.0 s after it was sent, the page
+     asked every 5 s while Settings was open and not at all on another page, and a restart emptied the lines and
+     the page caught up on its own. **Not verified: real Sonarr and Radarr messages.**
+  6. *By hand.* Run the `curl` command from "If it does not work" from another computer: `200`, one log line, the
+     event under Last event received, and open pages refresh. *Agent-verified*, running the command text exactly
+     as the page shows it.
+  7. *iOS.* With a webhook set up and the iOS app in ArrView Server mode, an import in Sonarr or Radarr refreshes
      its lists at once; in Connect Directly mode it does not. **Not verified**; needs a physical device (the
      Simulator does not implement local network privacy, Apple TN3179).
-  7. *Upgrade path.* No change to anything in use before: the shipped iOS app and the existing keys are untouched.
+  8. *Upgrade path.* No change to anything in use before: the shipped iOS app and the existing keys are untouched.
      Install the previous build, configure, upgrade in place: the settings and the connection survive.
      *Agent-verified* for the file (an old-style `config.json` loads, and Save changes only the new key) and for
      the rollback described above; not with a shipped iOS build.
-- **Not verified:** a real Sonarr or Radarr (the apps' own wording and Test button); Safari, Firefox and a
-  screen reader (the card has labels and descriptions; only Edge was run); the iOS app; behind a reverse proxy.
+- **Not verified:** a real Sonarr or Radarr (the apps' own wording, Test button and message bodies); Safari,
+  Firefox and a screen reader (the card has labels and descriptions; only Edge was run); the iOS app; behind a
+  reverse proxy (whether one buffers the live-update stream does not matter to the list, which polls); CI's own
+  Chromium run of the browser tests, which ran here on Edge.
 
 ## 1.9A3 (unreleased) — Web redesign: art-led layout, Upcoming, Downloads and Add flow
 
