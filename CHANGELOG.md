@@ -64,6 +64,51 @@
     stood in for it); discovery from an iPhone while another responder is live on the host; the Playwright
     e2e job (CI runs it, and the web client is untouched); `bonjour-service` 1.4.4 (its source was read and
     has the same wiring, but it was not run; the lockfile pins 1.4.1).
+- **Settings now says when Bonjour could not start.** Follows the fix above. A server that cannot start
+  Bonjour keeps working, and now also says so on the Settings page (both layouts), not only in its log.
+  - **Server:** `GET /api/arrview/identify` gains a `bonjour` object, `{ "state": ..., "reason": ... }`.
+    `state` is `off` (not started), `starting`, `advertising` or `unavailable`. `reason` appears only with
+    `unavailable`: `port-in-use`, `permission-denied`, `not-installed` or `start-failed`. These are codes,
+    not error text. The two bind-failure errors (`EADDRINUSE`, `EACCES`) and a failed startup set them; any
+    other error is logged and changes nothing. `advertising` is set when `multicast-dns` reports that its
+    socket is bound (`ready`) or has joined the multicast group (`networkInterface`). The capabilities list
+    and `GET /api/health` are unchanged, so health stays independent of Bonjour.
+  - **Retries:** by the library's code, it binds the port again each time it announces itself (about 1 s,
+    4 s, 13 s, 40 s, 2 min, 6 min, 18 min and 55 min after start, then never). If the port frees up before
+    one of those, Bonjour starts by itself and the state returns to `advertising`; otherwise restart the
+    container.
+  - **Web:** a flat amber notice between the Layout choice and the Services list, shown only for
+    `unavailable`. It names the cause, says ArrView works normally and points to "Or enter the address
+    manually" in the iOS app, with this page's address when the page is open from another device (not
+    `localhost`). New component `src/components/DiscoveryNotice.jsx`.
+  - **Compatibility:** the iOS and tvOS apps decode identify into a struct that ignores keys it does not
+    declare (it already ignores `capabilities`), so the extra key is safe. An older server sends no
+    `bonjour` key and shows no notice. It is not a capability: the key's presence is the signal.
+  - **Tests:** server 112/112 (Mac with Node 24.19.0, and Linux with Node 20.20.2), web 379/379.
+    `tests/bonjour-failure.test.js` gained two tests and more assertions; one uses the real library and a real
+    socket to show that a blocked Bonjour recovers once the port is freed. `tests/web/discovery-notice.test.jsx`
+    has 14. The identify test in `tests/env-config.test.js` now expects the new key. Breaking the feature in
+    three ways (no notice rendered, no `bonjour` key, no recovery events) fails the matching tests.
+  - **Test plan** (items marked *agent-verified* were run by the agent; the rest is yours):
+    1. *Blocked port.* Start the server container with `network_mode: host` where UDP 5353 is held (the
+       one-liner in the Bonjour fix's test plan above). Open Settings in Modern and in Classic: an amber notice
+       sits between Layout and Services and names UDP 5353. From another device it ends with this server's
+       address, for example `http://<host>:7777`; opened on the server itself it does not. At 320 px nothing
+       overflows. `GET /api/arrview/identify` has `"bonjour":{"state":"unavailable","reason":"port-in-use"}`.
+       *Agent-verified:* real servers in a Linux VM (a second container holding 5353 in the same network
+       namespace), Microsoft Edge (Chromium 154) at 1280, 390 and 320 px in both layouts, and through a LAN
+       address.
+    2. *Free port.* No notice, and `identify` has `"bonjour":{"state":"advertising"}`. *Agent-verified* in the
+       same VM.
+    3. *Both connection modes.* The iOS app in ArrView Server (proxy) mode still connects, because it reads
+       identify. Direct mode never contacts the ArrView server. Check on a physical iPhone (the Simulator does
+       not implement local network privacy, Apple TN3179).
+    4. *Upgrade path.* No storage change, so not applicable.
+  - **Not verified:** the iOS app and ArrViewCore reading the new key (the Swift struct was read, not run);
+    the real TrueNAS host; Safari, Firefox and a screen reader (the notice has `role="status"`; only Edge was
+    run); the Playwright e2e suite (CI runs it, and its fixture never produces the unavailable state); a
+    server started with an `ADVERTISE_IP` that is not an address of the host (the multicast join then fails,
+    which is not reported as a problem).
 
 ### NZBHydra connectivity check (factory job 007)
 

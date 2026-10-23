@@ -145,10 +145,11 @@ The container serves the dashboard on `http://localhost:7777` and stores saved s
 > - Ensure the host firewall allows UDP **5353** (mDNS).
 > - Another mDNS responder on the host (Avahi, or a NAS's built-in discovery
 >   service) may already own UDP **5353** without sharing it. ArrView then logs
->   one `Bonjour: bind EADDRINUSE 0.0.0.0:5353 — …` line and keeps running, but
->   iOS auto-discovery is unavailable: enter `http://<host>:7777` in the app by
->   hand. To get discovery back, give the container its own LAN address (a
->   Docker macvlan or ipvlan network) or turn the host's responder off.
+>   one `Bonjour: bind EADDRINUSE 0.0.0.0:5353 — …` line, shows a notice on the
+>   Settings page and keeps running, but iOS auto-discovery is unavailable:
+>   enter `http://<host>:7777` in the app by hand. To get discovery back, give
+>   the container its own LAN address (a Docker macvlan or ipvlan network) or
+>   turn the host's responder off, then restart the container.
 > - If you can't use host networking, the app still works — just choose
 >   **Connect Directly** in setup and enter `http://<host>:7777` manually.
 
