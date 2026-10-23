@@ -5,6 +5,7 @@ import DiscoveryNotice from './DiscoveryNotice.jsx'
 import WebhookSettings from './WebhookSettings.jsx'
 import Icon from './Icon.jsx'
 import { normalizeAddress } from '../webhooks'
+import { useWebhookActivity } from '../hooks/useWebhookActivity'
 
 const SERVICES = [
   {
@@ -145,6 +146,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
   const savedAddress = initialConfig.webhooks?.baseUrl || ''
   const [webhookAddress, setWebhookAddress] = useState(savedAddress)
   const savedService = id => Boolean(initialConfig[id]?.url && hasUsableKey(initialConfig[id].apikey))
+  // What Sonarr and Radarr last delivered is only asked for while their card is on the page.
+  const webhookActivity = useWebhookActivity(savedService('sonarr') || savedService('radarr'))
   const [keyHints, setKeyHints] = useState({})
   // Set when an address edit cleared a masked key; only cleared once a key is present at Save time.
   const [keyRequired, setKeyRequired] = useState({})
@@ -284,7 +287,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
         </div>
 
         <WebhookSettings address={webhookAddress} onAddressChange={setWebhookAddress}
-          sonarr={savedService('sonarr')} radarr={savedService('radarr')} />
+          sonarr={savedService('sonarr')} radarr={savedService('radarr')} activity={webhookActivity} />
 
         <InstallHelp />
 

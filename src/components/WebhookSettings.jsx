@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { normalizeAddress, webhookUrl } from '../webhooks'
+import { describeActivity, normalizeAddress, webhookUrl } from '../webhooks'
 import { copyText } from '../clipboard'
 import { isLocalHostname } from '../hostname'
 
@@ -20,6 +20,7 @@ const SERVICES = {
     logLine: '[Radarr webhook] Download — movie: ArrView test',
   },
 }
+const LOADING = { status: 'loading', data: null, receivedAt: 0 }
 
 function SetupSteps({ service, url }) {
   const { name, triggers } = SERVICES[service]
@@ -34,7 +35,10 @@ function SetupSteps({ service, url }) {
         {' '}Leave the others off. Older versions call the first two On Download and On Upgrade.
       </li>
       <li>Set <strong>Webhook URL</strong> to <code>{url}</code> and <strong>Method</strong> to POST. Leave Username, Password and Headers empty: ArrView does not use them.</li>
-      <li>Select <strong>Test</strong>. A green check means ArrView answered. ArrView ignores the test message itself, so this checks the address only, not the triggers.</li>
+      <li>
+        Select <strong>Test</strong>. A green check means ArrView answered, and "Test message received" appears under Last event received
+        above within a few seconds. ArrView changes no page for it, so this checks the address, not the triggers.
+      </li>
       <li>Select <strong>Save</strong>.</li>
     </ol>
   </details>
@@ -54,12 +58,13 @@ function Troubleshooting({ services, url }) {
         certificate {names} does not trust, enter ArrView's plain http address above instead.
       </li>
       <li>
-        <strong>Test passes but nothing updates.</strong> ArrView ignores the test message, so check the triggers. Each real event adds a line
-        such as <code>{logLine}</code> to ArrView's log (for Docker: <code>docker logs arrview</code>). No line means the event never arrived.
+        <strong>Test passes but nothing updates.</strong> ArrView changes no page for the test message, so check the triggers. Each real event
+        is listed under Last event received above and adds a line such as <code>{logLine}</code> to ArrView's log (for Docker:{' '}
+        <code>docker logs arrview</code>). If it stays at "No event" while things change in {names}, the events never arrive.
       </li>
       <li>
-        <strong>Check ArrView on its own.</strong> From any computer that can reach ArrView, run this. ArrView logs one line and the pages
-        you have open refresh, with no {names} involved.
+        <strong>Check ArrView on its own.</strong> From any computer that can reach ArrView, run this. ArrView logs one line, the event is
+        listed under Last event received, and the pages you have open refresh, with no {names} involved.
         <pre>{`curl -X POST -H "Content-Type: application/json" -d '${sample}' "${url}"`}</pre>
       </li>
       <li><strong>Who can send events.</strong> ArrView does not check who calls a webhook, so anyone who can reach this address can make ArrView refresh. Keep ArrView off the public internet unless something in front of it asks for a login.</li>
@@ -68,10 +73,31 @@ function Troubleshooting({ services, url }) {
   </details>
 }
 
+// What Sonarr and Radarr last delivered, from useWebhookActivity: one line per service.
+function LastEvents({ services, activity, now }) {
+  const { status, data, receivedAt } = activity
+  const elapsed = Math.max(0, Math.floor((now - receivedAt) / 1000))
+  return <div className="webhook-activity-block">
+    <h3 id="webhook-activity-title">Last event received</h3>
+    <p className="text-sm text-muted">
+      Updates every few seconds while this page is open. It starts empty when ArrView restarts, and it shows that a message arrived, not who sent it.
+    </p>
+    {status === 'loading' && <p className="text-sm text-muted">Checking…</p>}
+    {status === 'error' && <p className="text-sm text-muted">Could not read what ArrView received. Trying again.</p>}
+    {status === 'old' && <p className="text-sm text-muted">This version of ArrView does not report received events.</p>}
+    {status === 'ready' && <ul className="webhook-activity" aria-labelledby="webhook-activity-title">
+      {services.map(service => <li key={service}>
+        <strong>{SERVICES[service].name}</strong>: {describeActivity(data[service], data.uptimeSeconds, elapsed)}
+      </li>)}
+    </ul>}
+  </div>
+}
+
 // Settings card for the webhooks that Sonarr and Radarr send to ArrView. `address` is the editable address
 // those two use to reach ArrView; empty means this page's own address. `sonarr` and `radarr` say which of the
-// two are set up, and the card shows nothing when neither is.
-export default function WebhookSettings({ address, onAddressChange, sonarr, radarr, location = window.location }) {
+// two are set up, and the card shows nothing when neither is. `activity` is what they last delivered
+// (useWebhookActivity), and `now` the time the ages are counted to.
+export default function WebhookSettings({ address, onAddressChange, sonarr, radarr, activity = LOADING, now = Date.now(), location = window.location }) {
   const [message, setMessage] = useState('')
   const timer = useRef(null)
   const fields = useRef({})
@@ -134,6 +160,8 @@ export default function WebhookSettings({ address, onAddressChange, sonarr, rada
       </div>
     })}
     <p role="status" className="text-sm text-muted webhook-status">{message}</p>
+
+    <LastEvents services={services} activity={activity} now={now} />
 
     {services.map(service => <SetupSteps key={service} service={service} url={webhookUrl(base, service)} />)}
     <Troubleshooting services={services} url={webhookUrl(base, services[0])} />

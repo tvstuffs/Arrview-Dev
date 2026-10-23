@@ -172,6 +172,14 @@ never uses them.
   `config.json` as `"webhooks": { "baseUrl": "http://192.0.2.10:7777" }`.
 - The two webhook URLs built from it, `<address>/api/webhooks/sonarr` and
   `<address>/api/webhooks/radarr`, each with a **Copy** button.
+- **Last event received**: for Sonarr and for Radarr, the last event that
+  reached ArrView and how long ago, such as `Download (file import), 3 hours ago`,
+  and separately the last test message. It refreshes every few seconds while
+  Settings is open and straight away when you come back to the tab, so you can
+  press Test in Sonarr and watch `Test message received less than a minute ago`
+  appear. It lives in memory, so it starts empty (`No event since ArrView started
+  2 days ago`) whenever the container restarts, and it only shows that a message
+  arrived, not who sent it.
 - Step-by-step setup for each app and a troubleshooting list, with the same
   content as below.
 
@@ -186,11 +194,14 @@ In Sonarr and Radarr, open **Settings → Connect**, select **+** and choose
 | Method | `POST` (ArrView only accepts POST) |
 | Username, Password, Headers | Leave empty; ArrView does not use them |
 
-Select **Test**, then **Save**. A green check on Test means ArrView answered.
-ArrView ignores the test message itself, so Test checks the address, not the
-triggers. Each real event adds a line such as
+Select **Test**, then **Save**. A green check on Test means ArrView answered, and
+the message appears under **Last event received**. ArrView changes no page for
+the test message, so Test checks the address, not the triggers. Each real event
+shows under Last event received, adds a line such as
 `[Sonarr webhook] Download — series: Name` to ArrView's log
-(`docker logs arrview`), and the pages that are open refresh.
+(`docker logs arrview`), and refreshes the pages that are open. If Last event
+received stays at `No event` while things change in Sonarr or Radarr, the events
+never arrive: check the triggers and the address.
 
 To check ArrView on its own, send an event by hand from any computer that can
 reach it (no Sonarr or Radarr involved):
@@ -200,6 +211,20 @@ curl -X POST -H "Content-Type: application/json" \
   -d '{"eventType":"Download","series":{"title":"ArrView test"}}' \
   "http://<host>:7777/api/webhooks/sonarr"
 ```
+
+`GET /api/webhooks/last` is what Settings reads. It answers with the seconds
+since ArrView started and, for each service, the last `event` and the last
+`test`, each as `{ "eventType": "Download", "ageSeconds": 125 }` or `null`:
+
+```json
+{ "uptimeSeconds": 4321,
+  "sonarr": { "event": { "eventType": "Download", "ageSeconds": 125 }, "test": null },
+  "radarr": { "event": null, "test": null } }
+```
+
+Only event types made of plain letters (up to 40) are kept, whatever is posted.
+Ages are counted by the server, so a browser clock that disagrees with it never
+shows a wrong time. Nothing is written to disk.
 
 If Test fails in Sonarr or Radarr, the address cannot be reached from where it
 runs: use the machine's IP address, remember that `localhost` inside a container

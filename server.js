@@ -1264,6 +1264,28 @@ function broadcast(event, data) {
   sseClients.forEach(client => client.write(payload));
 }
 
+// ── What the webhooks last delivered ─────────────────────────────────────────
+// Per service, the last event and, separately, the last Test message, so pressing Test in Sonarr or Radarr
+// never hides when a real event last arrived. Memory only: a restart starts it empty, and GET
+// /api/webhooks/last says how long ago that was. Settings shows it so a setup can be checked without reading
+// logs. Webhook calls are not authenticated, so this only says that a message arrived, not who sent it; the
+// type is kept only when it is plain letters (all Sonarr and Radarr event types are), nothing else is.
+const STARTED_AT = Date.now();
+const webhookSeen = { sonarr: { event: null, test: null }, radarr: { event: null, test: null } };
+function noteWebhook(service, eventType) {
+  if (typeof eventType !== 'string' || !/^[A-Za-z]{1,40}$/.test(eventType)) return;
+  webhookSeen[service][eventType === 'Test' ? 'test' : 'event'] = { eventType, at: Date.now() };
+}
+
+// Ages are worked out here, so a browser clock that disagrees with this one never shows a wrong time.
+app.get('/api/webhooks/last', (req, res) => {
+  const now = Date.now();
+  const age = since => Math.max(0, Math.floor((now - since) / 1000));
+  const seen = entry => entry && { eventType: entry.eventType, ageSeconds: age(entry.at) };
+  const service = name => ({ event: seen(webhookSeen[name].event), test: seen(webhookSeen[name].test) });
+  res.json({ uptimeSeconds: age(STARTED_AT), sonarr: service('sonarr'), radarr: service('radarr') });
+});
+
 // ── Sonarr webhook ────────────────────────────────────────────────────────────
 // In Sonarr: Settings → Connect → + → Webhook
 //   URL:    http://<this-server>/api/webhooks/sonarr
@@ -1271,11 +1293,13 @@ function broadcast(event, data) {
 //   Events: On File Import, On File Upgrade, On Rename, On Series Add, On Series Delete, On Episode File Delete
 //           (older Sonarr: On Download, On Upgrade)
 // Settings → Webhooks in the web UI shows the URL for the address Sonarr uses to reach this server, with these
-// steps. The Test message is answered and ignored; every other event refreshes the pages that are open.
+// steps. The Test message is answered and noted (see above) but changes no page; every other event also
+// refreshes the pages that are open.
 
 app.post('/api/webhooks/sonarr', (req, res) => {
   res.sendStatus(200);
   const { eventType, series, episodes } = req.body;
+  noteWebhook('sonarr', eventType);
   if (!eventType || eventType === 'Test') return;
   console.log(`[Sonarr webhook] ${eventType} — series: ${series?.title}`);
   broadcast('sonarr', {
@@ -1297,6 +1321,7 @@ app.post('/api/webhooks/sonarr', (req, res) => {
 app.post('/api/webhooks/radarr', (req, res) => {
   res.sendStatus(200);
   const { eventType, movie } = req.body;
+  noteWebhook('radarr', eventType);
   if (!eventType || eventType === 'Test') return;
   console.log(`[Radarr webhook] ${eventType} — movie: ${movie?.title}`);
   broadcast('radarr', {

@@ -78,6 +78,11 @@
 .webhook-card p, .webhook-card li { line-height: 1.5; }
 .webhook-card .field-group > p { margin-top: 6px; }
 .webhook-card .webhook-status { min-height: 1.5em; margin-top: -8px; }
+.webhook-activity-block { display: flex; flex-direction: column; gap: 6px; }
+.webhook-activity-block h3 { font-size: 14px; font-weight: 600; }
+.webhook-card ul.webhook-activity { list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 4px; }
+.webhook-card ul.webhook-activity li + li { margin-top: 0; }
+.webhook-activity li { font-size: 13px; overflow-wrap: anywhere; }
 .webhook-card details { border-top: 1px solid var(--hair); padding-top: 10px; }
 .webhook-card summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 /* Same touch size as the other controls (see responsive.css). */

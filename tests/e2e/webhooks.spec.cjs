@@ -63,6 +63,64 @@ test('a webhook posted to a URL shown in Settings refreshes the page that is ope
   await expect.poll(() => movies.length).toBeGreaterThan(before)
 })
 
+// "Last event received" refreshes every five seconds while Settings is in view, so the first wait is longer than
+// the default. Later waits bring the page back into view instead, which refreshes it at once.
+const SLOW = { timeout: 15000 }
+const line = (page, name) => page.locator('.webhook-activity li', { hasText: new RegExp(`^${name}:`) })
+const comesBackIntoView = page => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+
+test('Settings lists what Sonarr and Radarr last delivered, and keeps a Test message apart from the event', async ({ page, request }) => {
+  // The server's record outlives a test, so every step posts an event type that the step before it did not, and
+  // waits for text that only that post can have produced.
+  await page.goto('/#/settings')
+  await expect(page.getByRole('list', { name: 'Last event received' })).toBeVisible()
+  await expect(page.locator('.webhook-activity li')).toHaveCount(2)
+  const sonarr = await urlField(page, 'Sonarr').inputValue()
+  const radarr = await urlField(page, 'Radarr').inputValue()
+  const post = async (url, data) => expect((await request.post(url, { data })).status()).toBe(200)
+
+  // An event is found by the page's own polling.
+  await post(sonarr, { eventType: 'Grab', series: { id: 1, title: 'Fixture Show' }, episodes: [{ id: 11 }] })
+  await expect(line(page, 'Sonarr')).toContainText('Grab, less than a minute ago.', SLOW)
+
+  // What the Test button in Sonarr sends is listed next to it, and does not replace it.
+  await post(sonarr, { eventType: 'Test', series: { id: 1, title: 'Test' }, episodes: [{ id: 1 }] })
+  await comesBackIntoView(page)
+  await expect(line(page, 'Sonarr')).toContainText('Test message received less than a minute ago.')
+  await expect(line(page, 'Sonarr')).toContainText('Grab, less than a minute ago.')
+
+  // A later event replaces the event and leaves the Test message in place.
+  await post(sonarr, { eventType: 'SeriesAdd', series: { id: 3, title: 'Another Show' } })
+  await comesBackIntoView(page)
+  await expect(line(page, 'Sonarr')).toContainText('Series add, less than a minute ago.')
+  await expect(line(page, 'Sonarr')).not.toContainText('Grab')
+  await expect(line(page, 'Sonarr')).toContainText('Test message received less than a minute ago.')
+
+  // Radarr has its own line, and Sonarr's did not move.
+  await post(radarr, { eventType: 'MovieDelete', movie: { id: 2, title: 'Fixture Movie' } })
+  await comesBackIntoView(page)
+  await expect(line(page, 'Radarr')).toContainText('Movie delete, less than a minute ago.')
+  await expect(line(page, 'Sonarr')).not.toContainText('Movie delete')
+
+  // Webhook calls are not authenticated: an event type that is not plain letters is answered and never shown.
+  await post(sonarr, { eventType: '<b>x</b>' })
+  await post(sonarr, { eventType: 'Rename', series: { id: 1, title: 'Fixture Show' } })
+  await comesBackIntoView(page)
+  await expect(line(page, 'Sonarr')).toContainText('Rename, less than a minute ago.')
+  await expect(line(page, 'Sonarr')).not.toContainText('<b>')
+  await expect(line(page, 'Sonarr').locator('b')).toHaveCount(0)
+})
+
+// That Settings then stops asking is proved with fake timers in tests/web/webhook-activity.test.jsx.
+test('on a server that does not have the route, Settings says so and the rest of the card still works', async ({ page }) => {
+  await page.route('**/api/webhooks/last', route => route.fulfill({ status: 404, json: { error: 'Not found' } }))
+  await page.goto('/#/settings')
+  await expect(page.getByText('This version of ArrView does not report received events.')).toBeVisible()
+  await expect(page.locator('.webhook-activity')).toHaveCount(0)
+  await expect(urlField(page, 'Sonarr')).toHaveValue(`${BASE}/api/webhooks/sonarr`)
+  await expect(page.getByRole('button', { name: 'Copy Sonarr webhook URL' })).toBeEnabled()
+})
+
 test('an address typed in Settings changes the URLs, is saved with Save and is there for the next visitor; clearing it goes back to this page', async ({ page, request, browser }) => {
   try {
     await page.goto('/#/settings')
@@ -105,11 +163,17 @@ test('an address that is not one is flagged as it is typed and blocks Save', asy
 })
 
 for (const width of [305, 320, 390, 834, 1280]) {
-  test(`the Webhooks card fits ${width}px with a long address and every guide open, and Copy is a touch-sized button`, async ({ browser }) => {
+  test(`the Webhooks card fits ${width}px with a long address, the longest list lines and every guide open, and Copy is a touch-sized button`, async ({ browser, request }) => {
+    // Both lines at their longest: an event and a Test message for each service.
+    for (const [service, event] of [['sonarr', { series: { id: 1, title: 'Fixture Show' } }], ['radarr', { movie: { id: 2, title: 'Fixture Movie' } }]]) {
+      for (const eventType of ['Download', 'Test']) expect((await request.post(`${BASE}/api/webhooks/${service}`, { data: { eventType, ...event } })).status()).toBe(200)
+    }
     const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 834, ignoreHTTPSErrors: true, serviceWorkers: 'block', colorScheme: 'dark' })
     const page = await context.newPage()
     await page.goto(`${BASE}/#/settings`)
     await expect(page.getByRole('heading', { name: 'Webhooks' })).toBeVisible()
+    await expect(line(page, 'Sonarr')).toContainText('Download (file import), less than a minute ago. Test message received less than a minute ago.')
+    await expect(line(page, 'Radarr')).toContainText('Download (file import), less than a minute ago. Test message received less than a minute ago.')
     await addressField(page).fill('http://a-very-long-host-name-for-the-machine-that-runs-arrview.example.invalid:7777')
     await page.locator('.webhook-card details').evaluateAll(guides => guides.forEach(guide => { guide.open = true }))
     expect(await fits(page)).toBe(true)
