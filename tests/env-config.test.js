@@ -243,6 +243,7 @@ test('no ARRVIEW_* variables leaves behaviour unchanged (criterion 18)', async t
     capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit',
       'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar'],
     services: { sabnzbd: true, sonarr: true, radarr: true, nzbhydra: true },
+    bonjour: { state: 'off' },
   });
   assert.deepEqual((await s.getConfig()).envManaged, allManaged());
   assert.equal((await fetch(s.base + '/api/sonarr/series')).status, 200);

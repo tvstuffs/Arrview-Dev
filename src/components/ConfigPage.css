@@ -60,6 +60,20 @@
 }
 .field-group { display: flex; flex-direction: column; }
 
+.discovery-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--attn-bg);
+}
+.discovery-notice > .icon { flex: none; margin-top: 2px; font-size: 18px; color: var(--attn); }
+.discovery-notice p { font-size: 13px; color: var(--text); }
+.discovery-notice p + p { margin-top: 4px; }
+.discovery-notice .font-semibold { color: var(--attn); }
+.discovery-notice code { overflow-wrap: anywhere; }
+
 .layout-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; border: 0; padding: 0; }
 .layout-choice legend { font-weight: 600; margin-bottom: 4px; }
 .layout-choice label { display: flex; align-items: center; gap: 4px; min-height: 44px; }

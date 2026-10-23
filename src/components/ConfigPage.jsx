@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import './ConfigPage.css'
 import InstallHelp from './InstallHelp.jsx'
+import DiscoveryNotice from './DiscoveryNotice.jsx'
 import Icon from './Icon.jsx'
 
 const SERVICES = [
@@ -143,12 +144,13 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [version, setVersion] = useState(null)
+  const [bonjour, setBonjour] = useState(null)
 
   useEffect(() => {
     let cancelled = false
     fetch('/api/arrview/identify')
       .then(r => r.json())
-      .then(d => { if (!cancelled) setVersion(d.version) })
+      .then(d => { if (!cancelled) { setVersion(d.version); setBonjour(d.bonjour || null) } })
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
@@ -246,6 +248,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
             <input type="radio" name="layout" value={value} checked={layout === value} onChange={() => onLayoutChange(value)} /> {label}
           </label>)}
         </fieldset>}
+
+        <DiscoveryNotice bonjour={bonjour} />
 
         <section className="card" aria-label="Service checklist"><h2>Services</h2>
           <p className="text-muted">Configured connections (use Test below to verify connectivity).</p>

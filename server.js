@@ -289,6 +289,17 @@ app.get('/api/config', (req, res) => {
   res.json(out);
 });
 
+// Bonjour (iOS auto-discovery) state, reported by the identify route below and shown on the
+// Settings page. It starts 'off' and the Bonjour block at the bottom of this file drives it:
+// 'starting', then 'advertising', or 'unavailable' with a reason code (port-in-use,
+// permission-denied, not-installed, start-failed). Clients get codes, never raw error text,
+// and choose their own wording.
+const bonjourStatus = { state: 'off' };
+function setBonjourStatus(state, reason) {
+  bonjourStatus.state = state;
+  if (reason) bonjourStatus.reason = reason; else delete bonjourStatus.reason;
+}
+
 // Identity endpoint used by the ArrView iOS app to confirm a discovered or
 // manually entered host is an ArrView server, and which services it proxies.
 app.get('/api/arrview/identify', (req, res) => {
@@ -303,6 +314,7 @@ app.get('/api/arrview/identify', (req, res) => {
     capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit',
       'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar'],
     services,
+    bonjour: { ...bonjourStatus },
   });
 });
 
@@ -1320,6 +1332,11 @@ app.listen(PORT, () => {
     // bind twice and retries it on every send, so each distinct problem logs once.
     const reported = new Set();
     const onBonjourError = (err) => {
+      // EADDRINUSE and EACCES are the bind failures multicast-dns raises as 'error' events:
+      // nothing is advertised, and the Settings page says so. Any other error (a failed send,
+      // say) is transient, so it is logged but leaves the state alone.
+      if (err && err.code === 'EADDRINUSE') setBonjourStatus('unavailable', 'port-in-use');
+      else if (err && err.code === 'EACCES') setBonjourStatus('unavailable', 'permission-denied');
       const message = (err && err.message) || String(err);
       if (reported.has(message)) return;
       reported.add(message);
@@ -1327,13 +1344,24 @@ app.listen(PORT, () => {
         ? `    Bonjour: ${message} — another mDNS responder on this host (Avahi or a NAS's discovery service, say) holds UDP 5353 and does not share it, so iOS auto-discovery is unavailable. ArrView keeps running; add the server in the app by address.`
         : `    Bonjour: ${message} — iOS auto-discovery may not work. ArrView keeps running.`);
     };
+    setBonjourStatus('starting');
     const bonjour = new Bonjour({}, onBonjourError);
-    if (bonjour.server && bonjour.server.mdns) bonjour.server.mdns.on('error', onBonjourError);
+    const mdns = bonjour.server && bonjour.server.mdns;
+    if (mdns) {
+      mdns.on('error', onBonjourError);
+      // 'ready' means the first bind worked. 'networkInterface' fires when the socket has joined
+      // the multicast group, which also happens when a bind that failed earlier succeeds on one
+      // of the library's later retries (it re-binds on every announcement), clearing the notice.
+      mdns.on('ready', () => setBonjourStatus('advertising'));
+      mdns.on('networkInterface', () => setBonjourStatus('advertising'));
+    }
 
     bonjour.publish({ name: 'ArrView', type: 'arrview', port: Number(PORT), host: advertiseHost });
     console.log(`    Bonjour: advertising _arrview._tcp as ${advertiseHost} (${advertiseIP || 'all interfaces'}):${PORT}`);
   } catch (err) {
-    console.log(err && err.code === 'MODULE_NOT_FOUND'
+    const missing = Boolean(err) && err.code === 'MODULE_NOT_FOUND';
+    setBonjourStatus('unavailable', missing ? 'not-installed' : 'start-failed');
+    console.log(missing
       ? '    Bonjour: bonjour-service not installed — iOS auto-discovery disabled'
       : `    Bonjour: couldn't start (${(err && err.message) || err}) — iOS auto-discovery disabled`);
   }
