@@ -96,8 +96,8 @@
        address, for example `http://<host>:7777`; opened on the server itself it does not. At 320 px nothing
        overflows. `GET /api/arrview/identify` has `"bonjour":{"state":"unavailable","reason":"port-in-use"}`.
        *Agent-verified:* real servers in a Linux VM (a second container holding 5353 in the same network
-       namespace), Microsoft Edge (Chromium 154) at 1280, 390 and 320 px in both layouts, and through a LAN
-       address.
+       namespace), Microsoft Edge (Chromium 154) at 1280 and 390 px in both layouts and at 320 px in Modern,
+       and through a LAN address.
     2. *Free port.* No notice, and `identify` has `"bonjour":{"state":"advertising"}`. *Agent-verified* in the
        same VM.
     3. *Both connection modes.* The iOS app in ArrView Server (proxy) mode still connects, because it reads
