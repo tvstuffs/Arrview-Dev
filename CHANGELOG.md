@@ -63,7 +63,7 @@
   - **Not verified:** the real TrueNAS 27 host and its real discovery daemon (an equivalent exclusive holder
     stood in for it); discovery from an iPhone while another responder is live on the host; the Playwright
     e2e job (CI runs it, and the web client is untouched); `bonjour-service` 1.4.4 (its source was read and
-    has the same wiring, but it was not run; the lockfile pins 1.4.1). Nothing is pushed.
+    has the same wiring, but it was not run; the lockfile pins 1.4.1).
 
 ### NZBHydra connectivity check (factory job 007)
 
