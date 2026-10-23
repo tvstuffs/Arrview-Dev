@@ -1311,9 +1311,30 @@ app.listen(PORT, () => {
       });
     }
 
-    new Bonjour().publish({ name: 'ArrView', type: 'arrview', port: Number(PORT), host: advertiseHost });
+    // Bonjour must never take the server down. When another mDNS responder on the
+    // host owns UDP 5353 without sharing it (Avahi, a NAS's own discovery service),
+    // the bind fails after construction, as an async 'error' event on the
+    // multicast-dns instance. bonjour-service 1.4 attaches no listener for it, so
+    // Node exits and a restart policy loops the container; its default errorCallback
+    // rethrows as well. Point both at a logger. multicast-dns reports one failed
+    // bind twice and retries it on every send, so each distinct problem logs once.
+    const reported = new Set();
+    const onBonjourError = (err) => {
+      const message = (err && err.message) || String(err);
+      if (reported.has(message)) return;
+      reported.add(message);
+      console.log(err && err.code === 'EADDRINUSE'
+        ? `    Bonjour: ${message} — another mDNS responder on this host (Avahi or a NAS's discovery service, say) holds UDP 5353 and does not share it, so iOS auto-discovery is unavailable. ArrView keeps running; add the server in the app by address.`
+        : `    Bonjour: ${message} — iOS auto-discovery may not work. ArrView keeps running.`);
+    };
+    const bonjour = new Bonjour({}, onBonjourError);
+    if (bonjour.server && bonjour.server.mdns) bonjour.server.mdns.on('error', onBonjourError);
+
+    bonjour.publish({ name: 'ArrView', type: 'arrview', port: Number(PORT), host: advertiseHost });
     console.log(`    Bonjour: advertising _arrview._tcp as ${advertiseHost} (${advertiseIP || 'all interfaces'}):${PORT}`);
-  } catch (_) {
-    console.log('    Bonjour: bonjour-service not installed — iOS auto-discovery disabled');
+  } catch (err) {
+    console.log(err && err.code === 'MODULE_NOT_FOUND'
+      ? '    Bonjour: bonjour-service not installed — iOS auto-discovery disabled'
+      : `    Bonjour: couldn't start (${(err && err.message) || err}) — iOS auto-discovery disabled`);
   }
 });

@@ -143,6 +143,12 @@ The container serves the dashboard on `http://localhost:7777` and stores saved s
 > - Host networking is **Linux-only**; it does not broadcast to the LAN under
 >   Docker Desktop for Mac/Windows (Docker runs in a VM there).
 > - Ensure the host firewall allows UDP **5353** (mDNS).
+> - Another mDNS responder on the host (Avahi, or a NAS's built-in discovery
+>   service) may already own UDP **5353** without sharing it. ArrView then logs
+>   one `Bonjour: bind EADDRINUSE 0.0.0.0:5353 — …` line and keeps running, but
+>   iOS auto-discovery is unavailable: enter `http://<host>:7777` in the app by
+>   hand. To get discovery back, give the container its own LAN address (a
+>   Docker macvlan or ipvlan network) or turn the host's responder off.
 > - If you can't use host networking, the app still works — just choose
 >   **Connect Directly** in setup and enter `http://<host>:7777` manually.
 

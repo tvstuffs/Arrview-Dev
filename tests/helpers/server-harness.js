@@ -23,7 +23,9 @@ async function startUpstream() {
   return { hits, port: server.address().port, close: () => server.close() };
 }
 
-// options: { env, config (object or string), fsOverrides (fn(realFs) -> fs-like), files }
+// options: { env, config (object or string), fsOverrides (fn(realFs) -> fs-like), files,
+//   modules (module name -> replacement for the server's require; an Error is thrown instead),
+//   runListenCallback (true runs the app.listen callback, where the startup banner and Bonjour live) }
 async function startServer(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arrview-env-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -36,12 +38,22 @@ async function startServer(t, options = {}) {
   const logs = [];
   const app = express();
   let server;
-  app.listen = () => { server = http.createServer(app); return server.listen(0, '127.0.0.1'); };
+  app.listen = (_port, onListening) => {
+    server = http.createServer(app);
+    return server.listen(0, '127.0.0.1', options.runListenCallback ? onListening : undefined);
+  };
   const factory = () => app;
   Object.assign(factory, express);
   const fsModule = options.fsOverrides ? options.fsOverrides(fs) : fs;
+  const replaced = options.modules || {};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../server.js'), 'utf8'), {
-    require: name => name === 'express' ? factory : name === 'fs' ? fsModule : require(name),
+    require: name => {
+      if (name in replaced) {
+        if (replaced[name] instanceof Error) throw replaced[name];
+        return replaced[name];
+      }
+      return name === 'express' ? factory : name === 'fs' ? fsModule : require(name);
+    },
     __dirname: root, process: { env: { PORT: '0', ...(options.env || {}) } },
     console: { log: (...args) => logs.push(args.join(' ')) },
     setInterval, clearInterval, setTimeout, clearTimeout,
