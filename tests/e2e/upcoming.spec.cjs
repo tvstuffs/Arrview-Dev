@@ -125,7 +125,9 @@ test('Classic: an episode row opens the Shows tab and a movie row opens the Movi
   await openClassic(ctx, page)
   await page.getByRole('button', { name: /Fixture Show with a long title S01E02/ }).click()
   await expect(page.getByRole('button', { name: 'Shows', exact: true })).toHaveAttribute('aria-current', 'page')
-  await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
+  // The tab bar's button, by where it is: once the Shows page has loaded it has an "Upcoming" button of its own, and
+  // a locator by name alone then matches two (it failed in CI, twice, on 2026-10-23, whenever the page loaded first).
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Upcoming', exact: true }).click()
   await page.getByRole('button', { name: /Fixture Movie with a long descriptive title/ }).click()
   await expect(page.getByRole('button', { name: 'Movies', exact: true })).toHaveAttribute('aria-current', 'page')
   await ctx.close()

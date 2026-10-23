@@ -80,6 +80,14 @@
     1280 px with the longest list lines.
   - Breaking the feature in 31 different ways (each address rule on each side, the card, the fallback, what is
     recorded and where, the polling) fails the matching tests.
+- **Test fix, no code change.** `tests/e2e/upcoming.spec.cjs`, "Classic: an episode row opens the Shows tab and a
+  movie row opens the Movies tab", failed in CI on the first push of this build (twice, 140 of 141 passed, so the
+  `dev` image was not rebuilt). It clicked the "Upcoming" tab button by name alone, but once the Shows page has
+  loaded the page has an "Upcoming" button of its own, so the locator matched two elements and failed whenever the
+  page loaded before the click was resolved. The test had been in CI only once before (it arrived with 1.9A3).
+  Nothing in this build touches that flow. Shown by pausing before the click: the old locator failed 5 of 5, the
+  scoped one passes with and without the pause, and 40 of 40 repeated runs pass. The click is now scoped to the
+  tab bar. It was the only test that matched a tab name that also exists as a button in the page.
 - **Test plan** (items marked *agent-verified* were run by the agent; the rest is yours):
   1. *Settings.* Open Settings in Modern and in Classic. A Webhooks card sits between the services and "Add to Home
      Screen", with the Sonarr and Radarr URLs. With the field empty the URLs use the address in your browser bar.
