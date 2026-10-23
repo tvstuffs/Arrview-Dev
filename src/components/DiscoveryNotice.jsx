@@ -1,4 +1,5 @@
 import Icon from './Icon.jsx'
+import { isLocalHostname } from '../hostname'
 
 const REASONS = {
   'port-in-use': 'Another program on this host is using the mDNS port (UDP 5353) and does not share it. NAS systems that run their own network discovery service often do this.',
@@ -6,7 +7,6 @@ const REASONS = {
   'not-installed': 'The Bonjour component is not installed in this server.',
 }
 const FALLBACK = 'Bonjour failed to start. The server log has the details.'
-const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 
 // Settings notice for a server that could not start Bonjour, which the iOS app uses to find it.
 // `bonjour` is the object GET /api/arrview/identify returns; only "unavailable" is a problem, so
@@ -14,7 +14,7 @@ const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 export default function DiscoveryNotice({ bonjour, location = window.location }) {
   if (bonjour?.state !== 'unavailable') return null
   // Opened on the server itself, the address bar says nothing a phone could use.
-  const remote = !LOCAL_HOSTS.includes(location.hostname)
+  const remote = !isLocalHostname(location.hostname)
   return <section className="discovery-notice" role="status" aria-label="iOS auto-discovery">
     <Icon name="warning" />
     <div>

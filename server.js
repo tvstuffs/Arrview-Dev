@@ -140,6 +140,23 @@ function normalizeServiceUrl(raw, defaultPort) {
   return s;
 }
 
+// ArrView's own address as Sonarr and Radarr reach it, kept in config.webhooks.baseUrl so Settings can show
+// the webhook URLs to paste into them. Same rules as a service address, plus: no whitespace anywhere and a plain
+// host name or IP address (browsers and Node disagree about what a URL parser lets through, and the browser
+// shows these same URLs, so the rule is spelled out); a pasted full webhook URL is cut back to the address so the
+// paths are never doubled. Returns null when invalid.
+// The address is also printed inside a shell command that Settings shows, and this API has no login, so its
+// characters are limited to ones that mean nothing to a shell: ASCII letters, digits and . _ - : [ ] in the
+// authority, and . _ ~ % - in path segments.
+const WEBHOOK_HOST = /^(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)$/;
+const WEBHOOK_BASE = /^https?:\/\/[A-Za-z0-9._[\]:-]+(?:\/[A-Za-z0-9._~%-]+)*$/;
+function normalizeWebhookBase(raw) {
+  if (typeof raw !== 'string' || /\s/.test(raw.trim())) return null;
+  const url = normalizeServiceUrl(raw);
+  const base = url && normalizeServiceUrl(url.replace(/\/api\/webhooks(?:\/(?:sonarr|radarr))?$/i, ''));
+  return base && WEBHOOK_BASE.test(base) && WEBHOOK_HOST.test(new NodeURL(base).hostname) ? base : null;
+}
+
 function mask(key) {
   const k = String(key || '');
   return k.length > 8 ? MASK_PREFIX + k.slice(-4) : MASK_PREFIX;
@@ -327,7 +344,7 @@ function buildConfigToSave(body) {
   const stored = loadStoredConfig();
   const out = {};
   for (const key of Object.keys(body)) {
-    if (key !== 'envManaged' && !SERVICE_IDS.includes(key)) return bad(`Unknown config key: ${key}`);
+    if (key !== 'envManaged' && key !== 'webhooks' && !SERVICE_IDS.includes(key)) return bad(`Unknown config key: ${key}`);
   }
   for (const svc of SERVICE_IDS) {
     if (!Object.prototype.hasOwnProperty.call(body, svc)) {
@@ -368,6 +385,24 @@ function buildConfigToSave(body) {
     // Keep sabPath only while the address is unchanged; otherwise re-detect.
     if (svc === 'sabnzbd' && SAB_PATHS.includes(entry.sabPath) &&
         normalizeServiceUrl(stored.sabnzbd?.url) === url) out[svc].sabPath = entry.sabPath;
+  }
+  // Webhook address: a body without it keeps the stored one, so a client that does not send it cannot
+  // erase it; an empty address removes it.
+  if (!Object.prototype.hasOwnProperty.call(body, 'webhooks')) {
+    if (isPlainObject(stored.webhooks)) out.webhooks = stored.webhooks;
+  } else {
+    const entry = body.webhooks;
+    if (!isPlainObject(entry)) return bad('webhooks must be an object');
+    for (const k of Object.keys(entry)) {
+      if (k !== 'baseUrl') return bad(`Unknown webhooks key: ${k}`);
+    }
+    const raw = entry.baseUrl ?? '';
+    if (typeof raw !== 'string') return bad('webhooks baseUrl must be a string');
+    if (raw.trim()) {
+      const baseUrl = normalizeWebhookBase(raw);
+      if (!baseUrl) return bad('webhooks baseUrl must be an http(s) address without credentials, query or fragment');
+      out.webhooks = { baseUrl };
+    }
   }
   return { config: out };
 }
@@ -1232,8 +1267,11 @@ function broadcast(event, data) {
 // ── Sonarr webhook ────────────────────────────────────────────────────────────
 // In Sonarr: Settings → Connect → + → Webhook
 //   URL:    http://<this-server>/api/webhooks/sonarr
-//   Method: POST
-//   Events: On Download (Import), On Episode File Delete, On Rename
+//   Method: POST (only POST is routed)
+//   Events: On File Import, On File Upgrade, On Rename, On Series Add, On Series Delete, On Episode File Delete
+//           (older Sonarr: On Download, On Upgrade)
+// Settings → Webhooks in the web UI shows the URL for the address Sonarr uses to reach this server, with these
+// steps. The Test message is answered and ignored; every other event refreshes the pages that are open.
 
 app.post('/api/webhooks/sonarr', (req, res) => {
   res.sendStatus(200);
@@ -1251,8 +1289,10 @@ app.post('/api/webhooks/sonarr', (req, res) => {
 // ── Radarr webhook ────────────────────────────────────────────────────────────
 // In Radarr: Settings → Connect → + → Webhook
 //   URL:    http://<this-server>/api/webhooks/radarr
-//   Method: POST
-//   Events: On Download (Import), On Movie File Delete
+//   Method: POST (only POST is routed)
+//   Events: On File Import, On File Upgrade, On Rename, On Movie Added, On Movie Delete, On Movie File Delete
+//           (older Radarr: On Download, On Upgrade)
+// Settings → Webhooks in the web UI shows this URL and these steps, as for Sonarr.
 
 app.post('/api/webhooks/radarr', (req, res) => {
   res.sendStatus(200);

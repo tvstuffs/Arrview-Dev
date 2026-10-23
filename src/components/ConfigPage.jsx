@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react'
 import './ConfigPage.css'
 import InstallHelp from './InstallHelp.jsx'
 import DiscoveryNotice from './DiscoveryNotice.jsx'
+import WebhookSettings from './WebhookSettings.jsx'
 import Icon from './Icon.jsx'
+import { normalizeAddress } from '../webhooks'
 
 const SERVICES = [
   {
@@ -38,6 +40,7 @@ const SERVICES = [
 const MASK_PREFIX = '\u2022\u2022\u2022\u2022'
 
 const KEY_ALNUM_ERROR = 'API key must contain at least one letter or number.'
+const WEBHOOK_ADDRESS_ERROR = 'The ArrView address for webhooks must look like http://host:7777, without a query or login details.'
 const isMasked = key => String(key || '').startsWith(MASK_PREFIX)
 const hasUsableKey = key => isMasked(key) || /[A-Za-z0-9]/.test(String(key || ''))
 const sendKey = key => (isMasked(key) ? key : String(key || '').trim())
@@ -138,6 +141,10 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
     radarr:   { url: '', apikey: '', ...initialConfig.radarr   },
   }))
   const envManaged = initialConfig.envManaged || {}
+  // ArrView's own address as Sonarr and Radarr reach it; empty means this page's address.
+  const savedAddress = initialConfig.webhooks?.baseUrl || ''
+  const [webhookAddress, setWebhookAddress] = useState(savedAddress)
+  const savedService = id => Boolean(initialConfig[id]?.url && hasUsableKey(initialConfig[id].apikey))
   const [keyHints, setKeyHints] = useState({})
   // Set when an address edit cleared a masked key; only cleared once a key is present at Save time.
   const [keyRequired, setKeyRequired] = useState({})
@@ -199,6 +206,12 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
       setError('Re-enter the API key for the new address.')
       return
     }
+    // Sent only when it changed, so saving anything else behaves exactly as it did before webhooks had an address.
+    const addressChanged = webhookAddress.trim() !== savedAddress.trim()
+    if (addressChanged && webhookAddress.trim() && !normalizeAddress(webhookAddress)) {
+      setError(WEBHOOK_ADDRESS_ERROR)
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -213,6 +226,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
           }
         }
       })
+      if (addressChanged) cleanConfig.webhooks = { baseUrl: normalizeAddress(webhookAddress) || '' }
       const r = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -268,6 +282,9 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
             />
           ))}
         </div>
+
+        <WebhookSettings address={webhookAddress} onAddressChange={setWebhookAddress}
+          sonarr={savedService('sonarr')} radarr={savedService('radarr')} />
 
         <InstallHelp />
 

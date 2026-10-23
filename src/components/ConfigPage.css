@@ -74,6 +74,31 @@
 .discovery-notice .font-semibold { color: var(--attn); }
 .discovery-notice code { overflow-wrap: anywhere; }
 
+.webhook-card { display: flex; flex-direction: column; gap: 14px; }
+.webhook-card p, .webhook-card li { line-height: 1.5; }
+.webhook-card .field-group > p { margin-top: 6px; }
+.webhook-card .webhook-status { min-height: 1.5em; margin-top: -8px; }
+.webhook-card details { border-top: 1px solid var(--hair); padding-top: 10px; }
+.webhook-card summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+/* Same touch size as the other controls (see responsive.css). */
+@media (pointer: coarse), (max-width: 639px) {
+  .webhook-card summary { padding: 12px 0; }
+}
+.webhook-card details > :not(summary) { margin-top: 8px; }
+.webhook-card ol, .webhook-card ul { padding-left: 20px; }
+.webhook-card li + li { margin-top: 8px; }
+.webhook-card code { overflow-wrap: anywhere; }
+.webhook-card pre {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--canvas);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .layout-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; border: 0; padding: 0; }
 .layout-choice legend { font-weight: 600; margin-bottom: 4px; }
 .layout-choice label { display: flex; align-items: center; gap: 4px; min-height: 44px; }

@@ -153,6 +153,64 @@ The container serves the dashboard on `http://localhost:7777` and stores saved s
 > - If you can't use host networking, the app still works — just choose
 >   **Connect Directly** in setup and enter `http://<host>:7777` manually.
 
+### Webhooks: instant updates (optional)
+
+Sonarr and Radarr can tell ArrView the moment something changes, so the web
+dashboard and the iOS app (in ArrView Server mode) refresh at once instead of at
+the next timed refresh, which is up to a minute later. Without webhooks
+everything still works, just a little later. The iOS app's Connect Directly mode
+never uses them.
+
+**Settings → Webhooks** appears once Sonarr or Radarr is saved. It holds:
+
+- **ArrView address for Sonarr and Radarr**: the address those two use to reach
+  ArrView, such as `http://<host>:7777`. It has to work from where Sonarr and
+  Radarr run, which can differ from the address in your browser: use the IP
+  address of the machine that runs ArrView, not a name ending in `.local`
+  (containers often cannot look those up). Leave it empty to use the address of
+  the page you have open. Press **Save** to keep it; it is stored in
+  `config.json` as `"webhooks": { "baseUrl": "http://192.0.2.10:7777" }`.
+- The two webhook URLs built from it, `<address>/api/webhooks/sonarr` and
+  `<address>/api/webhooks/radarr`, each with a **Copy** button.
+- Step-by-step setup for each app and a troubleshooting list, with the same
+  content as below.
+
+In Sonarr and Radarr, open **Settings → Connect**, select **+** and choose
+**Webhook**:
+
+| Field | Value |
+|---|---|
+| Name | `ArrView` |
+| Notification Triggers | Sonarr: On File Import, On File Upgrade, On Rename, On Series Add, On Series Delete, On Episode File Delete. Radarr: On File Import, On File Upgrade, On Rename, On Movie Added, On Movie Delete, On Movie File Delete. Older versions call the first two On Download and On Upgrade. Leave the others off: health and update events do not change what ArrView shows. |
+| Webhook URL | The URL from Settings |
+| Method | `POST` (ArrView only accepts POST) |
+| Username, Password, Headers | Leave empty; ArrView does not use them |
+
+Select **Test**, then **Save**. A green check on Test means ArrView answered.
+ArrView ignores the test message itself, so Test checks the address, not the
+triggers. Each real event adds a line such as
+`[Sonarr webhook] Download — series: Name` to ArrView's log
+(`docker logs arrview`), and the pages that are open refresh.
+
+To check ArrView on its own, send an event by hand from any computer that can
+reach it (no Sonarr or Radarr involved):
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"eventType":"Download","series":{"title":"ArrView test"}}' \
+  "http://<host>:7777/api/webhooks/sonarr"
+```
+
+If Test fails in Sonarr or Radarr, the address cannot be reached from where it
+runs: use the machine's IP address, remember that `localhost` inside a container
+is the container itself, and check the firewall. If ArrView sits behind an HTTPS
+proxy whose certificate Sonarr or Radarr does not trust, use ArrView's plain
+`http` address for the webhook.
+
+ArrView does not check who calls a webhook, so anyone who can reach its address
+can make it refresh. Keep ArrView off the public internet unless something in
+front of it asks for a login.
+
 ### Configure services from Docker (optional)
 
 Instead of typing service addresses and keys into the Settings page, you can
