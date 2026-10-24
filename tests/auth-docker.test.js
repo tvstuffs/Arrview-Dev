@@ -221,7 +221,15 @@ async function proxied(t, list) {
 test('trusted proxies: default trusts nothing; listed peers are believed', async (t) => {
   const none = await proxied(t);
   assert.equal(await secureCookie(none, { 'X-Forwarded-Proto': 'https' }), false);
-  for (const list of ['127.0.0.1', '127.0.0.0/8', '::ffff:127.0.0.1', '192.0.2.1, 127.0.0.1,']) {
+  for (const list of ['127.0.0.1', '127.0.0.0/8', '::ffff:127.0.0.1', '192.0.2.1, 127.0.0.1,', '2001:db8::/32', '::/96']) {
+    if (list === '2001:db8::/32' || list === '::/96') {
+      // Accepted (not rejected as covering the IPv4-mapped block); the IPv4 loopback peer is not in these ranges.
+      const s = await proxied(t, list);
+      assert.ok(authLines(s).some(l => /^\[auth\] trusting X-Forwarded-For/.test(l)), list);
+      assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'https' }), false, list);
+      await s.close();
+      continue;
+    }
     const s = await proxied(t, list);
     assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'https' }), true, list);
     assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'http' }), false, list);
@@ -234,7 +242,8 @@ test('trusted proxies: default trusts nothing; listed peers are believed', async
 
 test('trusted proxies: any invalid entry trusts nothing', async (t) => {
   for (const bad of ['banana', '192.0.2.0/33', '0.0.0.0/0', '::/0', '127.0.0.1, banana',
-    '::ffff:192.0.2.1/96', '::FFFF:192.0.2.1/96', '0:0:0:0:0:ffff:192.0.2.1/96', '::ffff:c000:201/96', '::ffff:192.0.2.1/64']) {
+    '::ffff:192.0.2.1/96', '::FFFF:192.0.2.1/96', '0:0:0:0:0:ffff:192.0.2.1/96', '::ffff:c000:201/96', '::ffff:192.0.2.1/64',
+    '::/80', '::/64', '::/1', '0::/8', '0:0:0:0:0:fff0::/76', '0000:0000:0000:0000:0000:0000::/080']) {
     const s = await proxied(t, bad);
     assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'https' }), false, bad);
     assert.ok(authLines(s).some(l => l.startsWith('[auth] ARRVIEW_TRUSTED_PROXIES has an invalid entry "') && l.endsWith('no proxy is trusted.')), bad);

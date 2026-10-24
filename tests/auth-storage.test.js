@@ -6,7 +6,7 @@ const { startServer } = require('./helpers/server-harness');
 const { PASSWORD, AJAX, JSON_HEADERS, newRoot, seedAuth, loginCookie, startSeeded } = require('./helpers/auth-helpers');
 
 const post = (s, p, body, headers = JSON_HEADERS) => fetch(s.base + p, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
-const CLOSED_LINE = /^\[auth\] auth\.json could not be read \((.+)\); the login stays ON and no one can sign in\. Fix or remove the file, set ARRVIEW_PASSWORD, or set ARRVIEW_AUTH=off\.$/;
+const CLOSED_LINE = /^\[auth\] auth\.json could not be read \((.+)\); the login stays ON and no one can sign in\. To recover, follow the Recovery procedures in the README \(replace the password with a Docker one, or remove auth\.json and set a new password in Settings\)\.$/;
 
 test('auth.json is created 0600 in the documented shape and leaves no temp file', async (t) => {
   const s = await startServer(t, { root: newRoot(t) });

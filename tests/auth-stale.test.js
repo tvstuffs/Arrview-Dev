@@ -4,6 +4,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const fs = require('node:fs');
 const { startServer } = require('./helpers/server-harness');
 const { AJAX, newRoot, setCookies, cookieHeader, loginCookie, startSeeded } = require('./helpers/auth-helpers');
 
@@ -121,3 +122,63 @@ test('every credential change ends a fresh event stream', async (t) => {
   cookie = await loginCookie(s.base, 'second password 2');
   await expectEnd('remove', cookie, () => post(s, '/api/auth/password/remove', { currentPassword: 'second password 2' }, { ...AJAX, Cookie: cookie }));
 });
+
+// A request admitted anonymously while the login is off, with its body held back until the login has come on.
+function heldRequest(s, method, path, body) {
+  const url = new URL(s.base);
+  let release;
+  const done = new Promise((resolve, reject) => {
+    const req = http.request({ host: url.hostname, port: url.port, path, method,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(body)) } }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'] || '', body: Buffer.concat(chunks).toString() }));
+      res.on('close', () => resolve({ status: res.statusCode, type: res.headers['content-type'] || '', body: Buffer.concat(chunks).toString() }));
+    });
+    req.on('error', reject);
+    req.flushHeaders();
+    release = () => req.end(body);
+  });
+  return { done, release: () => release() };
+}
+const configText = s => (fs.existsSync(s.configFile) ? fs.readFileSync(s.configFile, 'utf8') : null);
+const setFirstPassword = (s, password) => post(s, '/api/auth/password', { newPassword: password }, { 'Content-Type': 'application/json' });
+
+for (const [label, prepare] of [
+  ['first password', async () => {}],
+  ['remove then re-enable', async (s) => {
+    const first = await setFirstPassword(s, 'first password 1');
+    assert.equal(first.status, 200);
+    const cookie = cookieHeader(setCookies(first)[0]);
+    const removed = await post(s, '/api/auth/password/remove', { currentPassword: 'first password 1' }, { ...AJAX, Cookie: cookie });
+    assert.equal(removed.status, 200);
+  }],
+]) {
+  test(`a config write admitted while the login was off is refused after it comes on (${label})`, async (t) => {
+    const s = await startServer(t, { root: newRoot(t) });
+    await prepare(s);
+    const before = configText(s);
+    const held = heldRequest(s, 'POST', '/api/config', JSON.stringify({ sonarr: { url: 'http://upstream.invalid', apiKey: 'x' } }));
+    await pause(150);
+    assert.equal((await setFirstPassword(s, 'enabled password 1')).status, 200);
+    held.release();
+    const result = await held.done;
+    assert.equal(result.status, 401);
+    assert.deepEqual(JSON.parse(result.body), { error: 'Authentication required', auth: true });
+    assert.equal(configText(s), before);
+  });
+
+  test(`an event stream admitted while the login was off is refused after it comes on (${label})`, async (t) => {
+    const s = await startServer(t, { root: newRoot(t) });
+    await prepare(s);
+    const held = heldRequest(s, 'GET', '/api/events', '{}');
+    await pause(150);
+    assert.equal((await setFirstPassword(s, 'enabled password 1')).status, 200);
+    held.release();
+    const result = await Promise.race([held.done, pause(3000).then(() => null)]);
+    assert.ok(result, 'the held request never answered');
+    assert.equal(result.status, 401);
+    assert.equal(result.type.includes('text/event-stream'), false);
+    assert.deepEqual(JSON.parse(result.body), { error: 'Authentication required', auth: true });
+  });
+}

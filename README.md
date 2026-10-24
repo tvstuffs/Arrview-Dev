@@ -413,12 +413,27 @@ opens up again, and upgrading again finds the password intact.
 
 **Recovery.** Lost the password? `ARRVIEW_AUTH=off` alone does not reset it: it
 only switches the login off while the variable is set, and the saved password
-comes back when you remove the variable. To reset the password, either set a new
-`ARRVIEW_PASSWORD` (or `ARRVIEW_PASSWORD_FILE`) and recreate the container, or
-stop the container, remove `auth.json` from the data directory, restart
-without `ARRVIEW_AUTH=off`, and set a new password in Settings. If `auth.json`
-exists but cannot be read or is invalid, the login stays on, nobody can sign in,
-and the log says so: fix or remove the file, or set a new `ARRVIEW_PASSWORD`.
+comes back when you remove the variable. Use one of these two procedures. If
+`auth.json` exists but cannot be read or is invalid, the login stays on, nobody
+can sign in, and the log points here; either procedure fixes it.
+
+*Replace the password with a Docker one:*
+
+1. Remove `ARRVIEW_AUTH=off` from the container's environment if it is set.
+   While it is set, any password variable is ignored.
+2. Set exactly one of `ARRVIEW_PASSWORD` or `ARRVIEW_PASSWORD_FILE` to the new
+   password (or the path of a file that holds it) and remove the other.
+3. Recreate the container. Everyone is signed out and the new password applies.
+
+*Reset to no password and set a new one in Settings:*
+
+1. Stop the container.
+2. Remove `auth.json` from the data directory.
+3. Remove `ARRVIEW_AUTH=off`, `ARRVIEW_PASSWORD` and `ARRVIEW_PASSWORD_FILE`
+   from the container's environment. If a Docker password is still set, the
+   start-up recreates the file from it.
+4. Start the container. The login is off until you act.
+5. Open Settings and set a new password.
 
 Not built yet: signing in from the iOS and tvOS apps, reading without signing in
 from the local network, identity headers from a proxy such as Tailscale Serve, and

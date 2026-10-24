@@ -218,7 +218,19 @@ function normaliseProxyEntry(entry) {
   if (family === 6) {
     addr = addr.toLowerCase();
     const words = ipv6Words(addr);
-    if (words && words.slice(0, 5).every(w => w === 0) && words[5] === 0xffff) {
+    if (words && prefix !== null && prefix <= 96) {
+      // A range that contains ::ffff:0:0/96 trusts every IPv4 peer (Express compares IPv4 peers in mapped form).
+      const mapped = [0, 0, 0, 0, 0, 0xffff];
+      let covers = true;
+      for (let i = 0; i < 6 && covers; i++) {
+        const bits = Math.max(0, Math.min(16, prefix - i * 16));
+        if (bits === 0) break;
+        const mask = (0xffff << (16 - bits)) & 0xffff;
+        covers = (words[i] & mask) === (mapped[i] & mask);
+      }
+      if (covers) return null;
+    }
+    if (words &&words.slice(0, 5).every(w => w === 0) && words[5] === 0xffff) {
       // IPv4-mapped, in any spelling: the effective IPv4 prefix is prefix - 96, and /0 trusts every address.
       if (prefix !== null && prefix <= 96) return null;
       const v4 = `${words[6] >> 8}.${words[6] & 255}.${words[7] >> 8}.${words[7] & 255}`;
@@ -322,21 +334,23 @@ function gateReply(res, status, body) {
 
 // The one gate in front of every /api route while the login is on. It sets req.authKind ('key', 'cookie' or 'anon').
 function authGate(req, res, next) {
-  if (auth.mode === 'off') return next();
   const lower = req.path.toLowerCase();
-  if (lower !== '/api' && !lower.startsWith('/api/')) return next();
+  if (lower !== '/api' && !lower.startsWith('/api/')) { req.authProtected = false; return next(); }
   const normal = lower.length > 1 && lower.endsWith('/') ? lower.slice(0, -1) : lower;
   const route = `${req.method === 'HEAD' ? 'GET' : req.method} ${normal}`;
   const isPublic = PUBLIC_ROUTES.has(route);
 
+  // Classified even while the login is off, so a request admitted then is still rechecked if a password is set before
+  // its body arrives.
   let kind = 'anon';
   let expiry = null;
   const candidate = keyCandidate(req);
   if (candidate !== null && keyMatches(candidate)) kind = 'key';
-  else if (candidate !== null && !isPublic) return gateReply(res, 401, { error: 'Authentication required', auth: true });
+  else if (candidate !== null && !isPublic && auth.mode !== 'off') return gateReply(res, 401, { error: 'Authentication required', auth: true });
   else if ((expiry = sessionExpiry(req)) !== null) kind = 'cookie';
   req.authKind = kind;
   req.authProtected = !isPublic;
+  if (auth.mode === 'off') return next();
 
   if (kind === 'cookie' && req.method !== 'GET' && req.method !== 'HEAD' && !WEBHOOK_POSTS.has(route) &&
       req.headers['x-requested-with'] !== 'ArrView') {
@@ -417,7 +431,7 @@ async function passwordMatches(raw) {
 // Whether a request admitted by the gate still holds valid credentials now. The gate runs before the body is read and
 // before queued work starts, and a password change or Sign out everywhere can land in between.
 function reauthorised(req) {
-  if (auth.mode === 'off' || !req.authProtected) return true;
+  if (auth.mode === 'off' || req.authProtected === false) return true;
   if (req.authKind === 'cookie') return sessionExpiry(req) !== null;
   if (req.authKind === 'key') {
     const candidate = keyCandidate(req);
@@ -1972,7 +1986,7 @@ async function initAuth() {
     if (env.password !== null) return await initDockerPassword(env.password, file);
     if (file.bad) {
       auth.mode = 'closed';
-      authLog(`[auth] auth.json could not be read (${file.bad}); the login stays ON and no one can sign in. Fix or remove the file, set ARRVIEW_PASSWORD, or set ARRVIEW_AUTH=off.`);
+      authLog(`[auth] auth.json could not be read (${file.bad}); the login stays ON and no one can sign in. To recover, follow the Recovery procedures in the README (replace the password with a Docker one, or remove auth.json and set a new password in Settings).`);
       return;
     }
     if (file.missing || !file.data.record) { authLog('[auth] login is OFF (no password set).'); return; }
