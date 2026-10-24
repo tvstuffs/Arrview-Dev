@@ -18,6 +18,382 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 // comparing versions (1.9A1 sorts below 1.10.2 as numbers).
 const APP_VERSION = '1.9A4';
 
+// ── Password login (optional, off by default) ────────────────────────────────
+// All of it lives in this file (the Dockerfile copies only server.js). State is in memory, read once from
+// auth.json at start; nothing is served until start-up has finished (see initAuth and the end of the file).
+const { Buffer } = require('buffer');
+const net = require('net');
+
+const AUTH_FILE = path.join(CONFIG_DIR, 'auth.json');
+const COOKIE_NAME = 'arrview_session';
+const COOKIE_MAX_AGE = 2592000;           // 30 days
+const COOKIE_SLIDE_BELOW = 29 * 86400;    // re-issue when less than 29 days are left
+const SCRYPT_MAXMEM = 268435456;
+const SCRYPT_PARAMS = { N: 131072, r: 8, p: 1, keylen: 64 };
+const PASSWORD_MIN = 8;
+const PASSWORD_MAX = 256;
+const LIMIT_MAX = 10;
+const LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const LIMIT_ENTRIES = 10000;
+const FAIL_FLOOR_MS = 500;
+const QUEUE_WAITING_MAX = 16;
+const authLog = msg => console.log(msg);
+
+// mode: 'off' (open), 'on' (login required) or 'closed' (login required and nobody can sign in: unreadable
+// auth.json or a broken Docker password setting).
+const auth = { mode: 'off', record: null, secret: null, key: null, keyDigest: null, dockerManaged: false, disabledByDocker: false };
+
+// validatePassword:begin
+// The one password rule (Settings, sign in and the Docker variables). The web client keeps a copy in src/passwordRules.js.
+function validatePassword(raw, source) {
+  if (typeof raw !== 'string') return { ok: false, reason: 'length' };
+  let s = raw;
+  if (source === 'docker-file') s = s.replace(/\r?\n$/, '');
+  if (s.length > 1024) return { ok: false, reason: 'length' };
+  s = s.normalize('NFKC');
+  if (/^\s*$/.test(s)) return { ok: false, reason: 'blank' };
+  if (s.length < 8 || s.length > 256) return { ok: false, reason: 'length' };
+  return { ok: true, value: s };
+}
+// validatePassword:end
+
+function scryptAsync(password, salt, keylen, params) {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, keylen, { N: params.N, r: params.r, p: params.p, maxmem: SCRYPT_MAXMEM },
+      (err, derived) => (err ? reject(err) : resolve(derived)));
+  });
+}
+
+async function hashPassword(normalised, origin) {
+  const salt = crypto.randomBytes(16);
+  const derived = await scryptAsync(normalised, salt, SCRYPT_PARAMS.keylen, SCRYPT_PARAMS);
+  return { origin, algorithm: 'scrypt', ...SCRYPT_PARAMS, salt: salt.toString('base64'), hash: derived.toString('base64') };
+}
+
+async function verifyRecord(record, normalised) {
+  const derived = await scryptAsync(normalised, Buffer.from(record.salt, 'base64'), record.keylen, record);
+  const stored = Buffer.from(record.hash, 'base64');
+  return derived.length === stored.length && crypto.timingSafeEqual(derived, stored);
+}
+
+const strictBase64 = (s, min, max) => {
+  if (typeof s !== 'string') return null;
+  const b = Buffer.from(s, 'base64');
+  return b.length >= min && b.length <= max && b.toString('base64') === s ? b : null;
+};
+
+function validRecord(r) {
+  if (r === null || typeof r !== 'object' || Array.isArray(r)) return false;
+  if (r.origin !== 'settings' && r.origin !== 'docker') return false;
+  if (r.algorithm !== 'scrypt') return false;
+  const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (!int(r.N, 1024, 262144) || (r.N & (r.N - 1)) !== 0) return false;
+  if (!int(r.r, 1, 16) || !int(r.p, 1, 16) || !int(r.keylen, 32, 128)) return false;
+  if (128 * r.N * r.r > SCRYPT_MAXMEM) return false;
+  if (!strictBase64(r.salt, 8, 64)) return false;
+  const hash = strictBase64(r.hash, 1, 1024);
+  return Boolean(hash) && hash.length === r.keylen;
+}
+
+const newAccessKey = () => crypto.randomBytes(32).toString('base64url');
+const sha256 = v => crypto.createHash('sha256').update(String(v)).digest();
+
+// auth.json contents -> { record, secret, accessKey } or null when invalid.
+function parseAuthText(text) {
+  let obj;
+  try { obj = JSON.parse(text); } catch (_) { return null; }
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj) || obj.version !== 1) return null;
+  if (obj.password === null) return { record: null, secret: null, accessKey: null };
+  if (!validRecord(obj.password)) return null;
+  const secret = strictBase64(obj.sessionSecret, 32, 1024);
+  if (!secret || typeof obj.accessKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(obj.accessKey)) return null;
+  const { origin, algorithm, N, r, p, keylen, salt, hash } = obj.password;
+  return { record: { origin, algorithm, N, r, p, keylen, salt, hash }, secret, accessKey: obj.accessKey };
+}
+
+// { missing } | { bad: <code> } | { data }
+function readAuthFile() {
+  let text;
+  try { text = fs.readFileSync(AUTH_FILE, 'utf8'); } catch (e) {
+    return e && e.code === 'ENOENT' ? { missing: true } : { bad: (e && e.code) || 'unreadable' };
+  }
+  const data = parseAuthText(text);
+  return data ? { data } : { bad: 'invalid contents' };
+}
+
+// Atomic, always 0600; throws after cleaning up.
+function writeAuthFile(state) {
+  const body = {
+    version: 1,
+    password: state.record,
+    sessionSecret: state.record ? state.secret.toString('base64') : null,
+    accessKey: state.record ? state.accessKey : null,
+  };
+  const tmp = path.join(CONFIG_DIR, `.auth.json.${crypto.randomBytes(8).toString('hex')}.tmp`);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(body, null, 2), { mode: 0o600, flag: 'wx' });
+    fs.chmodSync(tmp, 0o600);
+    fs.renameSync(tmp, AUTH_FILE);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    throw e;
+  }
+}
+
+function adoptAuth(state, dockerManaged) {
+  auth.record = state.record;
+  auth.secret = state.record ? state.secret : null;
+  auth.key = state.record ? state.accessKey : null;
+  auth.keyDigest = auth.key ? sha256(auth.key) : null;
+  auth.dockerManaged = Boolean(state.record) && dockerManaged;
+  auth.mode = state.record ? 'on' : 'off';
+}
+
+// Docker variables, mirroring resolveEnvServices: { authOff, password (validated, normalised), error }.
+function resolveEnvAuth(env, log) {
+  const say = msg => log(`[auth] ${msg}`);
+  const out = { authOff: false, password: null, error: false };
+  const rawAuth = env.ARRVIEW_AUTH;
+  if (typeof rawAuth === 'string' && rawAuth.trim() !== '') {
+    if (rawAuth.trim().toLowerCase() === 'off') { out.authOff = true; return out; }
+    say('ARRVIEW_AUTH has an unrecognised value and is ignored.');
+  }
+  const plain = env.ARRVIEW_PASSWORD;
+  const file = env.ARRVIEW_PASSWORD_FILE;
+  const plainSet = typeof plain === 'string';
+  const fileSet = typeof file === 'string';
+  if (!plainSet && !fileSet) return out;
+  const fail = msg => {
+    out.error = true;
+    say(`${msg} The login stays on and no one can sign in until this is fixed (or set ARRVIEW_AUTH=off).`);
+    return out;
+  };
+  if (plainSet && fileSet) return fail('ARRVIEW_PASSWORD and ARRVIEW_PASSWORD_FILE are both set; set only one.');
+  const name = plainSet ? 'ARRVIEW_PASSWORD' : 'ARRVIEW_PASSWORD_FILE';
+  let value = plain;
+  if (fileSet) {
+    try {
+      const filePath = file.trim();
+      if (!filePath) throw new Error('empty path');
+      value = String(fs.readFileSync(filePath, 'utf8'));
+    } catch (_) { return fail(`${name} is unreadable.`); }
+  }
+  const checked = validatePassword(value, plainSet ? 'docker-env' : 'docker-file');
+  if (!checked.ok) return fail(checked.reason === 'blank' ? `${name} is empty.` : `${name} must be 8 to 256 characters.`);
+  out.password = checked.value;
+  return out;
+}
+
+// ARRVIEW_TRUSTED_PROXIES: IPv4 / IPv6 literals or CIDR ranges. Returns the array for Express, or false.
+function normaliseProxyEntry(entry) {
+  const parts = entry.split('/');
+  if (parts.length > 2 || entry.includes('%')) return null;
+  let addr = parts[0];
+  const family = net.isIP(addr);
+  if (!family) return null;
+  let prefix = null;
+  if (parts.length === 2) {
+    if (!/^\d{1,3}$/.test(parts[1])) return null;
+    prefix = Number(parts[1]);
+    if (prefix === 0 || prefix > (family === 4 ? 32 : 128)) return null;
+  }
+  if (family === 6) {
+    addr = addr.toLowerCase();
+    const mapped = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(addr);
+    if (mapped && net.isIP(mapped[1]) === 4) {
+      if (prefix !== null && prefix < 96) return null;
+      return prefix === null ? mapped[1] : `${mapped[1]}/${prefix - 96}`;
+    }
+  }
+  return prefix === null ? addr : `${addr}/${prefix}`;
+}
+
+function parseTrustedProxies(raw, log) {
+  if (typeof raw !== 'string' || raw.trim() === '') return false;
+  const list = [];
+  for (const token of raw.split(',')) {
+    const entry = token.trim();
+    if (!entry) continue;
+    const normal = normaliseProxyEntry(entry);
+    if (!normal) {
+      log(`[auth] ARRVIEW_TRUSTED_PROXIES has an invalid entry "${entry.slice(0, 64)}"; no proxy is trusted.`);
+      return false;
+    }
+    list.push(normal);
+  }
+  if (!list.length) return false;
+  log(`[auth] trusting X-Forwarded-For and X-Forwarded-Proto from ${list.length} proxy entries.`);
+  return list;
+}
+
+app.set('trust proxy', parseTrustedProxies(process.env.ARRVIEW_TRUSTED_PROXIES, authLog));
+
+// The client address, only ever through req.ip.
+function clientIp(req) {
+  let ip = typeof req.ip === 'string' ? req.ip : '';
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
+  if (mapped) ip = mapped[1];
+  return net.isIP(ip) ? ip : 'unknown';
+}
+
+// ── Sessions: v1.<expiry seconds>.<base64url HMAC-SHA256>, stateless ──
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+const cookieSignature = exp => crypto.createHmac('sha256', auth.secret).update(`v1.${exp}`).digest('base64url');
+
+function sessionCookieValue() {
+  const exp = nowSeconds() + COOKIE_MAX_AGE;
+  return `v1.${exp}.${cookieSignature(exp)}`;
+}
+
+function cookieAttributes(req) {
+  return `Path=/; HttpOnly; SameSite=Lax${req.secure ? '; Secure' : ''}`;
+}
+
+const setSessionCookie = (req, res) =>
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${sessionCookieValue()}; Max-Age=${COOKIE_MAX_AGE}; ${cookieAttributes(req)}`);
+const clearSessionCookie = (req, res) =>
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; ${cookieAttributes(req)}`);
+
+// The expiry (seconds) of a valid session cookie on the request, or null.
+function sessionExpiry(req) {
+  const header = req.headers.cookie;
+  if (typeof header !== 'string' || !auth.secret) return null;
+  let tried = 0;
+  for (const part of header.split(';')) {
+    const piece = part.trim();
+    const eq = piece.indexOf('=');
+    if (eq < 0 || piece.slice(0, eq) !== COOKIE_NAME) continue;
+    if (++tried > 5) break;
+    const value = piece.slice(eq + 1);
+    if (value.length > 200) continue;
+    const bits = value.split('.');
+    if (bits.length !== 3 || bits[0] !== 'v1' || !/^\d{1,12}$/.test(bits[1]) || Number(bits[1]) <= nowSeconds()) continue;
+    const given = Buffer.from(bits[2]);
+    const wanted = Buffer.from(cookieSignature(bits[1]));
+    if (given.length === wanted.length && crypto.timingSafeEqual(given, wanted)) return Number(bits[1]);
+  }
+  return null;
+}
+
+// The candidate access key: X-Api-Key wins; otherwise a Bearer token; null when none was sent.
+function keyCandidate(req) {
+  const direct = req.headers['x-api-key'];
+  if (direct !== undefined) return String(direct);
+  const header = req.headers.authorization;
+  const bearer = typeof header === 'string' ? /^bearer(?:\s+(.*))?$/i.exec(header.trim()) : null;
+  return bearer ? (bearer[1] || '') : null;
+}
+
+function keyMatches(candidate) {
+  return Boolean(auth.keyDigest) && crypto.timingSafeEqual(sha256(candidate), auth.keyDigest);
+}
+
+const PUBLIC_ROUTES = new Set([
+  'GET /api/health', 'GET /api/arrview/identify', 'GET /api/auth/status',
+  'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/token',
+  'POST /api/webhooks/sonarr', 'POST /api/webhooks/radarr',
+]);
+const WEBHOOK_POSTS = new Set(['POST /api/webhooks/sonarr', 'POST /api/webhooks/radarr']);
+
+function gateReply(res, status, body) {
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(status).json(body);
+}
+
+// The one gate in front of every /api route while the login is on. It sets req.authKind ('key', 'cookie' or 'anon').
+function authGate(req, res, next) {
+  if (auth.mode === 'off') return next();
+  const lower = req.path.toLowerCase();
+  if (lower !== '/api' && !lower.startsWith('/api/')) return next();
+  const normal = lower.length > 1 && lower.endsWith('/') ? lower.slice(0, -1) : lower;
+  const route = `${req.method === 'HEAD' ? 'GET' : req.method} ${normal}`;
+  const isPublic = PUBLIC_ROUTES.has(route);
+
+  let kind = 'anon';
+  let expiry = null;
+  const candidate = keyCandidate(req);
+  if (candidate !== null && keyMatches(candidate)) kind = 'key';
+  else if (candidate !== null && !isPublic) return gateReply(res, 401, { error: 'Authentication required', auth: true });
+  else if ((expiry = sessionExpiry(req)) !== null) kind = 'cookie';
+  req.authKind = kind;
+
+  if (kind === 'cookie' && req.method !== 'GET' && req.method !== 'HEAD' && !WEBHOOK_POSTS.has(route) &&
+      req.headers['x-requested-with'] !== 'ArrView') {
+    return gateReply(res, 403, { error: 'Missing X-Requested-With header' });
+  }
+  if (!isPublic && kind === 'anon') return gateReply(res, 401, { error: 'Authentication required', auth: true });
+
+  // Sliding expiry: a fresh cookie goes out with a successful response to a protected request.
+  if (!isPublic && kind === 'cookie' && expiry - nowSeconds() < COOKIE_SLIDE_BELOW) {
+    const cookie = `${COOKIE_NAME}=${sessionCookieValue()}; Max-Age=${COOKIE_MAX_AGE}; ${cookieAttributes(req)}`;
+    const writeHead = res.writeHead;
+    res.writeHead = function slidingWriteHead(status, ...rest) {
+      if (!this.headersSent && !this.getHeader('Set-Cookie') && (typeof status !== 'number' || status < 400)) {
+        this.setHeader('Set-Cookie', cookie);
+      }
+      return writeHead.call(this, status, ...rest);
+    };
+  }
+  next();
+}
+
+// ── Limiter: one bucket per address, 10 failures per rolling 15 minutes, in memory ──
+const limiter = new Map();
+function limiterEntry(ip) {
+  const now = Date.now();
+  let entry = limiter.get(ip);
+  if (!entry) {
+    entry = { slots: [], announced: false };
+    limiter.set(ip, entry);
+    if (limiter.size > LIMIT_ENTRIES) limiter.delete(limiter.keys().next().value);
+  }
+  entry.slots = entry.slots.filter(slot => slot.t > now - LIMIT_WINDOW_MS);
+  if (entry.slots.length < LIMIT_MAX) entry.announced = false;
+  return entry;
+}
+// Seconds until a slot frees up, or 0 when the address may try.
+function limiterWait(ip) {
+  const entry = limiterEntry(ip);
+  if (entry.slots.length < LIMIT_MAX) return 0;
+  return Math.max(1, Math.ceil((entry.slots[0].t + LIMIT_WINDOW_MS - Date.now()) / 1000));
+}
+function limiterTake(ip) {
+  const slot = { t: Date.now() };
+  limiterEntry(ip).slots.push(slot);
+  return slot;
+}
+function limiterGiveBack(ip, slot) {
+  const entry = limiter.get(ip);
+  if (entry) entry.slots = entry.slots.filter(s => s !== slot);
+}
+function limiterNoteFailure(ip) {
+  const entry = limiterEntry(ip);
+  if (entry.slots.length >= LIMIT_MAX && !entry.announced) {
+    entry.announced = true;
+    authLog(`[auth] too many failed attempts from ${ip}; blocked for ${limiterWait(ip)} s`);
+  }
+}
+
+// Password hashing and every auth-state change run one at a time (one 128 MiB hash at once, atomic check-then-change).
+let authQueueTail = Promise.resolve();
+let authQueueWaiting = 0;
+function authQueued(fn) {
+  if (authQueueWaiting >= QUEUE_WAITING_MAX) return Promise.reject(Object.assign(new Error('busy'), { busy: true }));
+  authQueueWaiting++;
+  const run = authQueueTail.then(() => { authQueueWaiting--; return fn(); });
+  authQueueTail = run.catch(() => {});
+  return run;
+}
+
+const failureDelay = arrival => new Promise(resolve => setTimeout(resolve, Math.max(0, FAIL_FLOOR_MS - (Date.now() - arrival))));
+
+async function passwordMatches(raw) {
+  const checked = validatePassword(raw, 'settings');
+  if (!checked.ok || !auth.record) return false;
+  return verifyRecord(auth.record, checked.value);
+}
+
+app.use(authGate);
 app.use(express.json());
 // Mutating API calls must declare a JSON body. Without this guard a request
 // with a text/plain body leaves req.body empty and would wipe the config.
@@ -43,7 +419,183 @@ app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
-const distPath = path.join(__dirname, 'dist');
+
+// ── Login routes (/api/auth/*) ───────────────────────────────────────────────
+const AUTH_OFF_TEXT = "The login is turned off by the Docker configuration (ARRVIEW_AUTH=off) and can't be changed here";
+const AUTH_DOCKER_TEXT = "The password is set by the Docker configuration and can't be changed here";
+const AUTH_UNAVAILABLE_TEXT = 'The login is unavailable because its settings could not be read. See the ArrView log.';
+const AUTH_BROWSER_TEXT = 'Sign in with a browser to do this';
+const AUTH_SAVE_TEXT = 'Could not save the password';
+
+function authRoute(handler) {
+  return (req, res) => Promise.resolve().then(() => handler(req, res)).catch(err => {
+    if (err && err.busy) {
+      res.setHeader('Retry-After', '2');
+      return res.status(503).json({ error: 'The server is busy. Try again in a moment.' });
+    }
+    authLog(`[auth] request failed (${(err && err.code) || 'error'})`);
+    if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
+  });
+}
+
+// Every open event stream ends when the credentials change, so none outlives them.
+function closeEventStreams() {
+  for (const client of sseClients) {
+    try { client.end(); client.destroy(); } catch (_) {}
+  }
+  sseClients.clear();
+}
+
+// A limited password check: a slot is taken first, the check and the action run inside the serial queue, a success
+// gives the slot back, and a wrong password is answered by onWrong() no earlier than the failure floor.
+async function limitedCheck(req, res, route, raw, onWrong, action) {
+  const arrival = Date.now();
+  const ip = clientIp(req);
+  const wait = limiterWait(ip);
+  if (wait) {
+    res.setHeader('Retry-After', String(wait));
+    return res.status(429).json({ error: 'Too many attempts. Try again later.', retryAfterSeconds: wait });
+  }
+  const slot = limiterTake(ip);
+  let matched;
+  try {
+    matched = await authQueued(async () => {
+      if (!(await passwordMatches(raw))) return false;
+      limiterGiveBack(ip, slot);
+      await action();
+      return true;
+    });
+  } catch (err) {
+    limiterGiveBack(ip, slot);
+    throw err;
+  }
+  if (matched) return undefined;
+  authLog(`[auth] sign-in failed from ${ip} route=${route}`);
+  limiterNoteFailure(ip);
+  await failureDelay(arrival);
+  return onWrong();
+}
+
+async function passwordCheckRoute(req, res, route, onSuccess) {
+  if (auth.mode === 'off') return res.status(409).json({ error: 'No password is set' });
+  if (auth.mode === 'closed') return res.status(503).json({ error: AUTH_UNAVAILABLE_TEXT });
+  const raw = isPlainObject(req.body) ? req.body.password : undefined;
+  if (typeof raw !== 'string' || raw === '') return res.status(400).json({ error: 'Password is required' });
+  return limitedCheck(req, res, route, raw, () => res.status(401).json({ error: 'Incorrect password' }), onSuccess);
+}
+
+// Management routes need a cookie session; returns true when it has already answered.
+function manageBlocked(req, res) {
+  if (auth.disabledByDocker) { res.status(409).json({ error: AUTH_OFF_TEXT }); return true; }
+  if (auth.mode === 'off') { res.status(409).json({ error: 'No password is set' }); return true; }
+  if (req.authKind !== 'cookie') { res.status(403).json({ error: AUTH_BROWSER_TEXT }); return true; }
+  return false;
+}
+
+// Writes the new state to auth.json first, then swaps it into memory. Returns false (after answering 500) on a write failure.
+function commitAuth(res, next) {
+  try { writeAuthFile(next); } catch (_) { res.status(500).json({ error: AUTH_SAVE_TEXT }); return false; }
+  adoptAuth(next, auth.dockerManaged);
+  closeEventStreams();
+  return true;
+}
+
+app.get('/api/auth/status', authRoute((req, res) => {
+  const required = auth.mode !== 'off';
+  const signedIn = required && (req.authKind === 'key' || req.authKind === 'cookie');
+  if (required && !signedIn) {
+    return res.json(auth.mode === 'closed' ? { required: true, signedIn: false, unavailable: true } : { required: true, signedIn: false });
+  }
+  res.json({
+    required, signedIn,
+    source: auth.record ? (auth.dockerManaged ? 'docker' : 'settings') : 'none',
+    authDisabledByDocker: auth.disabledByDocker,
+    passwordMinLength: PASSWORD_MIN, passwordMaxLength: PASSWORD_MAX,
+  });
+}));
+
+app.post('/api/auth/login', authRoute((req, res) => passwordCheckRoute(req, res, 'login', () => {
+  setSessionCookie(req, res);
+  res.json({ success: true });
+})));
+
+app.post('/api/auth/logout', authRoute((req, res) => {
+  if (auth.mode !== 'off') clearSessionCookie(req, res);
+  res.json({ success: true });
+}));
+
+app.post('/api/auth/token', authRoute((req, res) => passwordCheckRoute(req, res, 'token', () => {
+  res.json({ accessKey: auth.key });
+})));
+
+app.post('/api/auth/password', authRoute(async (req, res) => {
+  if (auth.disabledByDocker) return res.status(409).json({ error: AUTH_OFF_TEXT });
+  if (auth.dockerManaged) return res.status(409).json({ error: AUTH_DOCKER_TEXT });
+  const body = isPlainObject(req.body) ? req.body : {};
+  const checked = validatePassword(body.newPassword, 'settings');
+  if (!checked.ok) {
+    return res.status(400).json({ error: checked.reason === 'blank' ? "Password can't be only spaces" : 'Password must be 8 to 256 characters' });
+  }
+  const change = async () => {
+    const record = await hashPassword(checked.value, 'settings');
+    const next = { record, secret: crypto.randomBytes(32), accessKey: newAccessKey() };
+    if (!commitAuth(res, next)) return;
+    setSessionCookie(req, res);
+    res.json({ success: true });
+  };
+  if (auth.mode === 'off') {
+    return authQueued(async () => {
+      if (auth.mode !== 'off') return res.status(409).json({ error: 'A password was set a moment ago. Sign in instead.' });
+      return change();
+    });
+  }
+  if (req.authKind !== 'cookie') return res.status(403).json({ error: AUTH_BROWSER_TEXT });
+  if (typeof body.currentPassword !== 'string' || body.currentPassword === '') {
+    return res.status(400).json({ error: 'Current password is required' });
+  }
+  return limitedCheck(req, res, 'password', body.currentPassword,
+    () => res.status(403).json({ error: 'Current password is incorrect' }), change);
+}));
+
+app.post('/api/auth/password/remove', authRoute(async (req, res) => {
+  if (auth.disabledByDocker) return res.status(409).json({ error: AUTH_OFF_TEXT });
+  if (auth.mode === 'off') return res.status(409).json({ error: 'No password is set' });
+  if (auth.dockerManaged) return res.status(409).json({ error: AUTH_DOCKER_TEXT });
+  if (req.authKind !== 'cookie') return res.status(403).json({ error: AUTH_BROWSER_TEXT });
+  const current = isPlainObject(req.body) ? req.body.currentPassword : undefined;
+  if (typeof current !== 'string' || current === '') return res.status(400).json({ error: 'Current password is required' });
+  return limitedCheck(req, res, 'remove', current, () => res.status(403).json({ error: 'Current password is incorrect' }), () => {
+    if (!commitAuth(res, { record: null, secret: null, accessKey: null })) return;
+    clearSessionCookie(req, res);
+    res.json({ success: true });
+  });
+}));
+
+app.post('/api/auth/logout-all', authRoute((req, res) => {
+  if (manageBlocked(req, res)) return undefined;
+  return authQueued(() => {
+    if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
+    if (!commitAuth(res, { record: auth.record, secret: crypto.randomBytes(32), accessKey: newAccessKey() })) return undefined;
+    clearSessionCookie(req, res);
+    return res.json({ success: true });
+  });
+}));
+
+app.get('/api/auth/access-key', authRoute((req, res) => {
+  if (manageBlocked(req, res)) return;
+  res.json({ accessKey: auth.key });
+}));
+
+app.post('/api/auth/access-key/regenerate', authRoute((req, res) => {
+  if (manageBlocked(req, res)) return undefined;
+  return authQueued(() => {
+    if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
+    if (!commitAuth(res, { record: auth.record, secret: auth.secret, accessKey: newAccessKey() })) return undefined;
+    return res.json({ accessKey: auth.key });
+  });
+}));
+
+const distPath =path.join(__dirname, 'dist');
 app.use('/assets', express.static(path.join(distPath, 'assets'), {
   maxAge: '1y', immutable: true,
 }));
@@ -329,7 +881,8 @@ app.get('/api/arrview/identify', (req, res) => {
     app: 'arrview',
     version: APP_VERSION,
     capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit',
-      'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar'],
+      'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar', 'auth'],
+    auth: auth.mode !== 'off',
     services,
     bonjour: { ...bonjourStatus },
   });
@@ -1347,7 +1900,58 @@ app.get('*', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+// ── Login start-up ────────────────────────────────────────────────────────────
+// Reads auth.json and the Docker variables and settles the state before anything is served (app.listen runs only
+// after this resolves). It never rejects: an unexpected error leaves the login ON with no way to sign in.
+async function initDockerPassword(password, file) {
+  const stored = file.data;
+  if (stored && stored.record && stored.record.origin === 'docker' && await verifyRecord(stored.record, password)) {
+    adoptAuth(stored, true);
+    authLog('[auth] login is ON: password set by the Docker configuration.');
+    return;
+  }
+  const replacing = Boolean(file.bad || (stored && stored.record));
+  const next = { record: await hashPassword(password, 'docker'), secret: crypto.randomBytes(32), accessKey: newAccessKey() };
+  adoptAuth(next, true);
+  try { writeAuthFile(next); } catch (e) {
+    authLog(`[auth] could not write auth.json (${(e && e.code) || 'error'}); the Docker password is in force but sessions will not survive a restart.`);
+  }
+  if (replacing) authLog('[auth] the Docker password changed; everyone is signed out.');
+  authLog('[auth] login is ON: password set by the Docker configuration.');
+}
+
+async function initAuth() {
+  try {
+    const env = resolveEnvAuth(process.env, authLog);
+    if (env.authOff) {
+      auth.disabledByDocker = true;
+      authLog('[auth] login is OFF: ARRVIEW_AUTH=off is set (any password is ignored).');
+      return;
+    }
+    if (env.error) { auth.mode = 'closed'; return; }
+    const file = readAuthFile();
+    if (env.password !== null) return await initDockerPassword(env.password, file);
+    if (file.bad) {
+      auth.mode = 'closed';
+      authLog(`[auth] auth.json could not be read (${file.bad}); the login stays ON and no one can sign in. Fix or remove the file, set ARRVIEW_PASSWORD, or set ARRVIEW_AUTH=off.`);
+      return;
+    }
+    if (file.missing || !file.data.record) { authLog('[auth] login is OFF (no password set).'); return; }
+    adoptAuth(file.data, false);
+    if (auth.record.origin === 'docker') {
+      auth.record.origin = 'settings';
+      try { writeAuthFile({ record: auth.record, secret: auth.secret, accessKey: auth.key }); } catch (_) {}
+      authLog('[auth] ARRVIEW_PASSWORD is no longer set; the stored password stays in force and can be changed in Settings.');
+    }
+    authLog('[auth] login is ON (password set in Settings).');
+  } catch (e) {
+    Object.assign(auth, { mode: 'closed', record: null, secret: null, key: null, keyDigest: null, dockerManaged: false });
+    authLog(`[auth] start-up failed (${(e && e.code) || 'error'}); the login stays ON and no one can sign in.`);
+  }
+}
+const authReady = initAuth();
+
+authReady.then(() => app.listen(PORT, () => {
   console.log(`✅  ArrView API running on http://localhost:${PORT}`);
   console.log(`    Sonarr webhook URL: http://localhost:${PORT}/api/webhooks/sonarr`);
   console.log(`    Radarr webhook URL: http://localhost:${PORT}/api/webhooks/radarr`);
@@ -1430,4 +2034,4 @@ app.listen(PORT, () => {
       ? '    Bonjour: bonjour-service not installed — iOS auto-discovery disabled'
       : `    Bonjour: couldn't start (${(err && err.message) || err}) — iOS auto-discovery disabled`);
   }
-});
+}));

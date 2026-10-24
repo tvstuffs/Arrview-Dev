@@ -241,7 +241,8 @@ test('no ARRVIEW_* variables leaves behaviour unchanged (criterion 18)', async t
   assert.deepEqual(identify, {
     app: 'arrview', version: APP_VERSION,
     capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit',
-      'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar'],
+      'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar', 'auth'],
+    auth: false,
     services: { sabnzbd: true, sonarr: true, radarr: true, nzbhydra: true },
     bonjour: { state: 'off' },
   });

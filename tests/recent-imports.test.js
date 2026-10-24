@@ -42,7 +42,7 @@ test('bounded recent-import proxy contract', async (t) => {
     __dirname: repo, process: { env: { PORT: '0' } }, console: { log() {} },
     setInterval, clearInterval, setTimeout, clearTimeout,
   });
-  await new Promise(resolve => server.on('listening', resolve));
+  await new Promise(resolve => { const wait = () => (!server ? setImmediate(wait) : server.listening ? resolve() : server.on('listening', resolve)); wait(); });
   t.after(() => server.close());
   const base = `http://127.0.0.1:${server.address().port}`;
   const route = '/api/radarr/history/recent-imports';
