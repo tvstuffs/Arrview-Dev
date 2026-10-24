@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useId } from 'react'
 import ListPicker from './ListPicker.jsx'
 import { qualityTier, defaultProfile, defaultRootFolder, usageText, formatFreeSpace } from '../addDefaults.js'
 import { isHttpUrl } from '../media'
+import { apiFetch } from '../api'
 import './AddMediaModal.css'
 
 // Returns the best http(s) poster URL from a Sonarr/Radarr result object; other schemes are never rendered
@@ -83,8 +84,8 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
   // Load quality profiles + root folders
   useEffect(() => {
     Promise.all([
-      fetch(`${prefix}/qualityprofiles`).then(r => r.json()),
-      fetch(`${prefix}/rootfolders`).then(r => r.json()),
+      apiFetch(`${prefix}/qualityprofiles`).then(r => r.json()),
+      apiFetch(`${prefix}/rootfolders`).then(r => r.json()),
     ]).then(([qp, rf]) => {
       setQualityProfiles(Array.isArray(qp) ? qp : [])
       setRootFolders(Array.isArray(rf) ? rf : [])
@@ -95,7 +96,7 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
   useEffect(() => {
     if (!needsLibraryFetch) return
     let cancelled = false
-    fetch(`${prefix}/${type === 'show' ? 'series' : 'movies'}`)
+    apiFetch(`${prefix}/${type === 'show' ? 'series' : 'movies'}`)
       .then(r => r.json())
       .then(data => { if (!cancelled) setFetchedLibrary(Array.isArray(data) ? { status: 'ok', items: data } : { status: 'failed', items: null }) })
       .catch(() => { if (!cancelled) setFetchedLibrary({ status: 'failed', items: null }) })
@@ -110,7 +111,7 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
     const timer = setTimeout(async () => {
       setSearching(true)
       try {
-        const r = await fetch(`${prefix}/lookup?term=${encodeURIComponent(q)}`)
+        const r = await apiFetch(`${prefix}/lookup?term=${encodeURIComponent(q)}`)
         const data = await r.json()
         if (cancelled) return
         const list = Array.isArray(data) ? data.slice(0, 12) : []
@@ -175,7 +176,7 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
             addOptions: { searchForMovie: searchOnAdd },
           }
 
-      const r = await fetch(endpoint, {
+      const r = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

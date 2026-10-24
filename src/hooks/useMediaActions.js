@@ -2,8 +2,9 @@ import { useMemo } from 'react'
 import { useCommandPolling } from './useCommandPolling'
 import { checkedFetch, deleteAndUnmonitor, deleteMovieAndUnmonitor } from '../actions'
 import { isMovieMissing } from '../media'
+import { apiFetch } from '../api'
 
-const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+const post = (url, body) => apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 // Search and removal actions (and their toast wording) shared by the Classic and Modern layouts.
 export function useMediaActions(onToast) {

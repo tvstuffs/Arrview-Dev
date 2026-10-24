@@ -60,7 +60,7 @@ function topLevelObjects(args) {
 function scan(file) {
   const text = fs.readFileSync(file, 'utf8')
   const found = []
-  const re = /\b(?:checkedFetch|fetch)\(/g
+  const re = /\b(?:checkedFetch|apiFetch|fetch)\(/g
   let m
   while ((m = re.exec(text))) {
     const open = m.index + m[0].length - 1

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import Icon from '../Icon.jsx'
+import { apiFetch } from '../../api'
 import { MonitorToggle } from '../MediaControls'
 import EpisodeSearchModal from '../EpisodeSearchModal.jsx'
 import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from '../MediaSheets'
@@ -58,7 +59,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
 
   const fetchEpisodes = useCallback(async () => {
     try {
-      const data = await (await fetch(`/api/sonarr/series/${show.id}/episodes`)).json()
+      const data = await (await apiFetch(`/api/sonarr/series/${show.id}/episodes`)).json()
       setEpisodes(Array.isArray(data) ? data : [])
     } catch { setEpisodes(prev => prev ?? []) }
   }, [show.id])

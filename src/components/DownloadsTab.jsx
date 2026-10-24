@@ -3,6 +3,7 @@ import './DownloadsTab.css'
 import { useVisiblePolling } from '../hooks/lifecycle'
 import ConfirmSheet from './ConfirmSheet'
 import { checkedFetch } from '../actions'
+import { apiFetch } from '../api'
 import NzbSearchModal from './NzbSearchModal'
 import Icon from './Icon.jsx'
 
@@ -85,8 +86,8 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
   const fetchData = useCallback(async () => {
     try {
       const [qRes, hRes] = await Promise.all([
-        fetch('/api/sabnzbd/queue'),
-        fetch(`/api/sabnzbd/history?limit=${historyLimit}`),
+        apiFetch('/api/sabnzbd/queue'),
+        apiFetch(`/api/sabnzbd/history?limit=${historyLimit}`),
       ])
       if (!qRes.ok) throw new Error((await qRes.json()).error)
       const qData = await qRes.json()
@@ -107,7 +108,7 @@ export default function DownloadsTab({ onToast, canSearch = true }) {
 
   async function postAction(mode, nzo_id) {
     try {
-      const r = await fetch('/api/sabnzbd/action', {
+      const r = await apiFetch('/api/sabnzbd/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode, nzo_id }),

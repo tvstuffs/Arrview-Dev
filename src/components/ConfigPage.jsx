@@ -3,9 +3,11 @@ import './ConfigPage.css'
 import InstallHelp from './InstallHelp.jsx'
 import DiscoveryNotice from './DiscoveryNotice.jsx'
 import WebhookSettings from './WebhookSettings.jsx'
+import SecurityCard from './SecurityCard.jsx'
 import Icon from './Icon.jsx'
 import { normalizeAddress } from '../webhooks'
 import { useWebhookActivity } from '../hooks/useWebhookActivity'
+import { apiFetch } from '../api'
 
 const SERVICES = [
   {
@@ -158,7 +160,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/arrview/identify')
+    apiFetch('/api/arrview/identify')
       .then(r => r.json())
       .then(d => { if (!cancelled) { setVersion(d.version); setBonjour(d.bonjour || null) } })
       .catch(() => {})
@@ -182,7 +184,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
   async function handleTest(serviceId, url, apikey) {
     try {
       const normalizedUrl = url && !url.match(/^https?:\/\//) ? `http://${url}` : url
-      const r = await fetch(`/api/test/${serviceId}`, {
+      const r = await apiFetch(`/api/test/${serviceId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: normalizedUrl, apikey: sendKey(apikey) }),
@@ -230,14 +232,14 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
         }
       })
       if (addressChanged) cleanConfig.webhooks = { baseUrl: normalizeAddress(webhookAddress) || '' }
-      const r = await fetch('/api/config', {
+      const r = await apiFetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cleanConfig),
       })
       const data = await r.json().catch(() => ({}))
       if (!r.ok || !data.success) throw new Error(data.error || 'Save failed')
-      const saved = await fetch('/api/config', { cache: 'no-store' })
+      const saved = await apiFetch('/api/config', { cache: 'no-store' })
       if (!saved.ok) throw new Error('Settings saved, but could not reload them. Please retry.')
       await onSave(await saved.json())
     } catch (e) {
@@ -288,6 +290,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
 
         <WebhookSettings address={webhookAddress} onAddressChange={setWebhookAddress}
           sonarr={savedService('sonarr')} radarr={savedService('radarr')} activity={webhookActivity} />
+
+        <SecurityCard />
 
         <InstallHelp />
 
