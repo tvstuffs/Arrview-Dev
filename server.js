@@ -184,6 +184,24 @@ function resolveEnvAuth(env, log) {
   return out;
 }
 
+// The eight 16-bit words of a valid IPv6 literal (dotted-quad tail allowed), or null.
+function ipv6Words(addr) {
+  let text = addr;
+  const tail = /^(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(text);
+  if (tail) {
+    const q = tail[2].split('.').map(Number);
+    text = `${tail[1]}${((q[0] << 8) | q[1]).toString(16)}:${((q[2] << 8) | q[3]).toString(16)}`;
+  }
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const rest = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - rest.length : 0;
+  if (fill < 0 || (halves.length === 1 && head.length !== 8)) return null;
+  const words = [...head, ...Array(fill).fill('0'), ...rest].map(w => parseInt(w, 16));
+  return words.length === 8 && words.every(Number.isInteger) ? words : null;
+}
+
 // ARRVIEW_TRUSTED_PROXIES: IPv4 / IPv6 literals or CIDR ranges. Returns the array for Express, or false.
 function normaliseProxyEntry(entry) {
   const parts = entry.split('/');
@@ -199,10 +217,12 @@ function normaliseProxyEntry(entry) {
   }
   if (family === 6) {
     addr = addr.toLowerCase();
-    const mapped = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(addr);
-    if (mapped && net.isIP(mapped[1]) === 4) {
-      if (prefix !== null && prefix < 96) return null;
-      return prefix === null ? mapped[1] : `${mapped[1]}/${prefix - 96}`;
+    const words = ipv6Words(addr);
+    if (words && words.slice(0, 5).every(w => w === 0) && words[5] === 0xffff) {
+      // IPv4-mapped, in any spelling: the effective IPv4 prefix is prefix - 96, and /0 trusts every address.
+      if (prefix !== null && prefix <= 96) return null;
+      const v4 = `${words[6] >> 8}.${words[6] & 255}.${words[7] >> 8}.${words[7] & 255}`;
+      return prefix === null ? v4 : `${v4}/${prefix - 96}`;
     }
   }
   return prefix === null ? addr : `${addr}/${prefix}`;
@@ -316,6 +336,7 @@ function authGate(req, res, next) {
   else if (candidate !== null && !isPublic) return gateReply(res, 401, { error: 'Authentication required', auth: true });
   else if ((expiry = sessionExpiry(req)) !== null) kind = 'cookie';
   req.authKind = kind;
+  req.authProtected = !isPublic;
 
   if (kind === 'cookie' && req.method !== 'GET' && req.method !== 'HEAD' && !WEBHOOK_POSTS.has(route) &&
       req.headers['x-requested-with'] !== 'ArrView') {
@@ -393,8 +414,22 @@ async function passwordMatches(raw) {
   return verifyRecord(auth.record, checked.value);
 }
 
+// Whether a request admitted by the gate still holds valid credentials now. The gate runs before the body is read and
+// before queued work starts, and a password change or Sign out everywhere can land in between.
+function reauthorised(req) {
+  if (auth.mode === 'off' || !req.authProtected) return true;
+  if (req.authKind === 'cookie') return sessionExpiry(req) !== null;
+  if (req.authKind === 'key') {
+    const candidate = keyCandidate(req);
+    return candidate !== null && keyMatches(candidate);
+  }
+  return false;
+}
+const staleReply = res => gateReply(res, 401, { error: 'Authentication required', auth: true });
+
 app.use(authGate);
 app.use(express.json());
+app.use((req, res, next) => (reauthorised(req) ? next() : staleReply(res)));
 // Mutating API calls must declare a JSON body. Without this guard a request
 // with a text/plain body leaves req.body empty and would wipe the config.
 app.use((req, res, next) => {
@@ -537,6 +572,7 @@ app.post('/api/auth/password', authRoute(async (req, res) => {
     return res.status(400).json({ error: checked.reason === 'blank' ? "Password can't be only spaces" : 'Password must be 8 to 256 characters' });
   }
   const change = async () => {
+    if (!reauthorised(req)) return staleReply(res);
     const record = await hashPassword(checked.value, 'settings');
     const next = { record, secret: crypto.randomBytes(32), accessKey: newAccessKey() };
     if (!commitAuth(res, next)) return;
@@ -565,6 +601,7 @@ app.post('/api/auth/password/remove', authRoute(async (req, res) => {
   const current = isPlainObject(req.body) ? req.body.currentPassword : undefined;
   if (typeof current !== 'string' || current === '') return res.status(400).json({ error: 'Current password is required' });
   return limitedCheck(req, res, 'remove', current, () => res.status(403).json({ error: 'Current password is incorrect' }), () => {
+    if (!reauthorised(req)) return staleReply(res);
     if (!commitAuth(res, { record: null, secret: null, accessKey: null })) return;
     clearSessionCookie(req, res);
     res.json({ success: true });
@@ -574,6 +611,7 @@ app.post('/api/auth/password/remove', authRoute(async (req, res) => {
 app.post('/api/auth/logout-all', authRoute((req, res) => {
   if (manageBlocked(req, res)) return undefined;
   return authQueued(() => {
+    if (!reauthorised(req)) return staleReply(res);
     if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
     if (!commitAuth(res, { record: auth.record, secret: crypto.randomBytes(32), accessKey: newAccessKey() })) return undefined;
     clearSessionCookie(req, res);
@@ -589,6 +627,7 @@ app.get('/api/auth/access-key', authRoute((req, res) => {
 app.post('/api/auth/access-key/regenerate', authRoute((req, res) => {
   if (manageBlocked(req, res)) return undefined;
   return authQueued(() => {
+    if (!reauthorised(req)) return staleReply(res);
     if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
     if (!commitAuth(res, { record: auth.record, secret: auth.secret, accessKey: newAccessKey() })) return undefined;
     return res.json({ accessKey: auth.key });

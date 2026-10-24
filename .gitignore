@@ -2,6 +2,8 @@ config.json
 data/
 .env
 secrets/
+auth.json
+.auth.json.*.tmp
 node_modules/
 dist/
 .DS_Store

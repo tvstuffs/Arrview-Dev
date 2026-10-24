@@ -221,19 +221,20 @@ async function proxied(t, list) {
 test('trusted proxies: default trusts nothing; listed peers are believed', async (t) => {
   const none = await proxied(t);
   assert.equal(await secureCookie(none, { 'X-Forwarded-Proto': 'https' }), false);
-  for (const list of ['127.0.0.1', '127.0.0.0/8', '::ffff:127.0.0.1', '10.0.0.1, 127.0.0.1,']) {
+  for (const list of ['127.0.0.1', '127.0.0.0/8', '::ffff:127.0.0.1', '192.0.2.1, 127.0.0.1,']) {
     const s = await proxied(t, list);
     assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'https' }), true, list);
     assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'http' }), false, list);
     assert.ok(authLines(s).some(l => /^\[auth\] trusting X-Forwarded-For and X-Forwarded-Proto from \d+ proxy entries\.$/.test(l)));
     await s.close();
   }
-  const other = await proxied(t, '10.0.0.1');
+  const other = await proxied(t, '192.0.2.1');
   assert.equal(await secureCookie(other, { 'X-Forwarded-Proto': 'https' }), false);
 });
 
 test('trusted proxies: any invalid entry trusts nothing', async (t) => {
-  for (const bad of ['banana', '10.0.0.0/33', '0.0.0.0/0', '::/0', '127.0.0.1, banana']) {
+  for (const bad of ['banana', '192.0.2.0/33', '0.0.0.0/0', '::/0', '127.0.0.1, banana',
+    '::ffff:192.0.2.1/96', '::FFFF:192.0.2.1/96', '0:0:0:0:0:ffff:192.0.2.1/96', '::ffff:c000:201/96', '::ffff:192.0.2.1/64']) {
     const s = await proxied(t, bad);
     assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'https' }), false, bad);
     assert.ok(authLines(s).some(l => l.startsWith('[auth] ARRVIEW_TRUSTED_PROXIES has an invalid entry "') && l.endsWith('no proxy is trusted.')), bad);
