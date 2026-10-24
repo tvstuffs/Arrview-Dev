@@ -96,6 +96,8 @@ test('on (Settings): change sends currentPassword, remove asks to confirm first,
   click(/^Sign out$/)
   await waitFor(() => expect(paths()).toEqual(['/api/auth/logout']))
   expect(fn.mock.calls[0][1].method).toBe('POST')
+  // the server refuses a POST without a JSON content type, so even an empty one declares it
+  expect(new Headers(fn.mock.calls[0][1].headers).get('Content-Type')).toBe('application/json')
 })
 
 test('the key is fetched only on Copy and never put in the page; Regenerate and Sign out everywhere confirm first', async () => {

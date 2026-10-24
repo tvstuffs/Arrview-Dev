@@ -12,7 +12,9 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' }
 async function call(path, { method = 'POST', body } = {}) {
   let response
   try {
-    response = await apiFetch(path, { method, headers: body ? JSON_HEADERS : undefined, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
+    // POSTs always declare a JSON body, even an empty one: the server refuses a mutating call without it.
+    const mutating = method !== 'GET'
+    response = await apiFetch(path, { method, headers: mutating ? JSON_HEADERS : undefined, body: mutating ? JSON.stringify(body || {}) : undefined, cache: 'no-store' })
   } catch {
     throw new Error('Can’t reach your ArrView server. Check your connection and try again.')
   }
