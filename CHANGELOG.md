@@ -1,5 +1,55 @@
 # ArrView server development changelog
 
+## Unreleased — Optional password login
+
+No version change: the maintainer renames this section when the version is set. `APP_VERSION` and `package.json` are
+untouched.
+
+- **An optional password login, off by default.** With no password nothing changes. With one (Settings → Security,
+  or the Docker variables `ARRVIEW_PASSWORD` / `ARRVIEW_PASSWORD_FILE`) one gate in front of every `/api` route
+  answers `401 {"error":"Authentication required","auth":true}` to anyone not signed in. Public: the app shell,
+  `GET /api/health`, `GET /api/arrview/identify`, `GET /api/auth/status`, `POST /api/auth/login`,
+  `POST /api/auth/logout`, `POST /api/auth/token` and the two webhook receivers. `GET /api/webhooks/last` is
+  protected. A browser signs in with the password and holds a signed 30-day sliding cookie (`arrview_session`);
+  apps and scripts send the access key as `X-Api-Key` or `Authorization: Bearer`.
+- **New routes (JSON):**
+  - `GET /api/auth/status` → `{required, signedIn, source: "none"|"settings"|"docker", authDisabledByDocker,
+    passwordMinLength, passwordMaxLength}` (signed-out while required: `{required:true, signedIn:false}` plus
+    `unavailable:true` when failing closed).
+  - `POST /api/auth/login` `{password}` → `200 {success:true}` + cookie, `401 {error:"Incorrect password"}`, `429`.
+  - `POST /api/auth/logout` → `200 {success:true}` (clears the cookie when the login is on).
+  - `POST /api/auth/token` `{password}` → `200 {accessKey}`, no cookie.
+  - `POST /api/auth/password` `{currentPassword?, newPassword}` (cookie session only), `POST /api/auth/password/remove`
+    `{currentPassword}`, `POST /api/auth/logout-all`, `GET /api/auth/access-key`,
+    `POST /api/auth/access-key/regenerate`.
+- **`GET /api/arrview/identify`** gains `auth` (boolean) and the `'auth'` capability (last in the list).
+- **New file and variables.** `auth.json` in the data directory (mode `0600`, atomic writes, scrypt hash; never in
+  `config.json`). Variables: `ARRVIEW_PASSWORD`, `ARRVIEW_PASSWORD_FILE`, `ARRVIEW_AUTH` (`off` is the recovery
+  switch), `ARRVIEW_TRUSTED_PROXIES`. A broken Docker password setting or an unreadable `auth.json` keeps the login
+  on and lets nobody in.
+- **Web.** A Sign in screen shows before any data loads, a Security card in Settings (both layouts), and one
+  `apiFetch` for every request (adds `X-Requested-With: ArrView`, announces a mid-session 401).
+- **The iOS and tvOS apps cannot sign in yet:** with the login on they fail with a 401 until an app update.
+- **Not verified by the factory:** brute-force behaviour, proxies other than the maintainer's, any app sign-in, the
+  fail2ban regex, and a run in real Chromium (CI).
+- **Human test plan:**
+  1. Upgrade an existing install (populated `config.json`, no `auth.json`): nothing changes; the shipped iOS app still
+     works; webhooks still arrive; `identify` says `auth: false`.
+  2. Set a password in Settings: that browser stays signed in; a private window gets Sign in; try a wrong password and
+     the limit.
+  3. Reload, relaunch the Home Screen app, restart the container: still signed in.
+  4. Sign out; Sign out everywhere also signs out a second browser.
+  5. With the login on, the iOS app fails cleanly and keeps its server; Test from Sonarr and Radarr still shows under
+     "Last event received".
+  6. Docker: `ARRVIEW_PASSWORD` and `_FILE` with a recreate; the card is read-only; a changed value signs everyone
+     out; `ARRVIEW_AUTH=off`.
+  7. Behind an HTTPS proxy with `ARRVIEW_TRUSTED_PROXIES` set the cookie is `Secure`; without it, it is not, and
+     sign-in still works.
+  8. Roll back to the previous image: the server is open again, `auth.json` is ignored and Settings saves still work;
+     upgrade again and the password is still there.
+  9. curl: a protected route without credentials (401), with the access key (200), a cookie POST without the
+     `X-Requested-With` header (403).
+
 ## 1.9A4 (unreleased) — Webhooks in Settings
 
 - **Version 1.9A4.** Adds a Webhooks card to the Settings page. Server and web client only: one new read-only

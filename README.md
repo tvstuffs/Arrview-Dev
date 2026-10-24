@@ -233,8 +233,11 @@ proxy whose certificate Sonarr or Radarr does not trust, use ArrView's plain
 `http` address for the webhook.
 
 ArrView does not check who calls a webhook, so anyone who can reach its address
-can make it refresh. Keep ArrView off the public internet unless something in
-front of it asks for a login.
+can make it refresh. This stays true when the password login is on: the two
+receivers, `POST /api/webhooks/sonarr` and `/radarr`, are the only data routes that
+stay open, so Sonarr and Radarr keep working without edits (`GET /api/webhooks/last`
+needs sign-in). Keep ArrView off the public internet unless something in front of
+it asks for a login.
 
 ### Configure services from Docker (optional)
 
@@ -250,6 +253,10 @@ saves described below apply either way.
 | `ARRVIEW_<SVC>_API_KEY` | API key, where `<SVC>` is `SONARR`, `RADARR`, `SABNZBD` or `NZBHYDRA`, for example `<your-sonarr-api-key>`. Surrounding whitespace and newlines are trimmed. |
 | `ARRVIEW_<SVC>_API_KEY_FILE` | Path **inside the container** to a file containing the key, for example `/run/secrets/sonarr_api_key`, bind-mounted from `./secrets/sonarr_api_key` on the host (a relative path resolves from the container's `/app` directory). Read once at startup and trimmed. Set this or the plain variable, not both. |
 | `ARRVIEW_<SVC>_URL` | Optional per-service address that replaces `ARRVIEW_HOST` for that service, for example `http://<docker-host-address>:8989/sonarr`. Without a scheme `http://` is added. The default port is added only when the override has neither a scheme nor an explicit port. |
+| `ARRVIEW_PASSWORD` | Turns the password login on with this password, for example `<your-password>`. See [Password login (optional)](#password-login-optional). |
+| `ARRVIEW_PASSWORD_FILE` | Path inside the container to a file holding the password, for example `/run/secrets/arrview_password`. Set this or `ARRVIEW_PASSWORD`, not both. |
+| `ARRVIEW_AUTH` | `off` turns the login off whatever else is set (the recovery switch). Any other value is ignored. |
+| `ARRVIEW_TRUSTED_PROXIES` | Comma-separated proxy addresses or ranges whose `X-Forwarded-For` and `X-Forwarded-Proto` are believed, for example `192.0.2.10, 198.51.100.0/24, 2001:db8::/32`. |
 
 Rules:
 
@@ -293,7 +300,8 @@ Rules:
 Settings and `GET /api/config` return API keys masked (`••••` plus the last four
 characters; keys of eight characters or fewer show only `••••`). A masked key sent
 back is reused only if the address is unchanged; if you change a service address
-you must re-enter its key. Note that ArrView still has no login.
+you must re-enter its key. ArrView has an optional password login, off by default;
+see [Password login (optional)](#password-login-optional).
 
 Behaviour for scripts and other clients:
 
@@ -309,6 +317,110 @@ Behaviour for scripts and other clients:
   compose file you share or commit. Prefer `_FILE` secrets on shared hosts, and
   keep `.env` and `secrets/` out of git (both are in `.gitignore` and
   `.dockerignore`).
+
+### Password login (optional)
+
+ArrView can ask for a password. It is **off by default**: with no password set
+nothing changes anywhere.
+
+> **The ArrView iOS and tvOS apps cannot sign in yet.** Turning the login on makes
+> them fail (cleanly, with a 401) until an app update adds it. Webhooks from
+> Sonarr and Radarr keep working. Do not turn the login on if you rely on those
+> apps.
+
+**What it protects.** With a password set, one gate in front of every `/api`
+route answers `401` to anyone who is not signed in. Reads need sign-in too. What
+stays open: the app shell (so the Sign in screen can load), `GET /api/health`,
+`GET /api/arrview/identify`, `GET /api/auth/status`, the sign-in routes
+(`/api/auth/login`, `/logout`, `/token`) and the two webhook receivers
+(`POST /api/webhooks/sonarr` and `/radarr`). `GET /api/webhooks/last` is protected.
+Nothing else is public. `identify` reports `auth: true` and the `auth` capability.
+
+**Turn it on in Settings.** Open **Settings → Security → Set a password** (8 to
+256 characters; composed and decomposed accents count the same, and a password of
+only spaces is refused). That browser is signed in at once and stays signed in for
+30 days of use. While the login is off, anyone who can reach Settings can set the
+first password.
+
+**Or from Docker.** Set one of these (never both):
+
+| Variable | Value |
+|---|---|
+| `ARRVIEW_PASSWORD` | `<your-password>`. Visible in `docker inspect`; prefer the file form. Never trimmed. |
+| `ARRVIEW_PASSWORD_FILE` | `/run/secrets/arrview_password`, bind-mounted from `./secrets/arrview_password`. One trailing newline is removed; nothing else is trimmed. |
+| `ARRVIEW_AUTH` | `off` turns the login off whatever else is set. Any other value is ignored (logged without printing it). |
+| `ARRVIEW_TRUSTED_PROXIES` | For example `192.0.2.10, 198.51.100.0/24, 2001:db8::/32`. See below. |
+
+- A Docker password wins: the password is read-only in Settings, a password
+  saved in Settings no longer works, and changing it means editing the compose
+  file or secret file and recreating the container with `docker compose up -d`.
+  No image rebuild is needed.
+- A changed value signs everyone out and replaces the access key. An unchanged
+  value across restarts keeps sessions and key.
+- A Docker password setting that is set but invalid (both variables, empty, an
+  unreadable file, the wrong length) keeps the login **on** and lets nobody in,
+  with a log line naming the variable (never its value). Fix it, or set
+  `ARRVIEW_AUTH=off`. This is deliberate: a mistyped secret path must not open
+  the server.
+- If `ARRVIEW_PASSWORD` is removed later, the stored password stays in force and
+  becomes a Settings password. Turn the login off with **Remove password** or
+  `ARRVIEW_AUTH=off`.
+
+**The session cookie.** The browser holds `arrview_session`: signed, `HttpOnly`,
+`SameSite=Lax`, valid for 30 days and renewed as you use ArrView. It carries the
+`Secure` flag only when the request arrived over HTTPS, directly or through a
+trusted proxy. Cookies are stateless: **Sign out** clears only that browser;
+**Sign out everywhere** and any password change end every session. Browsers send
+cookies to every port on the same host name, so a second ArrView on another port
+of the same host name shares and overwrites the cookie, and other apps on that
+host name (Sonarr, Radarr) receive it. Requests from a signed-in browser that
+change something must send `X-Requested-With: ArrView`; the web app does this.
+
+**Trusted proxies.** `ARRVIEW_TRUSTED_PROXIES` lists the reverse proxies whose
+`X-Forwarded-For` and `X-Forwarded-Proto` ArrView believes: comma-separated IPv4 or
+IPv6 addresses or ranges. Unset, nothing is trusted and those headers are ignored.
+Any invalid entry (a `/0` range counts) makes the whole list trust nothing, with a
+log line. The address decides the sign-in limit, and `X-Forwarded-Proto: https`
+from a listed proxy gets the cookie its `Secure` flag.
+
+**The access key (apps and scripts).** Settings → Security shows the key as dots,
+with **Copy** and **Regenerate**. Fetch it with the password, then send it as
+`X-Api-Key` (or `Authorization: Bearer`):
+
+```bash
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"password":"<your-password>"}' http://arrview.example:7777/api/auth/token
+# {"accessKey":"<your-access-key>"}
+curl -s -H "X-Api-Key: <your-access-key>" http://arrview.example:7777/api/config
+```
+
+**Wrong passwords.** Each address may fail 10 times in 15 minutes; then the
+server answers `429` with `Retry-After` until the oldest failure ages out. A wrong
+password takes at least half a second to answer. The limit is in memory and a
+restart clears it. Every failure logs one line, which a fail2ban filter can use
+(this regex is **unverified** here):
+
+```
+[auth] sign-in failed from <ip> route=login
+failregex = \[auth\] sign-in failed from <HOST>
+```
+
+**Where it lives.** `auth.json` in the data directory (mode `0600`, written
+atomically), never in `config.json`. It holds a scrypt hash of the password, never
+the password. It is read once at start; editing it by hand needs a restart.
+Rolling back to an older image is safe: older builds ignore the file, the server
+opens up again, and upgrading again finds the password intact.
+
+**Recovery.** Lost the password? Set `ARRVIEW_AUTH=off` and recreate the
+container (then set a new password in Settings), or set `ARRVIEW_PASSWORD`
+to a new one, or stop the container and delete `auth.json`. If `auth.json`
+exists but cannot be read or is invalid, the login stays on, nobody can sign in,
+and the log says so: fix or remove the file, set `ARRVIEW_PASSWORD`, or set
+`ARRVIEW_AUTH=off`.
+
+Not built yet: signing in from the iOS and tvOS apps, reading without signing in
+from the local network, identity headers from a proxy such as Tailscale Serve, and
+a Host allow-list. Keep ArrView off the public internet until they exist.
 
 ### Build locally
 
@@ -516,12 +628,12 @@ actual installation/offline behavior still depends on browser and origin securit
 | Existing private HTTPS reverse proxy | Same HTTPS behavior | Caddy, Nginx Proxy Manager or Traefik can terminate a trusted certificate and proxy to ArrView's port 7777. Preserve `/api`, SSE streaming and cache headers; deploy at the domain root, not a path prefix. |
 
 For the last option, Let's Encrypt (often via DNS validation) can provide a trusted
-certificate without making the app public. **ArrView 1.10 still has no built-in
-login. Its configuration API masks service keys, but anyone who can reach it can
-still change settings.** Keep the front door LAN-
-or tailnet-only, or protect it with an access-controlled gateway. Do not port-
-forward this unauthenticated container or enable Tailscale Funnel for it. The
-planned authentication sprint is the gate for public remote-access guidance.
+certificate without making the app public. **ArrView has an optional password
+login, off by default (see [Password login (optional)](#password-login-optional)).
+Without a password, anyone who can reach it can change settings.** Keep the front
+door LAN- or tailnet-only, or protect it with an access-controlled gateway. Do not
+port-forward this container or enable Tailscale Funnel for it yet: the iOS and tvOS
+apps cannot sign in, and the local-network and trusted-proxy options are not built.
 Browser gateway login does not imply compatibility with native API clients.
 
 Tailscale Serve is private to your tailnet (subject to its access policy); it is
