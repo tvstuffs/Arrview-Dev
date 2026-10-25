@@ -155,6 +155,7 @@ for (const layout of ['modern', 'classic']) {
       const page = await context.newPage()
       await page.goto('/')
       await signIn(page)
+      await expect(nav(page)).toBeVisible()
       await openSettings(page, layout)
       await card(page).getByLabel('Key name (optional)').fill('E2E script')
       await card(page).getByRole('button', { name: 'Make a key' }).click()
