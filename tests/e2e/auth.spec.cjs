@@ -44,6 +44,42 @@ async function freshContext(browser, layout, options = {}) {
   return context
 }
 
+// The first-run screen needs a data folder with neither config.json nor auth.json, which the shared fixture never has, so
+// the status answer is replaced here (the server side of the choice is covered by the node tests). It sits above both layouts.
+for (const layout of ['modern', 'classic']) {
+  test.describe(`first-run screen, ${layout} layout`, () => {
+    test.beforeAll(ensureOff)
+    for (const choice of ['skip', 'password']) {
+      test(`${choice === 'skip' ? 'continue without a password' : 'protect with a password'} leaves the screen`, async ({ browser }) => {
+        const context = await freshContext(browser, layout)
+        const page = await context.newPage()
+        let pending = true
+        const posted = []
+        await page.route('**/api/auth/status', route => route.fulfill({ json: { required: false, signedIn: false, source: 'none', authDisabledByDocker: false, setupPending: pending, passwordMinLength: 8, passwordMaxLength: 256 } }))
+        await page.route('**/api/auth/setup/skip', route => { posted.push('skip'); pending = false; route.fulfill({ json: { success: true } }) })
+        await page.route('**/api/auth/password', route => { posted.push(route.request().postDataJSON()); pending = false; route.fulfill({ json: { success: true } }) })
+        await page.goto('/')
+        await expect(page.getByRole('heading', { name: 'Protect ArrView?' })).toBeVisible()
+        await expect(page.getByText('including deleting files', { exact: false })).toBeVisible()
+        await expect(nav(page)).toHaveCount(0)
+        if (choice === 'skip') {
+          await page.getByRole('button', { name: 'Continue without a password' }).click()
+          expect(posted).toEqual(['skip'])
+        } else {
+          await page.getByRole('button', { name: 'Protect with a password' }).click()
+          await page.getByLabel('New password', { exact: true }).fill(PASSWORD)
+          await page.getByLabel('Confirm new password').fill(PASSWORD)
+          await page.getByRole('button', { name: 'Save password' }).click()
+          expect(posted).toEqual([{ newPassword: PASSWORD }])
+        }
+        await expect(page.getByRole('heading', { name: 'Protect ArrView?' })).toHaveCount(0)
+        await expect(nav(page)).toBeVisible()
+        await context.close()
+      })
+    }
+  })
+}
+
 for (const layout of ['modern', 'classic']) {
   test.describe(`${layout} layout`, () => {
     test.describe.configure({ mode: 'serial' })
@@ -110,6 +146,37 @@ for (const layout of ['modern', 'classic']) {
       await signIn(page)
       await expect(nav(page)).toBeVisible()
       expect(await prefs(page)).toMatchObject(before)
+      await context.close()
+    })
+
+    test('a key for a script is shown once in a read-only field, copies, is listed by name, and stops working when removed', async ({ browser }) => {
+      const context = await freshContext(browser, layout)
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: HTTPS })
+      const page = await context.newPage()
+      await page.goto('/')
+      await signIn(page)
+      await openSettings(page, layout)
+      await card(page).getByLabel('Key name (optional)').fill('E2E script')
+      await card(page).getByRole('button', { name: 'Make a key' }).click()
+      const field = card(page).getByLabel('New key for E2E script')
+      await expect(field).toHaveAttribute('readonly', '')
+      const key = await field.inputValue()
+      expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/)
+      const api = await apiRequest.newContext({ baseURL: HTTPS, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'X-Api-Key': key } })
+      expect((await api.get('/api/config')).ok()).toBe(true)
+      await card(page).getByRole('button', { name: 'Copy' }).click()
+      await expect(card(page).getByText('Copied', { exact: true })).toBeVisible()
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(key)
+      await card(page).getByRole('button', { name: 'Done' }).click()
+      await expect(card(page).getByText('E2E script', { exact: true })).toBeVisible()
+      await page.reload()
+      await expect(card(page).getByText('E2E script', { exact: true })).toBeVisible()
+      expect(await page.content()).not.toContain(key)
+      await card(page).getByRole('button', { name: 'Remove key E2E script' }).click()
+      await page.getByRole('button', { name: 'Remove key', exact: true }).click()
+      await expect(card(page).getByText('E2E script', { exact: true })).toHaveCount(0)
+      expect((await api.get('/api/config')).status()).toBe(401)
+      await api.dispose()
       await context.close()
     })
 

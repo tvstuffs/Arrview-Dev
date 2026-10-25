@@ -342,6 +342,19 @@ only spaces is refused). That browser is signed in at once and stays signed in f
 30 days of use. While the login is off, anyone who can reach Settings can set the
 first password.
 
+**First run on a new install.** When the data folder has neither `config.json` nor
+`auth.json`, no Docker password is set and `ARRVIEW_AUTH` is not `off`, the web app
+opens on a setup screen before anything else: protect ArrView with a password, or
+continue without one. It says plainly that without a password anyone who can reach
+the address can use ArrView, including deleting files. Setting the password signs
+that browser in. Continuing without one writes `auth.json` with no password, so the
+screen never comes back; Settings can set a password later. Existing installs
+(where `config.json` exists) never see it. **On a brand-new install that is
+reachable from outside, the first visitor could set the password.** The Docker
+password, `ARRVIEW_AUTH=off` or removing `auth.json` recover it (see Recovery).
+The screen makes nothing else public: `GET /api/auth/status` only reports whether
+setup is pending.
+
 **Or from Docker.** Set one of these (never both):
 
 | Variable | Value |
@@ -355,22 +368,34 @@ first password.
   saved in Settings no longer works, and changing it means editing the compose
   file or secret file and recreating the container with `docker compose up -d`.
   No image rebuild is needed.
-- A changed value signs everyone out and replaces the access key. An unchanged
-  value across restarts keeps sessions and key.
+- A changed value signs everyone out and removes every app key. An unchanged
+  value across restarts keeps sessions and keys.
+- **Memory.** Each password check (sign-in, and checking a Docker password at
+  start-up) needs about 128 MiB of memory for a moment. In a container with a tight
+  memory limit nobody can sign in, and a Docker password then fails closed (the
+  login stays on, nobody gets in). Give the container at least 256 MiB.
 - A Docker password setting that is set but invalid (both variables, empty, an
   unreadable file, the wrong length) keeps the login **on** and lets nobody in,
   with a log line naming the variable (never its value). Fix it, or set
   `ARRVIEW_AUTH=off`. This is deliberate: a mistyped secret path must not open
   the server.
-- If `ARRVIEW_PASSWORD` is removed later, the stored password stays in force and
-  becomes a Settings password. Turn the login off with **Remove password** or
-  `ARRVIEW_AUTH=off`.
+- **Removing the Docker password turns the login off.** If both
+  `ARRVIEW_PASSWORD` and `ARRVIEW_PASSWORD_FILE` are unset at start and `auth.json`
+  holds a password that came from Docker, ArrView deletes that password with every
+  session and key, so the login is off, and logs one line saying why. A password
+  set in Settings is not affected. If you want the login to stay on, set a
+  password in Settings before you drop the variables.
 
-**The session cookie.** The browser holds `arrview_session`: signed, `HttpOnly`,
-`SameSite=Lax`, valid for 30 days and renewed as you use ArrView. It carries the
-`Secure` flag only when the request arrived over HTTPS, directly or through a
-trusted proxy. Cookies are stateless: **Sign out** clears only that browser;
-**Sign out everywhere** and any password change end every session. Browsers send
+**The session cookie.** The browser holds `arrview_session`: a random token,
+`HttpOnly`, `SameSite=Lax`, valid for 30 days and renewed as you use ArrView (the
+server extends it at most once a day per session). `auth.json` keeps only a
+SHA-256 digest of each token, so nothing in the file can be used to sign in. It
+carries the `Secure` flag only when the request arrived over HTTPS, directly or
+through a trusted proxy. Sessions live on the server (at most 50; the oldest is
+dropped): **Sign out** ends only that browser's session, so a copied cookie stops
+working at once; **Sign out everywhere** and any password change end every
+session and remove every app key. Removing a session or a key also ends its open
+event stream. Browsers send
 cookies to every port on the same host name, so a second ArrView on another port
 of the same host name shares and overwrites the cookie, and other apps on that
 host name (Sonarr, Radarr) receive it. Requests from a signed-in browser that
@@ -380,19 +405,35 @@ change something must send `X-Requested-With: ArrView`; the web app does this.
 `X-Forwarded-For` and `X-Forwarded-Proto` ArrView believes: comma-separated IPv4 or
 IPv6 addresses or ranges. Unset, nothing is trusted and those headers are ignored.
 Any invalid entry (a `/0` range counts) makes the whole list trust nothing, with a
-log line. The address decides the sign-in limit, and `X-Forwarded-Proto: https`
-from a listed proxy gets the cookie its `Secure` flag.
+log line. IPv6 entries in the old dotted-tail form (`::192.0.2.1`,
+`::192.0.2.1/96`) are refused the same way; write them as `192.0.2.1`. The address
+decides the sign-in limit, and `X-Forwarded-Proto: https` from a listed proxy gets
+the cookie its `Secure` flag.
 
-**The access key (apps and scripts).** Settings → Security shows the key as dots,
-with **Copy** and **Regenerate**. Fetch it with the password, then send it as
-`X-Api-Key` (or `Authorization: Bearer`):
+> **Behind a reverse proxy, set `ARRVIEW_TRUSTED_PROXIES`.** Without it every
+> client reaches ArrView from the proxy's address and shares one sign-in limit, so
+> ten wrong passwords from anyone lock everyone out for 15 minutes.
+
+**App keys (apps and scripts).** Make one key for each app or script, so you can
+remove one without touching the others. In **Settings → Security → Keys for apps
+and scripts** a signed-in browser can make a key (with an optional name, up to 40
+characters, "App key" if left empty), see the list (name, created, last used) and
+remove one key or all of them. A new key appears once, in a read-only field, with a
+**Copy** button; **ArrView stores only a digest, so nothing can show it again.**
+If you lose a key, remove it and make another. At most 50 keys. A script can make
+one with the password:
 
 ```bash
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"password":"<your-password>"}' http://arrview.example:7777/api/auth/token
-# {"accessKey":"<your-access-key>"}
+  -d '{"password":"<your-password>","name":"Backup script"}' http://arrview.example:7777/api/auth/token
+# {"accessKey":"<your-access-key>","id":"<key-id>","name":"Backup script","created":1790000000}
 curl -s -H "X-Api-Key: <your-access-key>" http://arrview.example:7777/api/config
 ```
+
+Send the key as `X-Api-Key` or `Authorization: Bearer`. The "last used" date is
+written at most once a day. Copy works in every browser, including Safari over
+plain HTTP: if a browser refuses, the key stays selected so it can be copied by
+hand.
 
 **Wrong passwords.** Each address may fail 10 times in 15 minutes; then the
 server answers `429` with `Retry-After` until the oldest failure ages out. A wrong
@@ -406,10 +447,13 @@ failregex = \[auth\] sign-in failed from <HOST>
 ```
 
 **Where it lives.** `auth.json` in the data directory (mode `0600`, written
-atomically), never in `config.json`. It holds a scrypt hash of the password, never
-the password. It is read once at start; editing it by hand needs a restart.
-Rolling back to an older image is safe: older builds ignore the file, the server
-opens up again, and upgrading again finds the password intact.
+atomically), never in `config.json`. It holds a scrypt hash of the password and
+SHA-256 digests of the session tokens and app keys, and nothing that can be used
+to sign in. It is read once at start; editing it by hand needs a restart. A file
+from an earlier test build (version 1) keeps its password, drops the old secret and
+key, and everyone signs in again. Rolling back to an older image (1.9A4 or
+earlier) **opens the server**: those builds ignore the file and have no login.
+Upgrading again finds the password intact.
 
 **Recovery.** Lost the password? `ARRVIEW_AUTH=off` alone does not reset it: it
 only switches the login off while the variable is set, and the saved password
