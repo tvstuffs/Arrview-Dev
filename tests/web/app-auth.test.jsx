@@ -57,6 +57,58 @@ test('another status failure keeps the cannot-reach screen', async () => {
   expect(await screen.findByRole('heading', { name: /Can’t reach/ })).toBeVisible()
 })
 
+test('a new install shows the setup screen first and requests nothing else; the warning is plain', async () => {
+  statusReply = () => reply(200, { required: false, signedIn: false, source: 'none', setupPending: true })
+  render(<App />)
+  expect(await screen.findByRole('heading', { name: /Protect ArrView/ })).toBeVisible()
+  expect(screen.getByText(/anyone who can reach this address can use ArrView, including deleting files/)).toBeVisible()
+  expect(calls).toEqual(['/api/auth/status'])
+})
+
+test('setup: continue without a password posts the skip route and then loads the app', async () => {
+  let pending = true
+  statusReply = () => reply(200, { required: false, signedIn: false, source: 'none', setupPending: pending })
+  const base = fetch
+  vi.stubGlobal('fetch', vi.fn(async (url, options) => {
+    calls.push(url)
+    if (url === '/api/auth/status') return statusReply()
+    if (url === '/api/auth/setup/skip') { pending = false; return reply(200, { success: true }) }
+    if (url === '/api/config') return reply(200, CONFIG)
+    return base(url, options)
+  }))
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue without a password' }))
+  expect(await screen.findByRole('button', { name: 'Load data' })).toBeVisible()
+  expect(calls).toContain('/api/auth/setup/skip')
+})
+
+test('setup: set a password checks the rules first, posts the password and loads the app signed in', async () => {
+  let pending = true
+  const bodies = []
+  vi.stubGlobal('fetch', vi.fn(async (url, options) => {
+    calls.push(url)
+    if (url === '/api/auth/status') return reply(200, pending ? { required: false, signedIn: false, source: 'none', setupPending: true } : { required: true, signedIn: true, source: 'settings', setupPending: false })
+    if (url === '/api/auth/password') { bodies.push(JSON.parse(options.body)); pending = false; return reply(200, { success: true }) }
+    if (url === '/api/config') return reply(200, CONFIG)
+    return reply(401, { error: 'Authentication required', auth: true })
+  }))
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: /Protect with a password/ }))
+  fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'short' } })
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'short' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save password' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('Password must be 8 to 256 characters')
+  fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a good password' } })
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'another one' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save password' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('don’t match')
+  expect(bodies).toEqual([])
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a good password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save password' }))
+  expect(await screen.findByRole('button', { name: 'Load data' })).toBeVisible()
+  expect(bodies).toEqual([{ newPassword: 'a good password' }])
+})
+
 test('a 401 mid-session swaps to Sign in with the notice; signing in returns without touching localStorage', async () => {
   signedIn = true
   localStorage.setItem('arrview.layout', 'classic')

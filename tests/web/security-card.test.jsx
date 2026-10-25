@@ -21,6 +21,14 @@ const body = call => JSON.parse(call[1].body)
 const field = label => screen.getByLabelText(label)
 const click = name => fireEvent.click(screen.getByRole('button', { name }))
 const paths = () => fn.mock.calls.map(c => c[0])
+const LIST = { keys: [{ id: '0123456789abcdef', name: 'Sonarr script', created: 1_790_000_000, lastUsed: null }, { id: 'fedcba9876543210', name: 'Phone', created: 1_790_100_000, lastUsed: 1_790_200_000 }] }
+// Mounts with the login on and waits for the key list request, then clears the call log.
+async function mountOn(status, handler) {
+  const rendered = mount(status, (url, options) => (url === '/api/auth/keys' && (!options || !options.method || options.method === 'GET') ? reply(200, LIST) : handler ? handler(url, options) : reply(200, { success: true })))
+  await screen.findByText('Sonarr script')
+  fn.mockClear()
+  return rendered
+}
 
 test('nothing renders without an AuthContext value, and ConfigPage still renders without it', () => {
   const { container } = render(<SecurityCard />)
@@ -69,7 +77,7 @@ test('a server error is shown in the card', async () => {
 })
 
 test('on (Settings): change sends currentPassword, remove asks to confirm first, sign out posts logout', async () => {
-  const { container } = mount(ON)
+  const { container } = await mountOn(ON)
   expect(screen.getByText(/Password protection is on\. This browser stays signed in for 30 days of use\./)).toBeVisible()
   expect(screen.getByText(/iOS and tvOS apps can’t sign in yet/)).toBeVisible()
   expect(container.querySelector('h2 svg')).not.toBeNull()
@@ -100,25 +108,85 @@ test('on (Settings): change sends currentPassword, remove asks to confirm first,
   expect(new Headers(fn.mock.calls[0][1].headers).get('Content-Type')).toBe('application/json')
 })
 
-test('the key is fetched only on Copy and never put in the page; Regenerate and Sign out everywhere confirm first', async () => {
+test('keys: the list shows name, created and last used and never a key; a new key is made with an optional name', async () => {
+  const { container } = await mountOn(ON, url => (url === '/api/auth/keys' ? reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'Cron job', created: 1 }) : reply(200, {})))
+  expect(screen.getByText('Sonarr script')).toBeVisible()
+  expect(screen.getByText(/Last used Never/)).toBeVisible()
+  expect(screen.getByText(/shown only once/)).toBeVisible()
+  expect(container.textContent).not.toContain(KEY)
+  fireEvent.change(field('Key name (optional)'), { target: { value: '  Cron job ' } })
+  click(/Make a key/)
+  const shown = await screen.findByLabelText('New key for Cron job')
+  expect(shown).toHaveValue(KEY)
+  expect(shown).toHaveAttribute('readonly')
+  expect(screen.getByText('Copy it now. It will not be shown again.')).toBeVisible()
+  expect(fn.mock.calls[0][0]).toBe('/api/auth/keys')
+  expect(fn.mock.calls[0][1].method).toBe('POST')
+  expect(body(fn.mock.calls[0])).toEqual({ name: 'Cron job' })
+  expect(paths()).toEqual(['/api/auth/keys', '/api/auth/keys'])
+  // Done removes the key from the page for good
+  click('Done')
+  expect(document.body.innerHTML).not.toContain(KEY)
+})
+
+test('Copy writes the visible key in the same click with no request first (secure page)', async () => {
   const writeText = vi.fn(async () => {})
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-  const { container } = mount(ON, url => (url === '/api/auth/access-key' ? reply(200, { accessKey: KEY }) : reply(200, { success: true, accessKey: 'NEW' })))
+  Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+  await mountOn(ON, () => reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'App key', created: 1 }))
+  click(/Make a key/)
+  await screen.findByLabelText('New key for App key')
+  fn.mockClear()
+  fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+  expect(writeText).toHaveBeenCalledWith(KEY) // called synchronously inside the click
   expect(fn).not.toHaveBeenCalled()
-  expect(screen.getByText('Access key for apps')).toBeVisible()
-  expect(container.textContent).toContain('••••••••••••••••')
-  click(/Copy/)
-  await waitFor(() => expect(writeText).toHaveBeenCalledWith(KEY))
-  expect(paths()).toEqual(['/api/auth/access-key'])
   expect(await screen.findByText('Copied')).toBeVisible()
-  expect(document.body.innerHTML).not.toContain(KEY)
+})
+
+test('Copy on a plain-HTTP page selects the visible field and uses the copy command', async () => {
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+  Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
+  const exec = vi.fn(() => true)
+  document.execCommand = exec
+  await mountOn(ON, () => reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'App key', created: 1 }))
+  click(/Make a key/)
+  const shown = await screen.findByLabelText('New key for App key')
+  fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+  expect(exec).toHaveBeenCalledWith('copy')
+  expect(document.activeElement).toBe(shown)
+  expect(shown.selectionStart).toBe(0)
+  expect(shown.selectionEnd).toBe(KEY.length)
+  expect(await screen.findByText('Copied')).toBeVisible()
+})
+
+test('when the browser refuses, the key stays selected with a hand-copy hint that says it will not be shown again', async () => {
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+  Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
+  document.execCommand = vi.fn(() => false)
+  await mountOn(ON, () => reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'App key', created: 1 }))
+  click(/Make a key/)
+  const shown = await screen.findByLabelText('New key for App key')
+  fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+  expect(await screen.findByText(/copy it by hand now\. It will not be shown again/)).toBeVisible()
+  expect(document.activeElement).toBe(shown)
+  expect(screen.queryByText('Copied')).toBeNull()
+})
+
+test('removing one key and all keys confirm first; Sign out everywhere says the keys stop too', async () => {
+  await mountOn(ON)
+  click('Remove key Sonarr script')
+  expect(fn).not.toHaveBeenCalled()
+  expect(await screen.findByText('The app or script using it will stop working at once.')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Remove key' }))
+  await waitFor(() => expect(paths()).toContain('/api/auth/keys/remove'))
+  expect(body(fn.mock.calls[0])).toEqual({ id: '0123456789abcdef' })
+  await waitFor(() => expect(paths()).toEqual(['/api/auth/keys/remove', '/api/auth/keys']))
 
   fn.mockClear()
-  click(/Regenerate/)
+  click(/Remove all keys/)
   expect(fn).not.toHaveBeenCalled()
-  expect(await screen.findByText('Apps and scripts using the old key will stop working.')).toBeVisible()
-  fireEvent.click(screen.getByRole('button', { name: 'Regenerate key' }))
-  await waitFor(() => expect(paths()).toEqual(['/api/auth/access-key/regenerate']))
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove all keys', hidden: false }).then(b => b, () => null) || screen.getAllByRole('button', { name: 'Remove all keys' }).at(-1))
+  await waitFor(() => expect(paths()).toContain('/api/auth/keys/remove-all'))
 
   fn.mockClear()
   click('Sign out everywhere')
@@ -136,7 +204,7 @@ test('set by Docker: password buttons disabled with the recreate wording, the re
   expect(screen.getByRole('button', { name: 'Change password' })).toHaveAttribute('aria-describedby')
   expect(screen.getByRole('button', { name: /^Sign out$/ })).toBeEnabled()
   expect(screen.getByRole('button', { name: 'Sign out everywhere' })).toBeEnabled()
-  expect(screen.getByRole('button', { name: /Copy/ })).toBeEnabled()
+  expect(screen.getByRole('button', { name: /Make a key/ })).toBeEnabled()
 })
 
 test('disabled by ARRVIEW_AUTH=off: warning text and disabled controls', () => {

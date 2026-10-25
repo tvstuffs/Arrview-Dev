@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import ConfigPage from './components/ConfigPage.jsx'
 import Dashboard from './components/Dashboard.jsx'
 import SignIn from './components/SignIn.jsx'
+import Setup from './components/Setup.jsx'
 import { apiFetch, onAuthRequired, resetAuthRequired } from './api'
 import { AuthContext } from './AuthContext'
 
@@ -22,12 +23,19 @@ export default function App() {
   const [unavailable, setUnavailable] = useState(false)
   const [needSignIn, setNeedSignIn] = useState(false)
   const [expired, setExpired] = useState(false)
+  const [needSetup, setNeedSetup] = useState(false)
 
   const loadConfig = useCallback(async () => {
     setLoading(true)
     try {
       const current = await loadStatus()
       setStatus(current)
+      // A new install: the first-run choice comes before anything else is requested.
+      setNeedSetup(current.setupPending === true)
+      if (current.setupPending === true) {
+        setUnavailable(false)
+        return
+      }
       if (current.required && !current.signedIn) {
         setNeedSignIn(true)
         setUnavailable(false)
@@ -67,6 +75,8 @@ export default function App() {
   }, [loadConfig])
 
   if (needSignIn) return <SignIn onSignedIn={signedIn} expired={expired} />
+
+  if (needSetup) return <Setup onDone={signedIn} />
 
   if (loading) {
     return (

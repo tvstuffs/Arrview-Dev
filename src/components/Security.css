@@ -11,6 +11,16 @@
 .security-card form { display: flex; flex-direction: column; gap: 10px; }
 .security-card .security-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .security-card .btn { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
-.security-card .key-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.security-card .key-mask { letter-spacing: 1px; }
+.security-card .key-section { display: flex; flex-direction: column; gap: 10px; }
+.security-card .key-section h3 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.security-card .key-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.security-card .key-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.security-card .key-list .key-name { font-weight: 600; overflow-wrap: anywhere; }
+.security-card .key-list .btn { margin-left: auto; }
+.security-card .key-fresh { display: flex; flex-direction: column; gap: 8px; }
+.security-card .key-fresh-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.security-card .key-fresh-row input { flex: 1 1 16rem; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 16px; }
+
+.setup-card { max-width: 440px; }
+.setup-card .setup-actions { display: flex; flex-direction: column; gap: 8px; }
 .security-card .security-notice { display: flex; gap: 8px; align-items: flex-start; }

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import './Security.css'
 import Icon from './Icon.jsx'
 import ConfirmSheet from './ConfirmSheet.jsx'
@@ -23,16 +23,8 @@ async function call(path, { method = 'POST', body } = {}) {
   return data
 }
 
-// Copies the key through a field that exists only for the copy, so the key is never part of the page.
-async function copyKey(text) {
-  const field = document.createElement('input')
-  field.className = 'visually-hidden'
-  field.value = text
-  field.setAttribute('aria-hidden', 'true')
-  field.readOnly = true
-  document.body.appendChild(field)
-  try { return await copyText(text, field) } finally { field.remove() }
-}
+const KEY_NAME_MAX = 40
+const day = seconds => (seconds ? new Date(seconds * 1000).toLocaleDateString() : 'Never')
 
 function PasswordFields({ idBase, fields, values, onChange }) {
   return <>
@@ -52,14 +44,27 @@ export default function SecurityCard() {
   const [values, setValues] = useState({})
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [confirm, setConfirm] = useState(null) // 'regenerate' | 'logout-all' | 'remove'
-  const [copied, setCopied] = useState('')
+  const [confirm, setConfirm] = useState(null) // 'logout-all' | 'remove' | 'remove-all-keys' | { removeKey }
+  const [keys, setKeys] = useState(null)
+  const [keyName, setKeyName] = useState('')
+  const [fresh, setFresh] = useState(null) // { name, key }: a new key, shown until dismissed
+  const [copied, setCopied] = useState('') // '' | 'Copied' | 'failed'
+  const keyField = useRef(null)
+  const on = Boolean(auth && auth.status && auth.status.required)
+
+  const loadKeys = useCallback(async () => {
+    try {
+      const data = await call('/api/auth/keys', { method: 'GET' })
+      setKeys(Array.isArray(data.keys) ? data.keys : [])
+    } catch (e) { setError(e.message) }
+  }, [])
+  useEffect(() => { if (on) loadKeys() }, [on, loadKeys])
+
   if (!auth || !auth.status) return null
   const { status, refresh } = auth
   const locked = status.authDisabledByDocker || status.source === 'docker'
-  const on = status.required
 
-  const open = name => { setForm(name); setValues({}); setError(''); setCopied('') }
+  const open = name => { setForm(name); setValues({}); setError('') }
   const close = () => { setForm(null); setValues({}); setError('') }
   const change = (key, value) => setValues(v => ({ ...v, [key]: value }))
 
@@ -78,12 +83,20 @@ export default function SecurityCard() {
     if (await run(() => call('/api/auth/password', { body }))) { close(); await refresh() }
   }
 
-  async function copyAccessKey() {
+  async function createKey(event) {
+    event.preventDefault()
+    if (keyName.trim().length > KEY_NAME_MAX) return setError(`The name can be at most ${KEY_NAME_MAX} characters`)
     setCopied('')
-    await run(async () => {
-      const { accessKey } = await call('/api/auth/access-key', { method: 'GET' })
-      setCopied(await copyKey(accessKey) ? 'Copied' : 'Couldn’t copy')
-    })
+    if (await run(async () => {
+      const made = await call('/api/auth/keys', { body: { name: keyName.trim() } })
+      setFresh({ name: made.name, key: made.accessKey })
+      setKeyName('')
+    })) await loadKeys()
+  }
+
+  // The click copies the key already on screen: no request, no wait, so the browser still counts it as the user's own action.
+  async function copyFresh() {
+    setCopied((await copyText(fresh.key, keyField.current)) ? 'Copied' : 'failed')
   }
 
   const simple = path => async () => { await call(path); await refresh() }
@@ -135,19 +148,45 @@ export default function SecurityCard() {
         </div>
       )}
 
-      {on && <div className="key-row">
-        <Icon name="key" />
-        <span>Access key for apps</span>
-        <span className="key-mask" aria-hidden="true">••••••••••••••••</span>
-        <button className="btn btn-secondary" disabled={busy} onClick={copyAccessKey}><Icon name={copied === 'Copied' ? 'check' : 'copy'} /> {copied === 'Copied' ? 'Copied' : 'Copy'}</button>
-        <button className="btn btn-secondary" disabled={busy} onClick={() => setConfirm('regenerate')}><Icon name="arrows-clockwise" /> Regenerate</button>
-        {copied === 'Couldn’t copy' && <span role="status">Couldn’t copy</span>}
+      {on && <div className="key-section">
+        <h3><Icon name="key" /> Keys for apps and scripts</h3>
+        <p className="text-muted text-sm">Make one key for each app or script. A key is shown only once, when you make it; ArrView keeps nothing it could show again.</p>
+        {keys && keys.length > 0 && <ul className="key-list">
+          {keys.map(k => <li key={k.id}>
+            <span className="key-name">{k.name}</span>
+            <span className="text-muted text-sm">Created {day(k.created)} · Last used {day(k.lastUsed)}</span>
+            <button className="btn btn-secondary" disabled={busy} aria-label={`Remove key ${k.name}`} onClick={() => setConfirm({ removeKey: k })}><Icon name="trash" /> Remove</button>
+          </li>)}
+        </ul>}
+        {keys && keys.length === 0 && !fresh && <p className="text-muted text-sm">No keys yet.</p>}
+        <form className="key-create" onSubmit={createKey}>
+          <label htmlFor={`${idBase}-keyname`}>Key name (optional)</label>
+          <input id={`${idBase}-keyname`} type="text" maxLength={KEY_NAME_MAX} placeholder="App key" autoComplete="off" value={keyName} onChange={e => setKeyName(e.target.value)} />
+          <button type="submit" className="btn btn-secondary" disabled={busy}><Icon name="plus" /> Make a key</button>
+        </form>
+        {fresh && <div className="key-fresh" role="group" aria-label="New key">
+          <label htmlFor={`${idBase}-newkey`}>New key for {fresh.name}</label>
+          <div className="key-fresh-row">
+            <input id={`${idBase}-newkey`} ref={keyField} type="text" readOnly value={fresh.key} spellCheck="false" autoComplete="off"
+              onFocus={e => e.target.select()} />
+            <button type="button" className="btn btn-secondary" onClick={copyFresh}><Icon name={copied === 'Copied' ? 'check' : 'copy'} /> {copied === 'Copied' ? 'Copied' : 'Copy'}</button>
+          </div>
+          <p className="text-sm" role="status">{copied === 'failed'
+            ? 'Your browser would not copy it. The key is selected above: copy it by hand now. It will not be shown again.'
+            : 'Copy it now. It will not be shown again.'}</p>
+          <button type="button" className="btn btn-secondary" onClick={() => { setFresh(null); setCopied('') }}>Done</button>
+        </div>}
+        {keys && keys.length > 0 && <div className="security-actions">
+          <button className="btn btn-secondary" disabled={busy} onClick={() => setConfirm('remove-all-keys')}><Icon name="trash" /> Remove all keys</button>
+        </div>}
       </div>}
       {on && <p className="text-muted text-sm">The ArrView iOS and tvOS apps can’t sign in yet.</p>}
 
-      {confirm === 'regenerate' && <ConfirmSheet title="Regenerate access key?" description="Apps and scripts using the old key will stop working."
-        onClose={() => setConfirm(null)} actions={[{ label: 'Regenerate key', run: async () => { await call('/api/auth/access-key/regenerate') } }]} />}
-      {confirm === 'logout-all' && <ConfirmSheet title="Sign out everywhere?" description="Every browser, including this one, will have to sign in again. The access key stops working too."
+      {confirm && confirm.removeKey && <ConfirmSheet title={`Remove key ${confirm.removeKey.name}?`} description="The app or script using it will stop working at once."
+        onClose={() => setConfirm(null)} actions={[{ label: 'Remove key', run: async () => { await call('/api/auth/keys/remove', { body: { id: confirm.removeKey.id } }); await loadKeys() } }]} />}
+      {confirm === 'remove-all-keys' && <ConfirmSheet title="Remove all keys?" description="Every app and script using a key will stop working at once."
+        onClose={() => setConfirm(null)} actions={[{ label: 'Remove all keys', run: async () => { await call('/api/auth/keys/remove-all'); setFresh(null); await loadKeys() } }]} />}
+      {confirm === 'logout-all' && <ConfirmSheet title="Sign out everywhere?" description="Every browser, including this one, will have to sign in again. All app keys stop working too."
         onClose={() => setConfirm(null)} actions={[{ label: 'Sign out everywhere', run: async () => { await call('/api/auth/logout-all'); await refresh() } }]} />}
       {confirm === 'remove' && <ConfirmSheet title="Remove the password?" description="Anyone who can reach this address will be able to use ArrView without signing in."
         onClose={() => setConfirm(null)} actions={[{ label: 'Remove password', run: async () => { await call('/api/auth/password/remove', { body: { currentPassword: values.currentPassword } }); close(); await refresh() } }]} />}
