@@ -164,6 +164,10 @@ function readAuthFile() {
 }
 
 // Atomic, always 0600; throws after cleaning up.
+// True while a credential has been removed in memory that auth.json may still hold. Any successful write of the
+// current state clears it; Sign out and key removal write again while it is set, so a retry is never a false success.
+let revocationPending = false;
+
 function writeAuthFile(state) {
   const body = { version: 2, password: state.record, sessions: [], keys: [] };
   if (state.record) {
@@ -179,6 +183,7 @@ function writeAuthFile(state) {
     try { fs.unlinkSync(tmp); } catch (_) {}
     throw e;
   }
+  revocationPending = false;
 }
 
 function adoptAuth(state, dockerManaged) {
@@ -684,21 +689,35 @@ app.post('/api/auth/login', authRoute((req, res) => passwordCheckRoute(req, res,
   return res.json({ success: true });
 })));
 
+// One reserved write (never refused for a full queue) that concurrent callers share; every waiter gets its failure.
+let pendingFlush = null;
+function flushRevocation() {
+  if (!pendingFlush) {
+    pendingFlush = authQueued(() => {
+      pendingFlush = null; // a revocation made after this point needs a new write
+      if (revocationPending) writeAuthFile(auth);
+    }, true);
+    pendingFlush.catch(() => {});
+  }
+  return pendingFlush;
+}
+
 // Sign out ends only this browser's session: a copied cookie stops working at once.
 app.post('/api/auth/logout', authRoute(async (req, res) => {
   if (auth.mode === 'off') return res.json({ success: true });
   const session = sessionFromCookie(req);
   if (session) {
-    // Access ends in memory at once; success is reported only after the deletion is on disk (a reserved write that a
-    // full queue cannot drop).
+    // Access ends in memory at once; success is reported only after the deletion is on disk.
     auth.sessions = auth.sessions.filter(s => s.digest !== session.digest.toString('hex'));
+    revocationPending = true;
     closeInvalidStreams();
+  }
+  if (revocationPending) {
     try {
-      await authQueued(() => writeAuthFile(auth), true);
+      await flushRevocation();
     } catch (err) {
       authLog(`[auth] could not write auth.json (${(err && err.code) || 'error'}).`);
-      clearSessionCookie(req, res);
-      return res.status(500).json({ error: 'Signed out here, but the change could not be saved. Sign out everywhere or try again.' });
+      return res.status(500).json({ error: 'Signed out here, but the change could not be saved, so it may come back after a restart. Try Sign out again; if it keeps failing, use Sign out everywhere (you may need to sign in again).' });
     }
   }
   clearSessionCookie(req, res);
@@ -815,10 +834,12 @@ function removeKeys(req, res, match) {
     if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
     const kept = auth.keys.filter(k => !match(k));
     const removed = auth.keys.length - kept.length;
-    if (match.single && !removed) return res.status(404).json({ error: 'No such key' });
+    // A retry after a failed write finds nothing to remove but still has to make the earlier removal durable.
+    if (match.single && !removed && !revocationPending) return res.status(404).json({ error: 'No such key' });
     auth.keys = kept;
+    if (removed) revocationPending = true;
     closeInvalidStreams();
-    try { writeAuthFile(auth); } catch (_) { return res.status(500).json({ error: 'The key was removed but the change could not be saved' }); }
+    try { writeAuthFile(auth); } catch (_) { return res.status(500).json({ error: 'The key was removed here, but the change could not be saved, so it may come back after a restart. Try again; if it keeps failing, use Sign out everywhere (you may need to sign in again).' }); }
     return res.json({ success: true, removed });
   });
 }
