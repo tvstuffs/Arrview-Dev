@@ -131,8 +131,10 @@ function parseAuthText(text) {
     return { record: { origin, algorithm, N, r, p, keylen, salt, hash }, sessions: [], keys: [], migrated: true };
   }
   if (obj.version !== 2) return null;
-  if (obj.password === null) return { record: null, sessions: [], keys: [] };
-  if (!validRecord(obj.password) || !Array.isArray(obj.sessions) || !Array.isArray(obj.keys)) return null;
+  if (!Array.isArray(obj.sessions) || !Array.isArray(obj.keys)) return null;
+  // The explicit "off" record carries no credentials at all.
+  if (obj.password === null) return obj.sessions.length || obj.keys.length ? null : { record: null, sessions: [], keys: [] };
+  if (!validRecord(obj.password)) return null;
   if (obj.sessions.length > SESSIONS_MAX || obj.keys.length > KEYS_MAX) return null;
   const int = v => Number.isInteger(v) && v >= 0 && v < 1e12;
   const now = nowSeconds();
@@ -294,17 +296,20 @@ function parseTrustedProxies(raw, log) {
     }
     list.push(normal);
   }
-  if (!list.length) return false;
-  log(`[auth] trusting X-Forwarded-For and X-Forwarded-Proto from ${list.length} proxy entries.`);
-  return list;
+  return list.length ? list : false;
 }
 
-// A parser error must never stop start-up: any failure falls back to trusting nothing.
-try {
-  app.set('trust proxy', parseTrustedProxies(process.env.ARRVIEW_TRUSTED_PROXIES, authLog));
-} catch (_) {
-  authLog('[auth] ARRVIEW_TRUSTED_PROXIES could not be used; no proxy is trusted.');
-  app.set('trust proxy', false);
+// A compile error in Express must never stop start-up: any failure falls back to trusting nothing. Only the final
+// state is logged.
+{
+  const proxies = parseTrustedProxies(process.env.ARRVIEW_TRUSTED_PROXIES, authLog);
+  try {
+    app.set('trust proxy', proxies);
+    if (proxies) authLog(`[auth] trusting X-Forwarded-For and X-Forwarded-Proto from ${proxies.length} proxy entries.`);
+  } catch (_) {
+    authLog('[auth] ARRVIEW_TRUSTED_PROXIES could not be used; no proxy is trusted.');
+    app.set('trust proxy', false);
+  }
 }
 
 // The client address, only ever through req.ip.
@@ -369,6 +374,12 @@ function persistSoon() {
   authQueued(() => writeAuthFile(auth)).catch(err => {
     if (!(err && err.busy)) authLog(`[auth] could not write auth.json (${(err && err.code) || 'error'}).`);
   });
+}
+
+// Writes to a stream only while its credential still works; otherwise closes it.
+function deliverTo(client, payload) {
+  if (!streamValid(client)) { closeStream(client); return; }
+  client.write(payload);
 }
 
 // Whether a stream's credential still works (sessions expire, and removal ends them).
@@ -506,8 +517,9 @@ function limiterNoteFailure(ip) {
 // Password hashing and every auth-state change run one at a time (one 128 MiB hash at once, atomic check-then-change).
 let authQueueTail = Promise.resolve();
 let authQueueWaiting = 0;
-function authQueued(fn) {
-  if (authQueueWaiting >= QUEUE_WAITING_MAX) return Promise.reject(Object.assign(new Error('busy'), { busy: true }));
+// `reserved` work (revocation writes) is never refused for being full: dropping it would let a removed credential return.
+function authQueued(fn, reserved = false) {
+  if (!reserved && authQueueWaiting >= QUEUE_WAITING_MAX) return Promise.reject(Object.assign(new Error('busy'), { busy: true }));
   authQueueWaiting++;
   const run = authQueueTail.then(() => { authQueueWaiting--; return fn(); });
   authQueueTail = run.catch(() => {});
@@ -677,9 +689,17 @@ app.post('/api/auth/logout', authRoute(async (req, res) => {
   if (auth.mode === 'off') return res.json({ success: true });
   const session = sessionFromCookie(req);
   if (session) {
+    // Access ends in memory at once; success is reported only after the deletion is on disk (a reserved write that a
+    // full queue cannot drop).
     auth.sessions = auth.sessions.filter(s => s.digest !== session.digest.toString('hex'));
     closeInvalidStreams();
-    persistSoon();
+    try {
+      await authQueued(() => writeAuthFile(auth), true);
+    } catch (err) {
+      authLog(`[auth] could not write auth.json (${(err && err.code) || 'error'}).`);
+      clearSessionCookie(req, res);
+      return res.status(500).json({ error: 'Signed out here, but the change could not be saved. Sign out everywhere or try again.' });
+    }
   }
   clearSessionCookie(req, res);
   return res.json({ success: true });
@@ -690,7 +710,7 @@ function keyName(raw) {
   if (raw === undefined || raw === null) return KEY_NAME_DEFAULT;
   if (typeof raw !== 'string') return null;
   const name = raw.trim();
-  if (name.length > KEY_NAME_MAX || /[\u0000-\u001f\u007f]/.test(name)) return null;
+  if (name.length > KEY_NAME_MAX || /[\u0000-\u001f\u007f-\u009f]/.test(name)) return null;
   return name || KEY_NAME_DEFAULT;
 }
 const KEY_NAME_TEXT = `Name must be ${KEY_NAME_MAX} characters or fewer, with no control characters`;
@@ -727,6 +747,8 @@ app.post('/api/auth/password', authRoute(async (req, res) => {
   const change = async () => {
     if (!reauthorised(req)) return staleReply(res);
     const record = await hashPassword(checked.value, 'settings');
+    // The session may have signed out or expired during the hash: no await between this check and the commit.
+    if (!reauthorised(req)) return staleReply(res);
     // Every other session and every app key goes; this browser gets a new session.
     const token = newSecretToken();
     if (!commitAuth(res, { record, sessions: [sessionEntry(token)], keys: [] })) return;
@@ -2035,7 +2057,7 @@ app.get('/api/events', (req, res) => {
 
 function broadcast(event, data) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  sseClients.forEach(client => client.write(payload));
+  [...sseClients].forEach(client => deliverTo(client, payload));
 }
 
 // ── What the webhooks last delivered ─────────────────────────────────────────
@@ -2124,14 +2146,20 @@ app.get('*', (req, res) => {
 // ── Login start-up ────────────────────────────────────────────────────────────
 // Reads auth.json and the Docker variables and settles the state before anything is served (app.listen runs only
 // after this resolves). It never rejects: an unexpected error leaves the login ON with no way to sign in.
+// A version 1 file is rewritten as version 2; "upgraded" is logged only when the write worked.
+function upgradeAuthFile(state) {
+  try { writeAuthFile(state); } catch (e) {
+    authLog(`[auth] auth.json is still version 1: it could not be upgraded (${(e && e.code) || 'error'}).`);
+    return;
+  }
+  authLog('[auth] auth.json was upgraded to version 2; the old session secret and access key were dropped, so everyone signs in again.');
+}
+
 async function initDockerPassword(password, file) {
   const stored = file.data;
   if (stored && stored.record && stored.record.origin === 'docker' && await verifyRecord(stored.record, password)) {
     adoptAuth(stored, true);
-    if (stored.migrated) {
-      try { writeAuthFile(auth); } catch (_) {}
-      authLog('[auth] auth.json was upgraded to version 2; the old session secret and access key were dropped, so everyone signs in again.');
-    }
+    if (stored.migrated) upgradeAuthFile(auth);
     authLog('[auth] login is ON: password set by the Docker configuration.');
     return;
   }
@@ -2167,18 +2195,24 @@ async function initAuth() {
       authLog('[auth] login is OFF (no password set).');
       return;
     }
-    if (!file.data.record) { authLog('[auth] login is OFF (no password set).'); return; }
+    if (!file.data.record) {
+      if (file.data.migrated) upgradeAuthFile({ record: null, sessions: [], keys: [] });
+      authLog('[auth] login is OFF (no password set).');
+      return;
+    }
     if (file.data.record.origin === 'docker') {
-      // The Docker password variables are gone: the login goes off with every session and key.
-      try { writeAuthFile({ record: null, sessions: [], keys: [] }); } catch (_) {}
+      // The Docker password variables are gone: the login goes off with every session and key. If the deletion cannot
+      // be written the old Docker password, sessions and keys are still on disk, so the login stays ON and closed.
+      try { writeAuthFile({ record: null, sessions: [], keys: [] }); } catch (e) {
+        auth.mode = 'closed';
+        authLog(`[auth] ARRVIEW_PASSWORD is no longer set, but auth.json could not be updated (${(e && e.code) || 'error'}); the login stays ON and no one can sign in. Fix the data folder permissions, or set the Docker password again.`);
+        return;
+      }
       authLog('[auth] ARRVIEW_PASSWORD is no longer set, so the Docker password was removed and the login is OFF.');
       return;
     }
     adoptAuth(file.data, false);
-    if (file.data.migrated) {
-      try { writeAuthFile(auth); } catch (_) {}
-      authLog('[auth] auth.json was upgraded to version 2; the old session secret and access key were dropped, so everyone signs in again.');
-    }
+    if (file.data.migrated) upgradeAuthFile(auth);
     authLog('[auth] login is ON (password set in Settings).');
   } catch (e) {
     Object.assign(auth, { mode: 'closed', record: null, sessions: [], keys: [], dockerManaged: false });

@@ -382,9 +382,20 @@ setup is pending.
 - **Removing the Docker password turns the login off.** If both
   `ARRVIEW_PASSWORD` and `ARRVIEW_PASSWORD_FILE` are unset at start and `auth.json`
   holds a password that came from Docker, ArrView deletes that password with every
-  session and key, so the login is off, and logs one line saying why. A password
-  set in Settings is not affected. If you want the login to stay on, set a
-  password in Settings before you drop the variables.
+  session and key, so the login is off, and logs one line saying why. If that
+  deletion cannot be written, the login stays on and nobody can sign in. A
+  password set in Settings is not affected.
+  **If the Docker password variable is accidentally missing when you recreate the
+  container (a typo, a lost `.env` file, a secret that did not mount), the login
+  turns off and ArrView is open to anyone who can reach it.**
+- **Moving from a Docker password to a Settings password.** While a Docker
+  password is set, the password controls in Settings are read-only, so you cannot
+  set a Settings password first. To switch: restrict access to ArrView outside
+  ArrView (firewall, reverse proxy rule or closed port), recreate the container
+  without `ARRVIEW_PASSWORD` and `ARRVIEW_PASSWORD_FILE` (the login is off while
+  you do this), set the password in Settings, check that the login screen now
+  appears, and only then restore access. Or keep managing the password through
+  Docker.
 
 **The session cookie.** The browser holds `arrview_session`: a random token,
 `HttpOnly`, `SameSite=Lax`, valid for 30 days and renewed as you use ArrView (the

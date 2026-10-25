@@ -283,6 +283,17 @@ test('trusted proxies: any invalid entry trusts nothing', async (t) => {
   }
 });
 
+test('trusted proxies: an entry Express cannot compile still starts the server, trusts nothing, and logs only the final state', async (t) => {
+  for (const list of ['64:ff9b::192.0.2.1/96', '127.0.0.1, 64:ff9b::192.0.2.1/96']) {
+    const s = await proxied(t, list);
+    assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'https' }), false, list);
+    const lines = authLines(s);
+    assert.ok(lines.includes('[auth] ARRVIEW_TRUSTED_PROXIES could not be used; no proxy is trusted.'), list);
+    assert.equal(lines.some(l => /trusting X-Forwarded/.test(l)), false, list);
+    await s.close();
+  }
+});
+
 test('X-Forwarded-For is the limiter key only from a trusted peer', async (t) => {
   const guess = (s, ip) => post(s, '/api/auth/login', { password: 'wrong password!' }, { ...JSON_HEADERS, 'X-Forwarded-For': ip });
   const untrusted = await proxied(t);

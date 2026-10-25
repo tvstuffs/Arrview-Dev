@@ -98,6 +98,13 @@ test('corrupt files fail closed with the log line and no secret; ARRVIEW_AUTH=of
     'long key name': JSON.stringify({ ...good, keys: [{ ...good.keys[0], name: 'x'.repeat(41) }] }),
     'too many sessions': JSON.stringify({ ...good, sessions: Array.from({ length: 51 }, () => good.sessions[0]) }),
     'too many keys': JSON.stringify({ ...good, keys: Array.from({ length: 51 }, () => good.keys[0]) }),
+    // A null password is "off" only when the whole envelope is the canonical empty one.
+    'null password, sessions not an array': JSON.stringify({ version: 2, password: null, sessions: 'broken', keys: 123 }),
+    'null password, no sessions or keys': JSON.stringify({ version: 2, password: null }),
+    'null password, keys missing': JSON.stringify({ version: 2, password: null, sessions: [] }),
+    'null password, non-empty sessions': JSON.stringify({ version: 2, password: null, sessions: good.sessions, keys: [] }),
+    'null password, non-empty keys': JSON.stringify({ version: 2, password: null, sessions: [], keys: good.keys }),
+    'null password, garbage entries': JSON.stringify({ version: 2, password: null, sessions: [7], keys: [null] }),
   };
   for (const [name, text] of Object.entries(variants)) {
     const root = newRoot(t);
@@ -141,11 +148,30 @@ test('a version 1 file keeps its password, drops the old secret and key, and is 
   assert.deepEqual(s.readAuth(), { version: 2, password: v2.password, sessions: [], keys: [] });
   assert.ok(!s.readAuthText().includes(oldKey) && !s.readAuthText().includes(oldSecret));
   assert.equal((await post(s, '/api/auth/login', { password: PASSWORD })).status, 200);
-  // A version 1 file with no password becomes an empty version 2 file.
+  // A version 1 file with no password becomes an empty version 2 file, with no legacy fields, and is logged once.
   const empty = newRoot(t);
-  fs.writeFileSync(path.join(empty, 'auth.json'), JSON.stringify({ version: 1, password: null, sessionSecret: null, accessKey: null }));
+  fs.writeFileSync(path.join(empty, 'auth.json'), JSON.stringify({ version: 1, password: null, sessionSecret: oldSecret, accessKey: oldKey }));
   const off = await startServer(t, { root: empty });
   assert.equal((await fetch(off.base + '/api/config')).status, 200);
+  assert.equal(off.readAuthText(), JSON.stringify({ version: 2, password: null, sessions: [], keys: [] }, null, 2));
+  assert.equal(off.logs.filter(l => l.startsWith('[auth] auth.json was upgraded to version 2')).length, 1);
+  assert.ok(!off.readAuthText().includes(oldKey) && !off.readAuthText().includes(oldSecret));
+});
+
+test('a version 1 migration whose write fails is not logged as done (with and without a password)', async (t) => {
+  const v2 = (() => { const r = newRoot(t); seedAuth(r); return JSON.parse(fs.readFileSync(path.join(r, 'auth.json'), 'utf8')); })();
+  for (const [label, password] of [['no password', null], ['password', v2.password]]) {
+    const root = newRoot(t);
+    const text = JSON.stringify({ version: 1, password, sessionSecret: 'x', accessKey: 'y' });
+    fs.writeFileSync(path.join(root, 'auth.json'), text);
+    const s = await startServer(t, { root, fsOverrides: real => ({ ...real,
+      renameSync(from, to) { if (String(to).endsWith('auth.json')) throw Object.assign(new Error('read-only'), { code: 'EROFS' }); return real.renameSync(from, to); } }) });
+    assert.equal(s.logs.some(l => l.includes('was upgraded to version 2')), false, label);
+    assert.ok(s.logs.includes('[auth] auth.json is still version 1: it could not be upgraded (EROFS).'), label);
+    assert.equal(fs.readFileSync(path.join(root, 'auth.json'), 'utf8'), text, label);
+    assert.deepEqual(s.tempFiles(), [], label);
+    assert.equal((await fetch(s.base + '/api/config')).status, password ? 401 : 200, label);
+  }
 });
 
 test('expired sessions are dropped when the file is read; the session and key caps hold', async (t) => {
