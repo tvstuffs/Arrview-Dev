@@ -27,7 +27,12 @@ const net = require('net');
 const AUTH_FILE = path.join(CONFIG_DIR, 'auth.json');
 const COOKIE_NAME = 'arrview_session';
 const COOKIE_MAX_AGE = 2592000;           // 30 days
-const COOKIE_SLIDE_BELOW = 29 * 86400;    // re-issue when less than 29 days are left
+const COOKIE_SLIDE_BELOW = 29 * 86400;    // extend when less than 29 days are left: at most once a day per session
+const SESSIONS_MAX = 50;
+const KEYS_MAX = 50;
+const KEY_NAME_MAX = 40;
+const KEY_NAME_DEFAULT = 'App key';
+const USED_WRITE_EVERY = 86400;           // seconds between "last used" writes for one key
 const SCRYPT_MAXMEM = 268435456;
 const SCRYPT_PARAMS = { N: 131072, r: 8, p: 1, keylen: 64 };
 const PASSWORD_MIN = 8;
@@ -40,8 +45,10 @@ const QUEUE_WAITING_MAX = 16;
 const authLog = msg => console.log(msg);
 
 // mode: 'off' (open), 'on' (login required) or 'closed' (login required and nobody can sign in: unreadable
-// auth.json or a broken Docker password setting).
-const auth = { mode: 'off', record: null, secret: null, key: null, keyDigest: null, dockerManaged: false, disabledByDocker: false };
+// auth.json or a broken Docker password setting). sessions and keys hold only SHA-256 digests (hex) of the secrets
+// that sign someone in; the secrets themselves are never stored. setupFresh: the data folder had neither config.json
+// nor auth.json at start and no Docker setting decided the login (see setupPending).
+const auth = { mode: 'off', record: null, sessions: [], keys: [], dockerManaged: false, disabledByDocker: false, setupFresh: false };
 
 // validatePassword:begin
 // The one password rule (Settings, sign in and the Docker variables). The web client keeps a copy in src/passwordRules.js.
@@ -95,20 +102,53 @@ function validRecord(r) {
   return Boolean(hash) && hash.length === r.keylen;
 }
 
-const newAccessKey = () => crypto.randomBytes(32).toString('base64url');
+const newSecretToken = () => crypto.randomBytes(32).toString('base64url');
 const sha256 = v => crypto.createHash('sha256').update(String(v)).digest();
+const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+const DIGEST_SHAPE = /^[0-9a-f]{64}$/;
+const KEY_ID_SHAPE = /^[0-9a-f]{16}$/;
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-// auth.json contents -> { record, secret, accessKey } or null when invalid.
+// The entry whose stored digest equals `digest` (a Buffer), or null. Every entry is compared, in constant time each.
+function findByDigest(list, digest) {
+  let found = null;
+  for (const item of list) {
+    if (crypto.timingSafeEqual(Buffer.from(item.digest, 'hex'), digest)) found = item;
+  }
+  return found;
+}
+
+// auth.json (version 2) contents -> { record, sessions, keys } or null when invalid. A version 1 file from an
+// earlier test build keeps its password only (its session secret and shared key are dropped): migrated is true.
 function parseAuthText(text) {
   let obj;
   try { obj = JSON.parse(text); } catch (_) { return null; }
-  if (obj === null || typeof obj !== 'object' || Array.isArray(obj) || obj.version !== 1) return null;
-  if (obj.password === null) return { record: null, secret: null, accessKey: null };
-  if (!validRecord(obj.password)) return null;
-  const secret = strictBase64(obj.sessionSecret, 32, 1024);
-  if (!secret || typeof obj.accessKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(obj.accessKey)) return null;
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  if (obj.version === 1) {
+    if (obj.password === null) return { record: null, sessions: [], keys: [], migrated: true };
+    if (!validRecord(obj.password)) return null;
+    const { origin, algorithm, N, r, p, keylen, salt, hash } = obj.password;
+    return { record: { origin, algorithm, N, r, p, keylen, salt, hash }, sessions: [], keys: [], migrated: true };
+  }
+  if (obj.version !== 2) return null;
+  if (obj.password === null) return { record: null, sessions: [], keys: [] };
+  if (!validRecord(obj.password) || !Array.isArray(obj.sessions) || !Array.isArray(obj.keys)) return null;
+  if (obj.sessions.length > SESSIONS_MAX || obj.keys.length > KEYS_MAX) return null;
+  const int = v => Number.isInteger(v) && v >= 0 && v < 1e12;
+  const now = nowSeconds();
+  const sessions = [];
+  for (const s of obj.sessions) {
+    if (s === null || typeof s !== 'object' || typeof s.digest !== 'string' || !DIGEST_SHAPE.test(s.digest) || !int(s.created) || !int(s.expires)) return null;
+    if (s.expires > now) sessions.push({ digest: s.digest, created: s.created, expires: s.expires });
+  }
+  const keys = [];
+  for (const k of obj.keys) {
+    if (k === null || typeof k !== 'object' || typeof k.digest !== 'string' || !DIGEST_SHAPE.test(k.digest) || typeof k.id !== 'string' || !KEY_ID_SHAPE.test(k.id)) return null;
+    if (typeof k.name !== 'string' || k.name.length > KEY_NAME_MAX || !int(k.created) || !(k.lastUsed === null || int(k.lastUsed))) return null;
+    keys.push({ id: k.id, name: k.name, digest: k.digest, created: k.created, lastUsed: k.lastUsed });
+  }
   const { origin, algorithm, N, r, p, keylen, salt, hash } = obj.password;
-  return { record: { origin, algorithm, N, r, p, keylen, salt, hash }, secret, accessKey: obj.accessKey };
+  return { record: { origin, algorithm, N, r, p, keylen, salt, hash }, sessions, keys };
 }
 
 // { missing } | { bad: <code> } | { data }
@@ -123,12 +163,11 @@ function readAuthFile() {
 
 // Atomic, always 0600; throws after cleaning up.
 function writeAuthFile(state) {
-  const body = {
-    version: 1,
-    password: state.record,
-    sessionSecret: state.record ? state.secret.toString('base64') : null,
-    accessKey: state.record ? state.accessKey : null,
-  };
+  const body = { version: 2, password: state.record, sessions: [], keys: [] };
+  if (state.record) {
+    body.sessions = state.sessions.map(({ digest, created, expires }) => ({ digest, created, expires }));
+    body.keys = state.keys.map(({ id, name, digest, created, lastUsed }) => ({ id, name, digest, created, lastUsed }));
+  }
   const tmp = path.join(CONFIG_DIR, `.auth.json.${crypto.randomBytes(8).toString('hex')}.tmp`);
   try {
     fs.writeFileSync(tmp, JSON.stringify(body, null, 2), { mode: 0o600, flag: 'wx' });
@@ -142,9 +181,8 @@ function writeAuthFile(state) {
 
 function adoptAuth(state, dockerManaged) {
   auth.record = state.record;
-  auth.secret = state.record ? state.secret : null;
-  auth.key = state.record ? state.accessKey : null;
-  auth.keyDigest = auth.key ? sha256(auth.key) : null;
+  auth.sessions = state.record ? state.sessions : [];
+  auth.keys = state.record ? state.keys : [];
   auth.dockerManaged = Boolean(state.record) && dockerManaged;
   auth.mode = state.record ? 'on' : 'off';
 }
@@ -230,7 +268,10 @@ function normaliseProxyEntry(entry) {
       }
       if (covers) return null;
     }
-    if (words &&words.slice(0, 5).every(w => w === 0) && words[5] === 0xffff) {
+    // IPv4-compatible entries with a dotted tail (::192.0.2.1, ::192.0.2.1/96) are refused, not converted: the proxy
+    // matcher cannot compile them.
+    if (words && addr.includes('.') && words.slice(0, 6).every(w => w === 0)) return null;
+    if (words && words.slice(0, 5).every(w => w === 0) && words[5] === 0xffff) {
       // IPv4-mapped, in any spelling: the effective IPv4 prefix is prefix - 96, and /0 trusts every address.
       if (prefix !== null && prefix <= 96) return null;
       const v4 = `${words[6] >> 8}.${words[6] & 255}.${words[7] >> 8}.${words[7] & 255}`;
@@ -258,7 +299,13 @@ function parseTrustedProxies(raw, log) {
   return list;
 }
 
-app.set('trust proxy', parseTrustedProxies(process.env.ARRVIEW_TRUSTED_PROXIES, authLog));
+// A parser error must never stop start-up: any failure falls back to trusting nothing.
+try {
+  app.set('trust proxy', parseTrustedProxies(process.env.ARRVIEW_TRUSTED_PROXIES, authLog));
+} catch (_) {
+  authLog('[auth] ARRVIEW_TRUSTED_PROXIES could not be used; no proxy is trusted.');
+  app.set('trust proxy', false);
+}
 
 // The client address, only ever through req.ip.
 function clientIp(req) {
@@ -268,43 +315,76 @@ function clientIp(req) {
   return net.isIP(ip) ? ip : 'unknown';
 }
 
-// ── Sessions: v1.<expiry seconds>.<base64url HMAC-SHA256>, stateless ──
-const nowSeconds = () => Math.floor(Date.now() / 1000);
-const cookieSignature = exp => crypto.createHmac('sha256', auth.secret).update(`v1.${exp}`).digest('base64url');
-
-function sessionCookieValue() {
-  const exp = nowSeconds() + COOKIE_MAX_AGE;
-  return `v1.${exp}.${cookieSignature(exp)}`;
-}
-
+// ── Sessions: the cookie carries a random 32-byte token; only its SHA-256 digest is kept (memory and auth.json) ──
 function cookieAttributes(req) {
   return `Path=/; HttpOnly; SameSite=Lax${req.secure ? '; Secure' : ''}`;
 }
 
-const setSessionCookie = (req, res) =>
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${sessionCookieValue()}; Max-Age=${COOKIE_MAX_AGE}; ${cookieAttributes(req)}`);
+const setSessionCookie = (req, res, token) =>
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; Max-Age=${COOKIE_MAX_AGE}; ${cookieAttributes(req)}`);
 const clearSessionCookie = (req, res) =>
   res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; ${cookieAttributes(req)}`);
 
-// The expiry (seconds) of a valid session cookie on the request, or null.
-function sessionExpiry(req) {
+// A new session entry for `token` (not yet stored).
+function sessionEntry(token) {
+  const now = nowSeconds();
+  return { digest: sha256(token).toString('hex'), created: now, expires: now + COOKIE_MAX_AGE };
+}
+
+// Puts a session in the list, dropping the oldest ones beyond the cap.
+function addSession(list, entry) {
+  list.push(entry);
+  list.sort((a, b) => a.created - b.created);
+  while (list.length > SESSIONS_MAX) list.shift();
+}
+
+// The live session for a digest (Buffer), or null. Expired sessions are never found.
+function findSession(digest) {
+  const found = findByDigest(auth.sessions, digest);
+  return found && found.expires > nowSeconds() ? found : null;
+}
+const findKey = digest => findByDigest(auth.keys, digest);
+
+// { token, digest } of a session cookie on the request that names a live session, or null.
+function sessionFromCookie(req) {
   const header = req.headers.cookie;
-  if (typeof header !== 'string' || !auth.secret) return null;
+  if (typeof header !== 'string' || auth.mode === 'off' || !auth.sessions.length) return null;
   let tried = 0;
   for (const part of header.split(';')) {
     const piece = part.trim();
     const eq = piece.indexOf('=');
     if (eq < 0 || piece.slice(0, eq) !== COOKIE_NAME) continue;
     if (++tried > 5) break;
-    const value = piece.slice(eq + 1);
-    if (value.length > 200) continue;
-    const bits = value.split('.');
-    if (bits.length !== 3 || bits[0] !== 'v1' || !/^\d{1,12}$/.test(bits[1]) || Number(bits[1]) <= nowSeconds()) continue;
-    const given = Buffer.from(bits[2]);
-    const wanted = Buffer.from(cookieSignature(bits[1]));
-    if (given.length === wanted.length && crypto.timingSafeEqual(given, wanted)) return Number(bits[1]);
+    const token = piece.slice(eq + 1);
+    if (!TOKEN_SHAPE.test(token)) continue;
+    const digest = sha256(token);
+    if (findSession(digest)) return { token, digest };
   }
   return null;
+}
+
+// Writes the current auth state from the serial queue; failures are logged (the in-memory change stands).
+function persistSoon() {
+  if (auth.mode !== 'on') return;
+  authQueued(() => writeAuthFile(auth)).catch(err => {
+    if (!(err && err.busy)) authLog(`[auth] could not write auth.json (${(err && err.code) || 'error'}).`);
+  });
+}
+
+// Whether a stream's credential still works (sessions expire, and removal ends them).
+function streamValid(res) {
+  const cred = res.authCred;
+  if (auth.mode === 'off') return !cred; // a stream that signed in ends when the password is removed
+  if (!cred) return false;
+  return cred.type === 'key' ? Boolean(findKey(cred.digest)) : Boolean(findSession(cred.digest));
+}
+function closeStream(res) {
+  sseClients.delete(res);
+  try { res.end(); res.destroy(); } catch (_) {}
+}
+// Called whenever a credential is removed or the state changes: ends every stream that no longer has access.
+function closeInvalidStreams() {
+  for (const res of [...sseClients]) if (!streamValid(res)) closeStream(res);
 }
 
 // The candidate access key: X-Api-Key wins; otherwise a Bearer token; null when none was sent.
@@ -316,8 +396,16 @@ function keyCandidate(req) {
   return bearer ? (bearer[1] || '') : null;
 }
 
-function keyMatches(candidate) {
-  return Boolean(auth.keyDigest) && crypto.timingSafeEqual(sha256(candidate), auth.keyDigest);
+// The stored key a candidate names, with its "last used" date kept to one write a day.
+function keyFor(candidate) {
+  if (auth.mode !== 'on' || !auth.keys.length) return null;
+  const digest = sha256(candidate);
+  const key = findKey(digest);
+  if (key && (key.lastUsed === null || nowSeconds() - key.lastUsed >= USED_WRITE_EVERY)) {
+    key.lastUsed = nowSeconds();
+    persistSoon();
+  }
+  return key ? { key, digest } : null;
 }
 
 const PUBLIC_ROUTES = new Set([
@@ -343,11 +431,12 @@ function authGate(req, res, next) {
   // Classified even while the login is off, so a request admitted then is still rechecked if a password is set before
   // its body arrives.
   let kind = 'anon';
-  let expiry = null;
+  let session = null;
   const candidate = keyCandidate(req);
-  if (candidate !== null && keyMatches(candidate)) kind = 'key';
+  const keyHit = candidate !== null ? keyFor(candidate) : null;
+  if (keyHit) { kind = 'key'; req.authCred = { type: 'key', digest: keyHit.digest }; }
   else if (candidate !== null && !isPublic && auth.mode !== 'off') return gateReply(res, 401, { error: 'Authentication required', auth: true });
-  else if ((expiry = sessionExpiry(req)) !== null) kind = 'cookie';
+  else if ((session = sessionFromCookie(req)) !== null) { kind = 'cookie'; req.authCred = { type: 'session', digest: session.digest }; }
   req.authKind = kind;
   req.authProtected = !isPublic;
   if (auth.mode === 'off') return next();
@@ -359,12 +448,17 @@ function authGate(req, res, next) {
   if (!isPublic && kind === 'anon') return gateReply(res, 401, { error: 'Authentication required', auth: true });
 
   // Sliding expiry: a fresh cookie goes out with a successful response to a protected request.
-  if (!isPublic && kind === 'cookie' && expiry - nowSeconds() < COOKIE_SLIDE_BELOW) {
-    const cookie = `${COOKIE_NAME}=${sessionCookieValue()}; Max-Age=${COOKIE_MAX_AGE}; ${cookieAttributes(req)}`;
+  // The stored expiry moves out and the cookie is re-sent, at most once a day per session.
+  if (!isPublic && kind === 'cookie' && findSession(session.digest).expires - nowSeconds() < COOKIE_SLIDE_BELOW) {
     const writeHead = res.writeHead;
     res.writeHead = function slidingWriteHead(status, ...rest) {
       if (!this.headersSent && !this.getHeader('Set-Cookie') && (typeof status !== 'number' || status < 400)) {
-        this.setHeader('Set-Cookie', cookie);
+        const live = findSession(session.digest);
+        if (live && live.expires - nowSeconds() < COOKIE_SLIDE_BELOW) {
+          live.expires = nowSeconds() + COOKIE_MAX_AGE;
+          persistSoon();
+          setSessionCookie(req, this, session.token);
+        }
       }
       return writeHead.call(this, status, ...rest);
     };
@@ -432,11 +526,8 @@ async function passwordMatches(raw) {
 // before queued work starts, and a password change or Sign out everywhere can land in between.
 function reauthorised(req) {
   if (auth.mode === 'off' || req.authProtected === false) return true;
-  if (req.authKind === 'cookie') return sessionExpiry(req) !== null;
-  if (req.authKind === 'key') {
-    const candidate = keyCandidate(req);
-    return candidate !== null && keyMatches(candidate);
-  }
+  if (req.authKind === 'cookie' && req.authCred) return Boolean(findSession(req.authCred.digest));
+  if (req.authKind === 'key' && req.authCred) return Boolean(findKey(req.authCred.digest));
   return false;
 }
 const staleReply = res => gateReply(res, 401, { error: 'Authentication required', auth: true });
@@ -485,14 +576,6 @@ function authRoute(handler) {
     authLog(`[auth] request failed (${(err && err.code) || 'error'})`);
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' });
   });
-}
-
-// Every open event stream ends when the credentials change, so none outlives them.
-function closeEventStreams() {
-  for (const client of sseClients) {
-    try { client.end(); client.destroy(); } catch (_) {}
-  }
-  sseClients.clear();
 }
 
 // A limited password check: a slot is taken first, the check and the action run inside the serial queue, a success
@@ -545,9 +628,13 @@ function manageBlocked(req, res) {
 function commitAuth(res, next) {
   try { writeAuthFile(next); } catch (_) { res.status(500).json({ error: AUTH_SAVE_TEXT }); return false; }
   adoptAuth(next, auth.dockerManaged);
-  closeEventStreams();
+  closeInvalidStreams();
   return true;
 }
+
+// First-run choice: only on a new install (see auth.setupFresh), and only while the data folder is still empty.
+const setupPending = () => auth.setupFresh && auth.mode === 'off' && !auth.disabledByDocker &&
+  !fs.existsSync(CONFIG_FILE) && !fs.existsSync(AUTH_FILE);
 
 app.get('/api/auth/status', authRoute((req, res) => {
   const required = auth.mode !== 'off';
@@ -559,23 +646,75 @@ app.get('/api/auth/status', authRoute((req, res) => {
     required, signedIn,
     source: auth.record ? (auth.dockerManaged ? 'docker' : 'settings') : 'none',
     authDisabledByDocker: auth.disabledByDocker,
+    setupPending: setupPending(),
     passwordMinLength: PASSWORD_MIN, passwordMaxLength: PASSWORD_MAX,
   });
 }));
 
-app.post('/api/auth/login', authRoute((req, res) => passwordCheckRoute(req, res, 'login', () => {
-  setSessionCookie(req, res);
-  res.json({ success: true });
+// "Continue without a password" on the first-run screen: writes auth.json with no password, so the screen never returns.
+app.post('/api/auth/setup/skip', authRoute((req, res) => authQueued(() => {
+  if (!setupPending()) return res.status(409).json({ error: 'Setup is already done' });
+  try { writeAuthFile({ record: null, sessions: [], keys: [] }); } catch (_) { return res.status(500).json({ error: AUTH_SAVE_TEXT }); }
+  return res.json({ success: true });
 })));
 
-app.post('/api/auth/logout', authRoute((req, res) => {
-  if (auth.mode !== 'off') clearSessionCookie(req, res);
-  res.json({ success: true });
+app.post('/api/auth/login', authRoute((req, res) => passwordCheckRoute(req, res, 'login', () => {
+  const token = newSecretToken();
+  const entry = sessionEntry(token);
+  const before = auth.sessions.slice();
+  addSession(auth.sessions, entry);
+  try { writeAuthFile(auth); } catch (_) {
+    auth.sessions = before;
+    return res.status(500).json({ error: 'Could not sign in' });
+  }
+  closeInvalidStreams();
+  setSessionCookie(req, res, token);
+  return res.json({ success: true });
+})));
+
+// Sign out ends only this browser's session: a copied cookie stops working at once.
+app.post('/api/auth/logout', authRoute(async (req, res) => {
+  if (auth.mode === 'off') return res.json({ success: true });
+  const session = sessionFromCookie(req);
+  if (session) {
+    auth.sessions = auth.sessions.filter(s => s.digest !== session.digest.toString('hex'));
+    closeInvalidStreams();
+    persistSoon();
+  }
+  clearSessionCookie(req, res);
+  return res.json({ success: true });
 }));
 
-app.post('/api/auth/token', authRoute((req, res) => passwordCheckRoute(req, res, 'token', () => {
-  res.json({ accessKey: auth.key });
-})));
+// Key names are plain text: at most 40 characters, no control characters, "App key" when empty. null on a bad name.
+function keyName(raw) {
+  if (raw === undefined || raw === null) return KEY_NAME_DEFAULT;
+  if (typeof raw !== 'string') return null;
+  const name = raw.trim();
+  if (name.length > KEY_NAME_MAX || /[\u0000-\u001f\u007f]/.test(name)) return null;
+  return name || KEY_NAME_DEFAULT;
+}
+const KEY_NAME_TEXT = `Name must be ${KEY_NAME_MAX} characters or fewer, with no control characters`;
+const KEYS_FULL_TEXT = `ArrView already has ${KEYS_MAX} app keys. Remove one first.`;
+
+// Creates a key inside the queue; the secret is in the response only.
+function createKey(res, name) {
+  if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
+  if (auth.keys.length >= KEYS_MAX) return res.status(409).json({ error: KEYS_FULL_TEXT });
+  const secret = newSecretToken();
+  const entry = { id: crypto.randomBytes(8).toString('hex'), name, digest: sha256(secret).toString('hex'), created: nowSeconds(), lastUsed: null };
+  auth.keys.push(entry);
+  try { writeAuthFile(auth); } catch (_) {
+    auth.keys = auth.keys.filter(k => k !== entry);
+    return res.status(500).json({ error: 'Could not save the key' });
+  }
+  return res.json({ accessKey: secret, id: entry.id, name: entry.name, created: entry.created });
+}
+
+app.post('/api/auth/token', authRoute((req, res) => {
+  const name = keyName(isPlainObject(req.body) ? req.body.name : undefined);
+  if (name === null) return res.status(400).json({ error: KEY_NAME_TEXT });
+  return passwordCheckRoute(req, res, 'token', () => createKey(res, name));
+}));
 
 app.post('/api/auth/password', authRoute(async (req, res) => {
   if (auth.disabledByDocker) return res.status(409).json({ error: AUTH_OFF_TEXT });
@@ -588,9 +727,10 @@ app.post('/api/auth/password', authRoute(async (req, res) => {
   const change = async () => {
     if (!reauthorised(req)) return staleReply(res);
     const record = await hashPassword(checked.value, 'settings');
-    const next = { record, secret: crypto.randomBytes(32), accessKey: newAccessKey() };
-    if (!commitAuth(res, next)) return;
-    setSessionCookie(req, res);
+    // Every other session and every app key goes; this browser gets a new session.
+    const token = newSecretToken();
+    if (!commitAuth(res, { record, sessions: [sessionEntry(token)], keys: [] })) return;
+    setSessionCookie(req, res, token);
     res.json({ success: true });
   };
   if (auth.mode === 'off') {
@@ -616,7 +756,7 @@ app.post('/api/auth/password/remove', authRoute(async (req, res) => {
   if (typeof current !== 'string' || current === '') return res.status(400).json({ error: 'Current password is required' });
   return limitedCheck(req, res, 'remove', current, () => res.status(403).json({ error: 'Current password is incorrect' }), () => {
     if (!reauthorised(req)) return staleReply(res);
-    if (!commitAuth(res, { record: null, secret: null, accessKey: null })) return;
+    if (!commitAuth(res, { record: null, sessions: [], keys: [] })) return;
     clearSessionCookie(req, res);
     res.json({ success: true });
   });
@@ -627,28 +767,55 @@ app.post('/api/auth/logout-all', authRoute((req, res) => {
   return authQueued(() => {
     if (!reauthorised(req)) return staleReply(res);
     if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
-    if (!commitAuth(res, { record: auth.record, secret: crypto.randomBytes(32), accessKey: newAccessKey() })) return undefined;
+    if (!commitAuth(res, { record: auth.record, sessions: [], keys: [] })) return undefined;
     clearSessionCookie(req, res);
     return res.json({ success: true });
   });
 }));
 
-app.get('/api/auth/access-key', authRoute((req, res) => {
+// App keys: listed without their secrets; created, removed one at a time or all at once from a signed-in browser.
+app.get('/api/auth/keys', authRoute((req, res) => {
   if (manageBlocked(req, res)) return;
-  res.json({ accessKey: auth.key });
+  res.json({ max: KEYS_MAX, keys: auth.keys.map(({ id, name, created, lastUsed }) => ({ id, name, created, lastUsed })) });
 }));
 
-app.post('/api/auth/access-key/regenerate', authRoute((req, res) => {
+app.post('/api/auth/keys', authRoute((req, res) => {
   if (manageBlocked(req, res)) return undefined;
+  const name = keyName(isPlainObject(req.body) ? req.body.name : undefined);
+  if (name === null) return res.status(400).json({ error: KEY_NAME_TEXT });
+  return authQueued(() => (reauthorised(req) ? createKey(res, name) : staleReply(res)));
+}));
+
+// Removal takes effect in memory first, so access ends at once (open event streams included); the file follows.
+function removeKeys(req, res, match) {
   return authQueued(() => {
     if (!reauthorised(req)) return staleReply(res);
     if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
-    if (!commitAuth(res, { record: auth.record, secret: auth.secret, accessKey: newAccessKey() })) return undefined;
-    return res.json({ accessKey: auth.key });
+    const kept = auth.keys.filter(k => !match(k));
+    const removed = auth.keys.length - kept.length;
+    if (match.single && !removed) return res.status(404).json({ error: 'No such key' });
+    auth.keys = kept;
+    closeInvalidStreams();
+    try { writeAuthFile(auth); } catch (_) { return res.status(500).json({ error: 'The key was removed but the change could not be saved' }); }
+    return res.json({ success: true, removed });
   });
+}
+
+app.post('/api/auth/keys/remove', authRoute((req, res) => {
+  if (manageBlocked(req, res)) return undefined;
+  const id = isPlainObject(req.body) ? req.body.id : undefined;
+  if (typeof id !== 'string' || !KEY_ID_SHAPE.test(id)) return res.status(400).json({ error: 'A key id is required' });
+  const match = k => k.id === id;
+  match.single = true;
+  return removeKeys(req, res, match);
 }));
 
-const distPath =path.join(__dirname, 'dist');
+app.post('/api/auth/keys/remove-all', authRoute((req, res) => {
+  if (manageBlocked(req, res)) return undefined;
+  return removeKeys(req, res, () => true);
+}));
+
+const distPath = path.join(__dirname, 'dist');
 app.use('/assets', express.static(path.join(distPath, 'assets'), {
   maxAge: '1y', immutable: true,
 }));
@@ -1859,8 +2026,9 @@ app.get('/api/events', (req, res) => {
   res.flushHeaders();
   res.write('retry: 5000\n\n');
 
-  // Keep-alive ping every 25s to prevent proxy/browser timeouts
-  const ping = setInterval(() => res.write(': ping\n\n'), 25000);
+  // Keep-alive ping every 25s to prevent proxy/browser timeouts. A stream whose session has expired ends here.
+  res.authCred = req.authCred || null;
+  const ping = setInterval(() => (streamValid(res) ? res.write(': ping\n\n') : closeStream(res)), 25000);
   sseClients.add(res);
   req.on('close', () => { sseClients.delete(res); clearInterval(ping); });
 });
@@ -1960,11 +2128,15 @@ async function initDockerPassword(password, file) {
   const stored = file.data;
   if (stored && stored.record && stored.record.origin === 'docker' && await verifyRecord(stored.record, password)) {
     adoptAuth(stored, true);
+    if (stored.migrated) {
+      try { writeAuthFile(auth); } catch (_) {}
+      authLog('[auth] auth.json was upgraded to version 2; the old session secret and access key were dropped, so everyone signs in again.');
+    }
     authLog('[auth] login is ON: password set by the Docker configuration.');
     return;
   }
   const replacing = Boolean(file.bad || (stored && stored.record));
-  const next = { record: await hashPassword(password, 'docker'), secret: crypto.randomBytes(32), accessKey: newAccessKey() };
+  const next = { record: await hashPassword(password, 'docker'), sessions: [], keys: [] };
   adoptAuth(next, true);
   try { writeAuthFile(next); } catch (e) {
     authLog(`[auth] could not write auth.json (${(e && e.code) || 'error'}); the Docker password is in force but sessions will not survive a restart.`);
@@ -1989,16 +2161,27 @@ async function initAuth() {
       authLog(`[auth] auth.json could not be read (${file.bad}); the login stays ON and no one can sign in. To recover, follow the Recovery procedures in the README (replace the password with a Docker one, or remove auth.json and set a new password in Settings).`);
       return;
     }
-    if (file.missing || !file.data.record) { authLog('[auth] login is OFF (no password set).'); return; }
+    if (file.missing) {
+      // A new install: the first-run screen offers the choice while neither config.json nor auth.json exists.
+      auth.setupFresh = !fs.existsSync(CONFIG_FILE);
+      authLog('[auth] login is OFF (no password set).');
+      return;
+    }
+    if (!file.data.record) { authLog('[auth] login is OFF (no password set).'); return; }
+    if (file.data.record.origin === 'docker') {
+      // The Docker password variables are gone: the login goes off with every session and key.
+      try { writeAuthFile({ record: null, sessions: [], keys: [] }); } catch (_) {}
+      authLog('[auth] ARRVIEW_PASSWORD is no longer set, so the Docker password was removed and the login is OFF.');
+      return;
+    }
     adoptAuth(file.data, false);
-    if (auth.record.origin === 'docker') {
-      auth.record.origin = 'settings';
-      try { writeAuthFile({ record: auth.record, secret: auth.secret, accessKey: auth.key }); } catch (_) {}
-      authLog('[auth] ARRVIEW_PASSWORD is no longer set; the stored password stays in force and can be changed in Settings.');
+    if (file.data.migrated) {
+      try { writeAuthFile(auth); } catch (_) {}
+      authLog('[auth] auth.json was upgraded to version 2; the old session secret and access key were dropped, so everyone signs in again.');
     }
     authLog('[auth] login is ON (password set in Settings).');
   } catch (e) {
-    Object.assign(auth, { mode: 'closed', record: null, secret: null, key: null, keyDigest: null, dockerManaged: false });
+    Object.assign(auth, { mode: 'closed', record: null, sessions: [], keys: [], dockerManaged: false });
     authLog(`[auth] start-up failed (${(e && e.code) || 'error'}); the login stays ON and no one can sign in.`);
   }
 }

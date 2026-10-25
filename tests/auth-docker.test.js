@@ -83,13 +83,13 @@ test('ARRVIEW_PASSWORD_FILE: the shared vectors and the file edge cases', async 
   await failsClosed(blank, 'ARRVIEW_PASSWORD is empty.');
 });
 
-test('a changed value signs everyone out, an unchanged one does not, removing the variable keeps the login', async (t) => {
+test('a changed value signs everyone out, an unchanged one does not, removing the variable turns the login off', async (t) => {
   const root = newRoot(t);
   const first = await startServer(t, { root, env: { ARRVIEW_PASSWORD: DOCKER } });
   assert.ok(authLines(first).includes('[auth] login is ON: password set by the Docker configuration.'));
   assert.ok(!authLines(first).some(l => l.includes('changed')));
   const cookie = await loginCookie(first.base, DOCKER);
-  const key = (await (await fetch(first.base + '/api/auth/access-key', { headers: { Cookie: cookie } })).json()).accessKey;
+  const key = (await (await post(first, '/api/auth/token', { password: DOCKER })).json()).accessKey;
   await first.close();
 
   const same = await startServer(t, { root, env: { ARRVIEW_PASSWORD: DOCKER } });
@@ -97,18 +97,47 @@ test('a changed value signs everyone out, an unchanged one does not, removing th
   assert.equal((await fetch(same.base + '/api/config', { headers: { 'X-Api-Key': key } })).status, 200);
   await same.close();
 
-  const removed = await startServer(t, { root });
-  assert.ok(authLines(removed).some(l => l.startsWith('[auth] ARRVIEW_PASSWORD is no longer set;')));
-  assert.equal((await fetch(removed.base + '/api/config', { headers: { Cookie: cookie } })).status, 200);
-  assert.equal((await (await fetch(removed.base + '/api/auth/status', { headers: { Cookie: cookie } })).json()).source, 'settings');
-  assert.equal(removed.readAuth().password.origin, 'settings');
-  await removed.close();
-
   const changed = await startServer(t, { root, env: { ARRVIEW_PASSWORD: 'a different docker pass' } });
   assert.ok(authLines(changed).includes('[auth] the Docker password changed; everyone is signed out.'));
   assert.equal((await fetch(changed.base + '/api/config', { headers: { Cookie: cookie } })).status, 401);
   assert.equal((await fetch(changed.base + '/api/config', { headers: { 'X-Api-Key': key } })).status, 401);
   assert.equal((await signIn(changed, 'a different docker pass')).status, 200);
+  assert.deepEqual([changed.readAuth().sessions.length, changed.readAuth().keys.length], [1, 0]);
+  await changed.close();
+
+  // The variable is gone: the Docker password goes with every session and key, the login is off, one line says why.
+  const removed = await startServer(t, { root });
+  const lines = authLines(removed);
+  assert.equal(lines.filter(l => l === '[auth] ARRVIEW_PASSWORD is no longer set, so the Docker password was removed and the login is OFF.').length, 1);
+  assert.equal(lines.length, 1);
+  assert.equal((await fetch(removed.base + '/api/config')).status, 200);
+  const status = await (await fetch(removed.base + '/api/auth/status')).json();
+  assert.deepEqual([status.required, status.source], [false, 'none']);
+  assert.deepEqual(removed.readAuth(), { version: 2, password: null, sessions: [], keys: [] });
+  await removed.close();
+
+  // A password set in Settings is not affected by the missing variable.
+  const settingsRoot = newRoot(t);
+  const seeded = seedAuth(settingsRoot, 'settings password 1');
+  const kept = await startServer(t, { root: settingsRoot });
+  assert.equal((await fetch(kept.base + '/api/config')).status, 401);
+  assert.equal((await fetch(kept.base + '/api/config', { headers: { Cookie: seeded.cookie } })).status, 200);
+  assert.ok(authLines(kept).includes('[auth] login is ON (password set in Settings).'));
+});
+
+test('with ARRVIEW_PASSWORD and ARRVIEW_PASSWORD_FILE both unset, a stored docker password is removed; a broken file or a bad variable is left alone', async (t) => {
+  const root = newRoot(t);
+  seedAuth(root, DOCKER, { origin: 'docker' });
+  const s = await startServer(t, { root });
+  assert.equal((await fetch(s.base + '/api/config')).status, 200);
+  assert.equal(s.readAuth().password, null);
+  // Both variables set is an error, not "unset": the login stays on and the file is not touched.
+  const both = newRoot(t);
+  seedAuth(both, DOCKER, { origin: 'docker' });
+  const before = fs.readFileSync(path.join(both, 'auth.json'), 'utf8');
+  const closed = await startServer(t, { root: both, env: { ARRVIEW_PASSWORD: DOCKER, ARRVIEW_PASSWORD_FILE: tempFile(t, DOCKER) } });
+  assert.equal((await fetch(closed.base + '/api/config')).status, 401);
+  assert.equal(fs.readFileSync(path.join(both, 'auth.json'), 'utf8'), before);
 });
 
 test('ARRVIEW_AUTH=off wins, an unrecognised value is ignored without being printed', async (t) => {
@@ -124,7 +153,8 @@ test('ARRVIEW_AUTH=off wins, an unrecognised value is ignored without being prin
     assert.equal(r.status, 409);
     assert.equal((await r.json()).error, "The login is turned off by the Docker configuration (ARRVIEW_AUTH=off) and can't be changed here");
   }
-  assert.equal((await fetch(s.base + '/api/auth/access-key')).status, 409);
+  assert.equal((await fetch(s.base + '/api/auth/keys')).status, 409);
+  assert.equal((await post(s, '/api/auth/keys', {})).status, 409);
   assert.equal(fs.readFileSync(path.join(root, 'auth.json'), 'utf8'), '{broken');
   assert.equal(fs.readdirSync(root).includes('.auth.json'), false);
 
@@ -139,7 +169,7 @@ test('a valid Docker password heals a corrupt auth.json', async (t) => {
   fs.writeFileSync(path.join(root, 'auth.json'), '[]');
   const s = await startServer(t, { root, env: { ARRVIEW_PASSWORD: DOCKER } });
   assert.equal((await signIn(s, DOCKER)).status, 200);
-  assert.equal(s.readAuth().version, 1);
+  assert.equal(s.readAuth().version, 2);
   assert.ok(authLines(s).includes('[auth] the Docker password changed; everyone is signed out.'));
 });
 
@@ -243,7 +273,9 @@ test('trusted proxies: default trusts nothing; listed peers are believed', async
 test('trusted proxies: any invalid entry trusts nothing', async (t) => {
   for (const bad of ['banana', '192.0.2.0/33', '0.0.0.0/0', '::/0', '127.0.0.1, banana',
     '::ffff:192.0.2.1/96', '::FFFF:192.0.2.1/96', '0:0:0:0:0:ffff:192.0.2.1/96', '::ffff:c000:201/96', '::ffff:192.0.2.1/64',
-    '::/80', '::/64', '::/1', '0::/8', '0:0:0:0:0:fff0::/76', '0000:0000:0000:0000:0000:0000::/080']) {
+    '::/80', '::/64', '::/1', '0::/8', '0:0:0:0:0:fff0::/76', '0000:0000:0000:0000:0000:0000::/080',
+    // IPv4-compatible dotted-tail entries: refused with the log line (they used to stop start-up), bare, CIDR and in a list.
+    '::192.0.2.1', '::192.0.2.1/96', '0:0:0:0:0:0:192.0.2.1', '127.0.0.1, ::192.0.2.1', '::192.0.2.1, 127.0.0.1', '192.0.2.1, ::192.0.2.1/96, 127.0.0.1']) {
     const s = await proxied(t, bad);
     assert.equal(await secureCookie(s, { 'X-Forwarded-Proto': 'https' }), false, bad);
     assert.ok(authLines(s).some(l => l.startsWith('[auth] ARRVIEW_TRUSTED_PROXIES has an invalid entry "') && l.endsWith('no proxy is trusted.')), bad);

@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { startServer, startUpstream } = require('./helpers/server-harness');
-const { PASSWORD, AJAX, JSON_HEADERS, newRoot, seedAuth, forgeCookie, setCookies, cookieHeader, startSeeded } = require('./helpers/auth-helpers');
+const { PASSWORD, AJAX, JSON_HEADERS, DAY, newToken, digestOf, newRoot, seedAuth, setCookies, cookieHeader, startSeeded } = require('./helpers/auth-helpers');
 const { routeTable } = require('./helpers/route-table');
 
 const GATE_401 = { error: 'Authentication required', auth: true };
@@ -61,8 +61,8 @@ test('route table: the gate precedes everything and every route answers 401 with
   assert.equal((await fetch(s.base + '/api/config', { method: 'PATCH', headers: JSON_HEADERS, body: '{}' })).status, 401);
 
   // Signed in: no route is stopped by the gate (the two that would rotate the credentials are left to the route tests).
-  const cookie = forgeCookie(s.seeded.secret, nowSec() + 86400 * 30);
-  const skip = new Set(['POST /api/auth/logout-all', 'POST /api/auth/access-key/regenerate']);
+  const cookie = s.seeded.cookie;
+  const skip = new Set(['POST /api/auth/logout', 'POST /api/auth/logout-all', 'POST /api/auth/keys/remove-all']);
   const isGate = (r, text) => (r.status === 401 && text.includes('"auth":true')) || text.includes('Missing X-Requested-With');
   for (const [name, headers] of [['cookie', { Cookie: cookie, 'X-Requested-With': 'ArrView' }], ['key', { 'X-Api-Key': s.seeded.accessKey }]]) {
     for (const e of targets) {
@@ -76,7 +76,7 @@ test('route table: the gate precedes everything and every route answers 401 with
 test('key headers: X-Api-Key wins, Bearer is case-insensitive, other schemes are ignored', async (t) => {
   const s = await startSeeded(t);
   const good = s.seeded.accessKey;
-  const cookie = forgeCookie(s.seeded.secret, nowSec() + 86400 * 30);
+  const cookie = s.seeded.cookie;
   const status = async headers => (await fetch(s.base + '/api/config', { headers })).status;
   assert.equal(await status({ 'X-Api-Key': good, Authorization: 'Bearer wrong' }), 200);
   assert.equal(await status({ 'X-Api-Key': 'wrong', Authorization: `Bearer ${good}` }), 401);
@@ -122,7 +122,7 @@ test('webhooks: receivers are open, the last-event read is not, and a signed-in 
 
 test('X-Requested-With rule', async (t) => {
   const s = await startSeeded(t);
-  const cookie = forgeCookie(s.seeded.secret, nowSec() + 86400 * 30);
+  const cookie = s.seeded.cookie;
   const key = s.seeded.accessKey;
   const send = (path, headers, method = 'POST', body = '{}') => fetch(s.base + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body });
   for (const method of ['POST', 'PUT', 'DELETE']) {
@@ -145,7 +145,7 @@ test('X-Requested-With rule', async (t) => {
 test('events: anonymous 401, signed in streams, credential changes end the stream', async (t) => {
   const s = await startSeeded(t, { seedOptions: {} });
   assert.equal((await fetch(s.base + '/api/events')).status, 401);
-  const cookie = forgeCookie(s.seeded.secret, nowSec() + 86400 * 30);
+  const cookie = s.seeded.cookie;
   const open = async () => {
     const r = await fetch(s.base + '/api/events', { headers: { Cookie: cookie } });
     assert.equal(r.status, 200);
@@ -163,36 +163,51 @@ test('events: anonymous 401, signed in streams, credential changes end the strea
   assert.equal(await ended(reader), true);
 });
 
-test('sliding expiry, expiry and tampering', async (t) => {
+test('sliding expiry (at most once a day, stored), expiry and tampering', async (t) => {
   let now = 1_800_000_000_000;
   const root = newRoot(t);
-  const seeded = seedAuth(root);
-  const s = await startServer(t, { root, clock: () => now });
+  // Sessions seeded relative to the real clock; the server clock is moved so they sit at the ages under test.
+  const real = Math.floor(Date.now() / 1000);
   const sec = () => Math.floor(now / 1000);
+  now = real * 1000;
+  const seeded = seedAuth(root, PASSWORD, { sessions: [28 * DAY, 29.5 * DAY, -5, 10 * DAY, 2 * DAY, 2 * DAY] });
+  const s = await startServer(t, { root, clock: () => now });
   const get = cookie => fetch(s.base + '/api/config', { headers: { Cookie: cookie } });
-  const day = 86400;
-  const old = await get(forgeCookie(seeded.secret, sec() + 28 * day));
+  const [aged, fresh, expired, good, pubSession, failSession] = seeded.cookies;
+  const stored = token => s.readAuth().sessions.find(x => x.digest === digestOf(token));
+  const failBefore = stored(seeded.tokens[5]).expires;
+
+  const old = await get(aged);
   assert.equal(old.status, 200);
   const reissued = setCookies(old);
   assert.equal(reissued.length, 1);
-  assert.equal(Number(reissued[0].value.split('.')[1]), sec() + 30 * day);
-  const fresh = await get(forgeCookie(seeded.secret, sec() + 29.5 * day));
-  assert.equal(fresh.status, 200);
-  assert.equal(setCookies(fresh).length, 0);
-  assert.equal((await get(forgeCookie(seeded.secret, sec() - 5))).status, 401);
-  const good = forgeCookie(seeded.secret, sec() + 10 * day);
+  assert.equal(reissued[0].value, seeded.tokens[0], 'the same token goes out again');
+  assert.equal(reissued[0].attrs['max-age'], String(30 * DAY));
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(stored(seeded.tokens[0]).expires, sec() + 30 * DAY);
+  // A second use the same day writes nothing and sends no cookie.
+  const again = await get(aged);
+  assert.equal(setCookies(again).length, 0);
+
+  const freshRes = await get(fresh);
+  assert.equal(freshRes.status, 200);
+  assert.equal(setCookies(freshRes).length, 0);
+  assert.equal((await get(expired)).status, 401);
   assert.equal((await get(good.slice(0, -4))).status, 401);
-  assert.equal((await get(good.replace('v1.', 'v2.'))).status, 401);
   assert.equal((await get(good.slice(0, -2) + (good.endsWith('AA') ? 'BB' : 'AA'))).status, 401);
-  assert.equal((await get(forgeCookie(Buffer.alloc(32, 7), sec() + 10 * day))).status, 401);
-  const bad = forgeCookie(Buffer.alloc(32, 7), sec() + 10 * day);
-  assert.equal((await get(`${bad}; ${good}`)).status, 200);
+  assert.equal((await get(`arrview_session=${newToken()}`)).status, 401);
+  assert.equal((await get(`arrview_session=${'a'.repeat(300)}`)).status, 401);
+  assert.equal((await get(`arrview_session=${newToken()}; ${good}`)).status, 200);
   // Public routes and failures never extend a session.
-  const pub = await fetch(s.base + '/api/health', { headers: { Cookie: forgeCookie(seeded.secret, sec() + 2 * day) } });
+  const pub = await fetch(s.base + '/api/health', { headers: { Cookie: pubSession } });
   assert.equal(setCookies(pub).length, 0);
-  const failed = await fetch(s.base + '/api/sonarr/series/1', { method: 'DELETE', headers: { Cookie: forgeCookie(seeded.secret, sec() + 2 * day), 'X-Requested-With': 'ArrView' } });
+  const failed = await fetch(s.base + '/api/sonarr/series/1', { method: 'DELETE', headers: { Cookie: failSession, 'X-Requested-With': 'ArrView' } });
   assert.ok(failed.status >= 400);
   assert.equal(setCookies(failed).length, 0);
+  assert.equal(stored(seeded.tokens[5]).expires, failBefore);
+  // A session that runs out of time stops working on the next request.
+  now += 31 * DAY * 1000;
+  assert.equal((await get(good)).status, 401);
 });
 
 test('login off: everything answers as before and nothing is created', async (t) => {

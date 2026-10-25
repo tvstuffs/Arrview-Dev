@@ -19,22 +19,30 @@ function newRoot(t) {
   return root;
 }
 
-// Writes a valid auth.json using N=1024 (allowed by the server's validation) so tests skip the 155 ms / 128 MiB hash.
-function seedAuth(root, password = PASSWORD, { origin = 'settings', N = 1024, secret, accessKey } = {}) {
+const newToken = () => crypto.randomBytes(32).toString('base64url');
+const digestOf = token => crypto.createHash('sha256').update(token).digest('hex');
+const nowSec = () => Math.floor(Date.now() / 1000);
+const DAY = 86400;
+
+// Writes a valid version 2 auth.json using N=1024 (allowed by the server's validation) so tests skip the 155 ms / 128 MiB
+// hash. `sessions` lists the seconds each stored session has left (default one with 30 days); `keys` lists key names
+// (default one). Returns the raw tokens (the file holds only their digests): token/cookie for the first session,
+// tokens[] / cookies[] for all, accessKey for the first key, accessKeys[] for all.
+function seedAuth(root, password = PASSWORD, { origin = 'settings', N = 1024, sessions = [30 * DAY], keys = ['Test key'] } = {}) {
   const salt = crypto.randomBytes(16);
   const hash = crypto.scryptSync(password.normalize('NFKC'), salt, 64, { N, r: 8, p: 1 });
-  const sessionSecret = secret || crypto.randomBytes(32);
-  const key = accessKey || crypto.randomBytes(32).toString('base64url');
   const record = { origin, algorithm: 'scrypt', N, r: 8, p: 1, keylen: 64, salt: salt.toString('base64'), hash: hash.toString('base64') };
-  const text = JSON.stringify({ version: 1, password: record, sessionSecret: sessionSecret.toString('base64'), accessKey: key }, null, 2);
-  fs.writeFileSync(path.join(root, 'auth.json'), text, { mode: 0o600 });
-  return { password, secret: sessionSecret, accessKey: key, record };
-}
-
-// A cookie header value signed with a secret (for forging aged, expired or foreign cookies).
-function forgeCookie(secret, exp) {
-  const sig = crypto.createHmac('sha256', secret).update(`v1.${exp}`).digest('base64url');
-  return `arrview_session=v1.${exp}.${sig}`;
+  const tokens = sessions.map(() => newToken());
+  const accessKeys = keys.map(() => newToken());
+  const now = nowSec();
+  const body = {
+    version: 2, password: record,
+    sessions: tokens.map((token, i) => ({ digest: digestOf(token), created: now - i, expires: now + sessions[i] })),
+    keys: accessKeys.map((key, i) => ({ id: crypto.randomBytes(8).toString('hex'), name: keys[i], digest: digestOf(key), created: now - i, lastUsed: null })),
+  };
+  fs.writeFileSync(path.join(root, 'auth.json'), JSON.stringify(body, null, 2), { mode: 0o600 });
+  const cookies = tokens.map(t => `arrview_session=${t}`);
+  return { password, record, tokens, token: tokens[0], cookies, cookie: cookies[0], accessKeys, accessKey: accessKeys[0], keyIds: body.keys.map(k => k.id) };
 }
 
 // 'name=value; Max-Age=...' -> { name, value, attrs: { lowercased attribute: value|true } }
@@ -79,5 +87,5 @@ function trackingFetch() {
   return tracked;
 }
 
-module.exports = { PASSWORD, AJAX, JSON_HEADERS, newRoot, seedAuth, forgeCookie, parseSetCookie, setCookies, cookieHeader,
+module.exports = { PASSWORD, AJAX, JSON_HEADERS, DAY, newToken, digestOf, nowSec, newRoot, seedAuth, parseSetCookie, setCookies, cookieHeader,
   loginCookie, startSeeded, trackingFetch };

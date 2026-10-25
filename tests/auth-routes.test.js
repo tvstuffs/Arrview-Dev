@@ -2,21 +2,21 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { startServer } = require('./helpers/server-harness');
-const { PASSWORD, AJAX, JSON_HEADERS, newRoot, seedAuth, forgeCookie, setCookies, cookieHeader, loginCookie, startSeeded } = require('./helpers/auth-helpers');
+const { PASSWORD, AJAX, JSON_HEADERS, DAY, nowSec, newRoot, seedAuth, setCookies, cookieHeader, loginCookie, startSeeded } = require('./helpers/auth-helpers');
 const { routeTable } = require('./helpers/route-table');
 
 const post = (s, path, body, headers = JSON_HEADERS) => fetch(s.base + path, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
-const nowSec = () => Math.floor(Date.now() / 1000);
+const getKeys = async (s, cookie) => (await (await fetch(s.base + '/api/auth/keys', { headers: { Cookie: cookie } })).json()).keys;
 
 test('status in every state', async (t) => {
   const open = await startServer(t, { root: newRoot(t) });
   assert.deepEqual(await (await fetch(open.base + '/api/auth/status')).json(), {
-    required: false, signedIn: false, source: 'none', authDisabledByDocker: false, passwordMinLength: 8, passwordMaxLength: 256 });
+    required: false, signedIn: false, source: 'none', authDisabledByDocker: false, setupPending: true, passwordMinLength: 8, passwordMaxLength: 256 });
   const s = await startSeeded(t);
   assert.deepEqual(await (await fetch(s.base + '/api/auth/status')).json(), { required: true, signedIn: false });
   const cookie = await loginCookie(s.base);
   const signed = await (await fetch(s.base + '/api/auth/status', { headers: { Cookie: cookie } })).json();
-  assert.deepEqual(signed, { required: true, signedIn: true, source: 'settings', authDisabledByDocker: false, passwordMinLength: 8, passwordMaxLength: 256 });
+  assert.deepEqual(signed, { required: true, signedIn: true, source: 'settings', authDisabledByDocker: false, setupPending: false, passwordMinLength: 8, passwordMaxLength: 256 });
   const byKey = await (await fetch(s.base + '/api/auth/status', { headers: { 'X-Api-Key': s.seeded.accessKey } })).json();
   assert.equal(byKey.signedIn, true);
   assert.equal(JSON.stringify(signed).includes(s.seeded.accessKey), false);
@@ -66,20 +66,29 @@ test('login: success, wrong password with the 500 ms floor, 400, 409, 503', asyn
   assert.equal((await post(closed, '/api/auth/token', { password: PASSWORD })).status, 503);
 });
 
-test('logout clears the cookie, token returns the key and sets no cookie, both key headers work', async (t) => {
-  const s = await startSeeded(t);
-  const out = await post(s, '/api/auth/logout', {});
+test('logout clears the cookie and ends only that session; token creates a key and sets no cookie, both key headers work', async (t) => {
+  const s = await startSeeded(t, { seedOptions: { sessions: [30 * DAY, 30 * DAY] } });
+  const [mine, theirs] = s.seeded.cookies;
+  const out = await post(s, '/api/auth/logout', {}, { ...AJAX, Cookie: mine });
   assert.equal(out.status, 200);
   const [cleared] = setCookies(out);
   assert.equal(cleared.value, '');
   assert.equal(cleared.attrs['max-age'], '0');
   assert.equal(cleared.attrs.expires, 'Thu, 01 Jan 1970 00:00:00 GMT');
   assert.equal(cleared.attrs.httponly, true);
+  assert.equal((await fetch(s.base + '/api/config', { headers: { Cookie: mine } })).status, 401, 'a copied cookie stops working');
+  assert.equal((await fetch(s.base + '/api/config', { headers: { Cookie: theirs } })).status, 200, 'another session stays');
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(s.readAuth().sessions.length, 1);
+  // Logout with no session at all is still a success.
+  assert.equal((await post(s, '/api/auth/logout', {})).status, 200);
   const token = await post(s, '/api/auth/token', { password: PASSWORD });
   assert.equal(token.status, 200);
-  assert.deepEqual(await token.json(), { accessKey: s.seeded.accessKey });
+  const made = await token.json();
+  assert.match(made.accessKey, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(made.name, 'App key');
   assert.equal(setCookies(token).length, 0);
-  const key = s.seeded.accessKey;
+  const key = made.accessKey;
   assert.equal((await fetch(s.base + '/api/config', { headers: { Authorization: `Bearer ${key}` } })).status, 200);
   assert.equal((await fetch(s.base + '/api/config', { headers: { 'X-Api-Key': key } })).status, 200);
   assert.equal((await fetch(s.base + '/api/config', { headers: { 'X-Api-Key': 'nope' } })).status, 401);
@@ -87,7 +96,7 @@ test('logout clears the cookie, token returns the key and sets no cookie, both k
   assert.equal((await post(s, '/api/auth/token', { password: 'wrong password!' })).status, 401);
 });
 
-test('first password, change, remove, logout-all, regenerate', async (t) => {
+test('first password, change, remove, logout-all, keys', async (t) => {
   const root = newRoot(t);
   const s = await startServer(t, { root });
   assert.equal((await (await fetch(s.base + '/api/arrview/identify')).json()).auth, false);
@@ -107,11 +116,12 @@ test('first password, change, remove, logout-all, regenerate', async (t) => {
   assert.equal(second.status, 400);
 
   // key-only caller cannot manage; wrong current keeps the browser signed in
-  const key1 = (await (await fetch(s.base + '/api/auth/access-key', { headers: { Cookie: cookie } })).json()).accessKey;
+  const key1 = (await (await post(s, '/api/auth/keys', {}, { ...AJAX, Cookie: cookie })).json()).accessKey;
   const keyOnly = await post(s, '/api/auth/password', { currentPassword: 'first password 1', newPassword: 'second password 2' }, { ...JSON_HEADERS, 'X-Api-Key': key1 });
   assert.equal(keyOnly.status, 403);
   assert.equal((await keyOnly.json()).error, 'Sign in with a browser to do this');
-  assert.equal((await fetch(s.base + '/api/auth/access-key', { headers: { 'X-Api-Key': key1 } })).status, 403);
+  assert.equal((await fetch(s.base + '/api/auth/keys', { headers: { 'X-Api-Key': key1 } })).status, 403);
+  assert.equal((await post(s, '/api/auth/keys', {}, { ...JSON_HEADERS, 'X-Api-Key': key1 })).status, 403);
   const missing = await post(s, '/api/auth/password', { newPassword: 'second password 2' }, { ...AJAX, Cookie: cookie });
   assert.equal(missing.status, 400);
   assert.equal((await missing.json()).error, 'Current password is required');
@@ -139,17 +149,15 @@ test('first password, change, remove, logout-all, regenerate', async (t) => {
   assert.equal((await fetch(s.base + '/api/config', { headers: { Cookie: newCookie } })).status, 200);
   cookie = newCookie;
 
-  // regenerate: old key stops, sessions stay
-  const key2 = (await (await fetch(s.base + '/api/auth/access-key', { headers: { Cookie: cookie } })).json()).accessKey;
-  const regen = await post(s, '/api/auth/access-key/regenerate', {}, { ...AJAX, Cookie: cookie });
-  assert.equal(regen.status, 200);
-  const key3 = (await regen.json()).accessKey;
-  assert.notEqual(key3, key2);
+  // keys: a new one works, nothing returns an existing one, the old routes are gone
+  const made = await post(s, '/api/auth/keys', { name: 'Script' }, { ...AJAX, Cookie: cookie });
+  assert.equal(made.status, 200);
+  const key3 = (await made.json()).accessKey;
   assert.match(key3, /^[A-Za-z0-9_-]{43}$/);
-  assert.equal((await fetch(s.base + '/api/config', { headers: { 'X-Api-Key': key2 } })).status, 401);
   assert.equal((await fetch(s.base + '/api/config', { headers: { 'X-Api-Key': key3 } })).status, 200);
   assert.equal((await fetch(s.base + '/api/config', { headers: { Cookie: cookie } })).status, 200);
-  assert.equal((await post(s, '/api/auth/access-key/regenerate', {}, { ...JSON_HEADERS, 'X-Api-Key': key3 })).status, 403);
+  assert.equal((await fetch(s.base + '/api/auth/access-key', { headers: { Cookie: cookie } })).status, 404);
+  assert.equal((await post(s, '/api/auth/access-key/regenerate', {}, { ...AJAX, Cookie: cookie })).status, 404);
 
   // logout-all: other browsers and the key stop, this cookie is cleared
   const another = await loginCookie(s.base, 'second password 2');
@@ -166,12 +174,12 @@ test('first password, change, remove, logout-all, regenerate', async (t) => {
   const removed = await post(s, '/api/auth/password/remove', { currentPassword: 'second password 2' }, { ...AJAX, Cookie: cookie });
   assert.equal(removed.status, 200);
   assert.equal(setCookies(removed)[0].attrs['max-age'], '0');
-  assert.deepEqual(s.readAuth(), { version: 1, password: null, sessionSecret: null, accessKey: null });
+  assert.deepEqual(s.readAuth(), { version: 2, password: null, sessions: [], keys: [] });
   assert.equal((await fetch(s.base + '/api/config')).status, 200);
   assert.equal((await (await fetch(s.base + '/api/arrview/identify')).json()).auth, false);
   assert.equal((await post(s, '/api/auth/password/remove', { currentPassword: 'x' })).status, 409);
   assert.equal((await post(s, '/api/auth/logout-all', {})).status, 409);
-  assert.equal((await fetch(s.base + '/api/auth/access-key')).status, 409);
+  assert.equal((await fetch(s.base + '/api/auth/keys')).status, 409);
   assert.deepEqual(s.tempFiles(), []);
 });
 
@@ -188,12 +196,12 @@ test('serial queue: more than 16 waiting hashes get 503 with Retry-After', async
 });
 
 test('limiter: 10 failures block, buckets are shared, a success returns its slot, clock lifts the block', async (t) => {
-  let now = 1_800_000_000_000;
+  let now = Date.now();
   const root = newRoot(t);
   const seeded = seedAuth(root);
   const s = await startServer(t, { root, clock: () => now, env: { ARRVIEW_TRUSTED_PROXIES: '127.0.0.1' } });
   const wrong = (path = '/api/auth/login', extra = {}) => post(s, path, { password: 'wrong password!', ...extra }, { ...JSON_HEADERS, 'X-Forwarded-For': '203.0.113.5' });
-  const cookie = forgeCookie(seeded.secret, Math.floor(now / 1000) + 86400 * 30);
+  const cookie = seeded.cookie;
   // 9 failures across login / token, then a success, then one more failure is still not blocked
   for (let i = 0; i < 9; i++) assert.equal((await wrong(i % 2 ? '/api/auth/token' : '/api/auth/login')).status, 401);
   const good = await post(s, '/api/auth/login', { password: PASSWORD }, { ...JSON_HEADERS, 'X-Forwarded-For': '203.0.113.5' });
@@ -235,7 +243,7 @@ test('identify has the auth field and the capability last, and nothing else new'
 });
 
 test('Set-Cookie matrix: only the listed routes ever send a cookie', async (t) => {
-  const s = await startSeeded(t);
+  const s = await startSeeded(t, { seedOptions: { sessions: [DAY] } });
   const table = routeTable(s.app).filter(e => e.kind === 'route');
   const cookie = await loginCookie(s.base);
   const setters = new Set();
@@ -247,7 +255,7 @@ test('Set-Cookie matrix: only the listed routes ever send a cookie', async (t) =
     if (r.headers.getSetCookie().length) assert.ok(e.path === '/api/auth/logout', `anonymous ${e.method} ${e.path}`);
   }
   // signed in: a protected GET slides only when the cookie is old, never on failures
-  const old = forgeCookie(s.seeded.secret, nowSec() + 86400);
+  const old = s.seeded.cookie;
   const ok = await fetch(s.base + '/api/config', { headers: { Cookie: old } });
   record('sliding', ok);
   const bad = await fetch(s.base + '/api/sonarr/series/1', { method: 'DELETE', headers: { Cookie: old, 'X-Requested-With': 'ArrView' } });
@@ -256,7 +264,7 @@ test('Set-Cookie matrix: only the listed routes ever send a cookie', async (t) =
   record('login', await post(s, '/api/auth/login', { password: PASSWORD }));
   record('logout', await post(s, '/api/auth/logout', {}));
   assert.equal((await post(s, '/api/auth/token', { password: PASSWORD })).headers.getSetCookie().length, 0);
-  assert.equal((await fetch(s.base + '/api/auth/access-key', { headers: { Cookie: cookie } })).headers.getSetCookie().length, 0);
+  assert.equal((await fetch(s.base + '/api/auth/keys', { headers: { Cookie: cookie } })).headers.getSetCookie().length, 0);
   assert.equal((await fetch(s.base + '/api/auth/status', { headers: { Cookie: cookie } })).headers.getSetCookie().length, 0);
   assert.equal((await post(s, '/api/auth/login', { password: 'wrong password!' })).headers.getSetCookie().length, 0);
   assert.deepEqual([...setters].sort(), ['login', 'logout', 'sliding']);
