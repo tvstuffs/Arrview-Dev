@@ -73,7 +73,7 @@ test('restart keeps sessions and the key', async (t) => {
   const seeded = seedAuth(root);
   const first = await startServer(t, { root });
   const cookie = await loginCookie(first.base);
-  const key = (await (await post(first, '/api/auth/keys', { name: 'Kept' }, { ...AJAX, Cookie: cookie })).json()).accessKey;
+  const key = (await (await post(first, '/api/auth/keys', { name: 'Kept', currentPassword: PASSWORD }, { ...AJAX, Cookie: cookie })).json()).accessKey;
   assert.equal((await fetch(first.base + '/api/config', { headers: { Cookie: seeded.cookie } })).status, 200);
   await first.close();
   const second = await startServer(t, { root });
@@ -193,8 +193,8 @@ test('expired sessions are dropped when the file is read; the session and key ca
 
   // 50 keys (one is seeded), then a clear refusal
   const cookie = jar[54];
-  for (let i = 0; i < 49; i++) assert.equal((await post(s, '/api/auth/keys', { name: `k${i}` }, { ...AJAX, Cookie: cookie })).status, 200);
-  const full = await post(s, '/api/auth/keys', { name: 'one more' }, { ...AJAX, Cookie: cookie });
+  for (let i = 0; i < 49; i++) assert.equal((await post(s, '/api/auth/keys', { name: `k${i}`, currentPassword: PASSWORD }, { ...AJAX, Cookie: cookie })).status, 200);
+  const full = await post(s, '/api/auth/keys', { name: 'one more', currentPassword: PASSWORD }, { ...AJAX, Cookie: cookie });
   assert.equal(full.status, 409);
   assert.equal((await full.json()).error, 'ArrView already has 50 app keys. Remove one first.');
   assert.equal((await post(s, '/api/auth/token', { password: PASSWORD })).status, 409);

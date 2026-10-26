@@ -19,7 +19,7 @@ test('no response, header or log line leaks a password, hash, salt, secret, cook
   keep(await call('POST', '/api/auth/login', { password: pw1 }));
   const token = await call('POST', '/api/auth/token', { password: pw1, name: 'Script' });
   keys.push((await token.json()).accessKey);
-  keys.push((await (await call('POST', '/api/auth/keys', { name: 'Phone' }, withCookie())).json()).accessKey);
+  keys.push((await (await call('POST', '/api/auth/keys', { name: 'Phone', currentPassword: pw1 }, withCookie())).json()).accessKey);
   const listed = await call('GET', '/api/auth/keys', undefined, { Cookie: cookie });
   assert.equal(listed.status, 200);
   const beforeChange = s.readAuthText();
@@ -34,7 +34,7 @@ test('no response, header or log line leaks a password, hash, salt, secret, cook
   const live = s.readAuthText();
   keep(await call('POST', '/api/auth/logout-all', {}, withCookie()));
   const another = keep(await call('POST', '/api/auth/login', { password: pw2 }));
-  const anotherKey = (await (await call('POST', '/api/auth/keys', {}, { ...AJAX, Cookie: cookieHeader(setCookies(another)[0]) })).json()).accessKey;
+  const anotherKey = (await (await call('POST', '/api/auth/keys', { currentPassword: pw2 }, { ...AJAX, Cookie: cookieHeader(setCookies(another)[0]) })).json()).accessKey;
   keys.push(anotherKey);
   const liveToo = s.readAuthText();
   for (let i = 0; i < 11; i++) await call('POST', '/api/auth/login', { password: 'wrong secret phrase' });

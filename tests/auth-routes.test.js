@@ -116,7 +116,7 @@ test('first password, change, remove, logout-all, keys', async (t) => {
   assert.equal(second.status, 400);
 
   // key-only caller cannot manage; wrong current keeps the browser signed in
-  const key1 = (await (await post(s, '/api/auth/keys', {}, { ...AJAX, Cookie: cookie })).json()).accessKey;
+  const key1 = (await (await post(s, '/api/auth/keys', { currentPassword: 'first password 1' }, { ...AJAX, Cookie: cookie })).json()).accessKey;
   const keyOnly = await post(s, '/api/auth/password', { currentPassword: 'first password 1', newPassword: 'second password 2' }, { ...JSON_HEADERS, 'X-Api-Key': key1 });
   assert.equal(keyOnly.status, 403);
   assert.equal((await keyOnly.json()).error, 'Sign in with a browser to do this');
@@ -150,7 +150,7 @@ test('first password, change, remove, logout-all, keys', async (t) => {
   cookie = newCookie;
 
   // keys: a new one works, nothing returns an existing one, the old routes are gone
-  const made = await post(s, '/api/auth/keys', { name: 'Script' }, { ...AJAX, Cookie: cookie });
+  const made = await post(s, '/api/auth/keys', { name: 'Script', currentPassword: 'second password 2' }, { ...AJAX, Cookie: cookie });
   assert.equal(made.status, 200);
   const key3 = (await made.json()).accessKey;
   assert.match(key3, /^[A-Za-z0-9_-]{43}$/);

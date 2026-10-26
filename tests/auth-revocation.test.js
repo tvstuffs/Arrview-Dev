@@ -42,13 +42,13 @@ test('Sign out with a saturated queue is written anyway, answers only after the 
   const root = newRoot(t);
   const seeded = seedAuth(root, undefined, { sessions: [30 * DAY, 30 * DAY, 30 * DAY], keys: ['Kept'] });
   const [mine, holder, bystander] = seeded.cookies;
-  const s = await startServer(t, { root, wrapCrypto: gate.wrap });
+  const s = await startServer(t, { root, wrapCrypto: gate.wrap, env: { ARRVIEW_TRUSTED_PROXIES: '127.0.0.1' } });
   // The queue head is a password change that waits inside its hash.
   const hit = gate.arm();
   const change = post(s, '/api/auth/password', { currentPassword: seeded.password, newPassword: 'changed password 1' }, { ...AJAX, Cookie: holder });
   await hit;
-  // Sixteen more wait behind it, so the next optional write would be refused as busy.
-  const fill = Array.from({ length: 20 }, () => post(s, '/api/auth/keys', {}, { ...AJAX, Cookie: mine }));
+  // Sixteen more wait behind it, so the next optional write would be refused as busy (each from its own address, so the sign-in limiter does not cut them off).
+  const fill = Array.from({ length: 20 }, (_, i) => post(s, '/api/auth/keys', { currentPassword: seeded.password }, { ...AJAX, Cookie: mine, 'X-Forwarded-For': `203.0.113.${i + 10}` }));
   await pause(300);
   const logout = post(s, '/api/auth/logout', {}, { ...AJAX, Cookie: mine });
   const logoutHolder = post(s, '/api/auth/logout', {}, { ...AJAX, Cookie: holder });
@@ -141,7 +141,7 @@ test('the same holds for removing the password and for a key creation after a si
   const s = await startSeeded(t, { seedOptions: { sessions: [30 * DAY, 30 * DAY] } });
   const [a, b] = s.seeded.cookies;
   assert.equal((await post(s, '/api/auth/logout', {}, { ...AJAX, Cookie: a })).status, 200);
-  assert.equal((await post(s, '/api/auth/keys', {}, { ...AJAX, Cookie: a })).status, 401);
+  assert.equal((await post(s, '/api/auth/keys', { currentPassword: s.seeded.password }, { ...AJAX, Cookie: a })).status, 401);
   assert.equal((await post(s, '/api/auth/password/remove', { currentPassword: s.seeded.password }, { ...AJAX, Cookie: a })).status, 401);
   assert.notEqual(s.readAuth().password, null);
   assert.equal(await status(s, { Cookie: b }), 200);
@@ -193,9 +193,9 @@ test('key names reject every Unicode control character, C1 included', async (t) 
   const s = await startSeeded(t, { seedOptions: { keys: [] } });
   const headers = { ...AJAX, Cookie: s.seeded.cookie };
   for (const bad of ['a\u0085b', 'a\u0080b', 'a\u009fb', 'a\u007fb', 'a\u0000b', 'a\nb', 'a\tb']) {
-    const r = await post(s, '/api/auth/keys', { name: bad }, headers);
+    const r = await post(s, '/api/auth/keys', { name: bad, currentPassword: s.seeded.password }, headers);
     assert.equal(r.status, 400, JSON.stringify(bad));
   }
-  assert.equal((await post(s, '/api/auth/keys', { name: 'Café ¡' }, headers)).status, 200);
+  assert.equal((await post(s, '/api/auth/keys', { name: 'Café ¡', currentPassword: s.seeded.password }, headers)).status, 200);
   assert.equal((await post(s, '/api/auth/token', { password: s.seeded.password, name: 'a\u0085b' }, AJAX)).status, 400);
 });

@@ -36,16 +36,18 @@ test('a request body that arrives after a password change is refused with 401 an
   const s = await startSeeded(t);
   const cookie = await loginCookie(s.base);
   const url = new URL(s.base);
-  const late = new Promise((resolve, reject) => {
+  // The password it carries is the new one, so the password check passes and the stale session is what refuses it.
+  const lateBody = JSON.stringify({ currentPassword: 'changed password 1' });
+  const late =new Promise((resolve, reject) => {
     const req = http.request({ host: url.hostname, port: url.port, path: '/api/auth/keys', method: 'POST',
-      headers: { ...AJAX, Cookie: cookie, 'Content-Length': '2' } }, res => {
+      headers: { ...AJAX, Cookie: cookie, 'Content-Length': String(lateBody.length) } }, res => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
     });
     req.on('error', reject);
     req.flushHeaders();
-    setTimeout(() => req.end('{}'), 600);
+    setTimeout(() => req.end(lateBody), 600);
   });
   await pause(150);
   const changed = await post(s, '/api/auth/password', { currentPassword: s.seeded.password, newPassword: 'changed password 1' }, { ...AJAX, Cookie: cookie });
@@ -67,7 +69,8 @@ test('queued key creation and logout-all behind a gated password change get 401 
   const change = post(s, '/api/auth/password', { currentPassword: s.seeded.password, newPassword: 'changed password 1' }, { ...AJAX, Cookie: cookie });
   await hit;
   const headers = { ...AJAX, Cookie: cookie };
-  const regen = post(s, '/api/auth/keys', {}, headers);
+  // It carries the password the change is setting, so the password check passes and the stale session is what refuses it.
+  const regen = post(s, '/api/auth/keys', { currentPassword: 'changed password 1' }, headers);
   const all = post(s, '/api/auth/logout-all', {}, headers);
   await pause(250);
   gate.release();
@@ -115,9 +118,9 @@ test('every credential change ends a fresh event stream', async (t) => {
   let cookie = cookieHeader(setCookies(first)[0]);
   const changed = await expectEnd('change', cookie, () => post(s, '/api/auth/password', { currentPassword: 'first password 1', newPassword: 'second password 2' }, { ...AJAX, Cookie: cookie }));
   cookie = cookieHeader(setCookies(changed)[0]);
-  const keyOne = await (await post(s, '/api/auth/keys', {}, { ...AJAX, Cookie: cookie })).json();
+  const keyOne = await (await post(s, '/api/auth/keys', { currentPassword: 'second password 2' }, { ...AJAX, Cookie: cookie })).json();
   await expectEnd('key removed', cookie, () => post(s, '/api/auth/keys/remove', { id: keyOne.id }, { ...AJAX, Cookie: cookie }), { 'X-Api-Key': keyOne.accessKey });
-  const keyTwo = await (await post(s, '/api/auth/keys', {}, { ...AJAX, Cookie: cookie })).json();
+  const keyTwo = await (await post(s, '/api/auth/keys', { currentPassword: 'second password 2' }, { ...AJAX, Cookie: cookie })).json();
   await expectEnd('all keys removed', cookie, () => post(s, '/api/auth/keys/remove-all', {}, { ...AJAX, Cookie: cookie }), { 'X-Api-Key': keyTwo.accessKey });
   await expectEnd('logout-all', cookie, () => post(s, '/api/auth/logout-all', {}, { ...AJAX, Cookie: cookie }));
   cookie = await loginCookie(s.base, 'second password 2');

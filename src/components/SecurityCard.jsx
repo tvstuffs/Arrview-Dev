@@ -47,6 +47,7 @@ export default function SecurityCard() {
   const [confirm, setConfirm] = useState(null) // 'logout-all' | 'remove' | 'remove-all-keys' | { removeKey }
   const [keys, setKeys] = useState(null)
   const [keyName, setKeyName] = useState('')
+  const [keyPassword, setKeyPassword] = useState('')
   const [fresh, setFresh] = useState(null) // { name, key }: a new key, shown until dismissed
   const [copied, setCopied] = useState('') // '' | 'Copied' | 'failed'
   const keyField = useRef(null)
@@ -86,9 +87,12 @@ export default function SecurityCard() {
   async function createKey(event) {
     event.preventDefault()
     if (keyName.trim().length > KEY_NAME_MAX) return setError(`The name can be at most ${KEY_NAME_MAX} characters`)
+    if (!keyPassword) return setError('Enter your current password')
     setCopied('')
+    const currentPassword = keyPassword
+    setKeyPassword('') // cleared after every attempt, right or wrong
     if (await run(async () => {
-      const made = await call('/api/auth/keys', { body: { name: keyName.trim() } })
+      const made = await call('/api/auth/keys', { body: { name: keyName.trim(), currentPassword } })
       setFresh({ name: made.name, key: made.accessKey })
       setKeyName('')
     })) await loadKeys()
@@ -162,6 +166,8 @@ export default function SecurityCard() {
         <form className="key-create" onSubmit={createKey}>
           <label htmlFor={`${idBase}-keyname`}>Key name (optional)</label>
           <input id={`${idBase}-keyname`} type="text" maxLength={KEY_NAME_MAX} placeholder="App key" autoComplete="off" value={keyName} onChange={e => setKeyName(e.target.value)} />
+          <PasswordFields idBase={`${idBase}-key`} values={{ currentPassword: keyPassword }} onChange={(_, value) => setKeyPassword(value)}
+            fields={[['currentPassword', 'Current password', 'current-password']]} />
           <button type="submit" className="btn btn-secondary" disabled={busy}><Icon name="plus" /> Make a key</button>
         </form>
         {fresh && <div className="key-fresh" role="group" aria-label="New key">

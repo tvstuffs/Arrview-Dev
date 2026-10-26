@@ -824,7 +824,10 @@ app.post('/api/auth/keys', authRoute((req, res) => {
   if (manageBlocked(req, res)) return undefined;
   const name = keyName(isPlainObject(req.body) ? req.body.name : undefined);
   if (name === null) return res.status(400).json({ error: KEY_NAME_TEXT });
-  return authQueued(() => (reauthorised(req) ? createKey(res, name) : staleReply(res)));
+  const current = isPlainObject(req.body) ? req.body.currentPassword : undefined;
+  if (typeof current !== 'string' || current === '') return res.status(400).json({ error: 'Current password is required' });
+  return limitedCheck(req, res, 'keys', current, () => res.status(403).json({ error: 'Current password is incorrect' }),
+    () => (reauthorised(req) ? createKey(res, name) : staleReply(res)));
 }));
 
 // Removal takes effect in memory first, so access ends at once (open event streams included); the file follows.

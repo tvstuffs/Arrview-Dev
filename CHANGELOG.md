@@ -23,8 +23,8 @@ untouched.
     response only. `409` at 50 keys.
   - `POST /api/auth/password` `{currentPassword?, newPassword}` (cookie session only), `POST /api/auth/password/remove`
     `{currentPassword}`, `POST /api/auth/logout-all`.
-  - `GET /api/auth/keys` → `{max, keys:[{id, name, created, lastUsed}]}`, `POST /api/auth/keys` `{name?}` (same
-    response as `/token`), `POST /api/auth/keys/remove` `{id}`, `POST /api/auth/keys/remove-all` (cookie session
+  - `GET /api/auth/keys` → `{max, keys:[{id, name, created, lastUsed}]}`, `POST /api/auth/keys` `{currentPassword, name?}`
+    (same response as `/token`; `400` without the password, `403` when wrong, counted by the sign-in limit), `POST /api/auth/keys/remove` `{id}`, `POST /api/auth/keys/remove-all` (cookie session
     only). `GET /api/auth/access-key` and `POST /api/auth/access-key/regenerate` are gone: no key can be read back.
   - `POST /api/auth/setup/skip` (first-run choice, only while setup is pending).
 - **`GET /api/arrview/identify`** gains `auth` (boolean) and the `'auth'` capability (last in the list).
@@ -45,7 +45,9 @@ untouched.
   `off`) opens on a setup screen: protect ArrView with a password or continue without one (it says that without a
   password anyone who can reach the address can use ArrView, including deleting files). Same screen in Modern and
   Classic. On a brand-new install reachable from outside, the first visitor could set the password; the Docker
-  password, `ARRVIEW_AUTH=off` or removing `auth.json` recover it.
+  password, `ARRVIEW_AUTH=off` or removing `auth.json` recover it. An install that keeps every service in Docker
+  variables and has no `config.json` shows the screen once after upgrading; Continue without a password dismisses it
+  for good.
 - **Web.** The first-run screen, a Sign in screen before any data loads, a Security card in Settings (both layouts)
   with a key list (make, remove one, remove all), and one `apiFetch` for every request (adds `X-Requested-With:
   ArrView`, announces a mid-session 401). A new key is shown once in a read-only field and Copy writes it in the same
@@ -66,7 +68,9 @@ untouched.
   3. Reload, relaunch the Home Screen app, restart the container: still signed in.
   4. Sign out; Sign out everywhere also signs out a second browser. Copy the cookie of a browser before signing it out:
      it no longer works. With two browsers signed in, Sign out in one leaves the other signed in.
-  4a. Keys: in Settings make a key named "Script"; it appears in a read-only field and is not shown again after Done
+  4a. Keys: in Settings make a key named "Script": the form asks for your current password. Leave it empty or type a
+     wrong one: no key is made, the field is cleared, and ten wrong ones block the address for 15 minutes. With the
+     right one the key appears in a read-only field and is not shown again after Done
      or a reload. Press Copy and paste somewhere: the same text. Check the list (name, created, last used) and make a
      second key. Remove one: only that one stops (curl returns 401 at once, also on an open `/api/events`). Remove all.
      Sign out everywhere and a password change also remove every key.
@@ -76,8 +80,9 @@ untouched.
   4c. New install: start with an empty data folder (no `config.json`, no `auth.json`, no Docker password). The first
      screen offers a password or "Continue without a password" with the delete-files warning, in Modern and in
      Classic. Choosing a password signs that browser in; choosing none never shows the screen again after a restart;
-     Settings can still set a password. An existing install never shows it, nor does one with `ARRVIEW_PASSWORD` or
-     `ARRVIEW_AUTH=off`.
+     Settings can still set a password. An install with a `config.json` never shows it, nor does one with
+     `ARRVIEW_PASSWORD` or `ARRVIEW_AUTH=off`. An install with every service in Docker variables and no `config.json`
+     shows it once after upgrading; Continue without a password dismisses it for good.
   4d. With a Docker password on, remove `ARRVIEW_PASSWORD` and recreate the container: the login is off (one log
      line says why). A password set in Settings survives the same step.
   5. With the login on, the iOS app fails cleanly and keeps its server; Test from Sonarr and Radarr still shows under

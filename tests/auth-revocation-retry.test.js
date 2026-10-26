@@ -144,7 +144,7 @@ test('a later successful auth write also makes the deletion durable, and a Sign 
   assert.equal((await post(s, '/api/auth/logout', {}, { ...AJAX, Cookie: seeded.cookie })).status, 500);
   state.fail = false;
   // Another session's key creation writes the whole current state, which no longer holds the signed-out session.
-  assert.equal((await post(s, '/api/auth/keys', {}, { ...AJAX, Cookie: seeded.cookies[1] })).status, 200);
+  assert.equal((await post(s, '/api/auth/keys', { currentPassword: seeded.password }, { ...AJAX, Cookie: seeded.cookies[1] })).status, 200);
   assert.equal(s.readAuth().sessions.length, 1);
   const before = fs.readFileSync(path.join(root, 'auth.json'), 'utf8');
   const nothing = await post(s, '/api/auth/logout', {}, { ...AJAX });

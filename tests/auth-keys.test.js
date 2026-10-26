@@ -7,7 +7,7 @@ const { PASSWORD, AJAX, DAY, nowSec, newRoot, seedAuth, startSeeded } = require(
 const post = (s, path, body, headers) => fetch(s.base + path, { method: 'POST', headers, body: JSON.stringify(body ?? {}) });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const list = async (s, cookie) => (await (await fetch(s.base + '/api/auth/keys', { headers: { Cookie: cookie } })).json());
-const create = async (s, cookie, body) => (await post(s, '/api/auth/keys', body ?? {}, { ...AJAX, Cookie: cookie })).json();
+const create = async (s, cookie, body) => (await post(s, '/api/auth/keys', { currentPassword: PASSWORD, ...body }, { ...AJAX, Cookie: cookie })).json();
 const status = (s, key) => fetch(s.base + '/api/config', { headers: { 'X-Api-Key': key } }).then(r => r.status);
 
 test('a key takes an optional plain-text name of at most 40 characters, default App key', async (t) => {
@@ -16,14 +16,14 @@ test('a key takes an optional plain-text name of at most 40 characters, default 
   const names = [[{}, 'App key'], [{ name: '' }, 'App key'], [{ name: '   ' }, 'App key'], [{ name: null }, 'App key'],
     [{ name: '  Sonarr script  ' }, 'Sonarr script'], [{ name: 'x'.repeat(40) }, 'x'.repeat(40)], [{ name: '<b>Phone</b> & co' }, '<b>Phone</b> & co']];
   for (const [body, expected] of names) {
-    const r = await post(s, '/api/auth/keys', body, headers);
+    const r = await post(s, '/api/auth/keys', { ...body, currentPassword: PASSWORD }, headers);
     assert.equal(r.status, 200, JSON.stringify(body));
     const made = await r.json();
     assert.equal(made.name, expected);
     assert.match(made.accessKey, /^[A-Za-z0-9_-]{43}$/);
   }
   for (const name of ['x'.repeat(41), 'bad\nname', 'tab\tname', 5, {}, []]) {
-    const r = await post(s, '/api/auth/keys', { name }, headers);
+    const r = await post(s, '/api/auth/keys', { name, currentPassword: PASSWORD }, headers);
     assert.equal(r.status, 400, JSON.stringify(name));
     assert.equal((await r.json()).error, 'Name must be 40 characters or fewer, with no control characters');
   }
@@ -34,6 +34,32 @@ test('a key takes an optional plain-text name of at most 40 characters, default 
   const keys = (await list(s, s.seeded.cookie)).keys;
   assert.equal(keys.length, names.length + 1);
   assert.ok(keys.every(k => Object.keys(k).sort().join() === 'created,id,lastUsed,name'));
+});
+
+test('making a key from a browser needs the current password: missing is 400, wrong is 403 and counted, right makes the key', async (t) => {
+  const s = await startSeeded(t, { seedOptions: { keys: [] }, env: { ARRVIEW_TRUSTED_PROXIES: '127.0.0.1' } });
+  const headers = { ...AJAX, Cookie: s.seeded.cookie, 'X-Forwarded-For': '203.0.113.7' };
+  for (const body of [{}, { currentPassword: '' }, { currentPassword: 5 }, { name: 'Phone' }]) {
+    const r = await post(s, '/api/auth/keys', body, headers);
+    assert.equal(r.status, 400, JSON.stringify(body));
+    assert.equal((await r.json()).error, 'Current password is required');
+  }
+  assert.deepEqual(s.readAuth().keys, [], 'a valid cookie without a password makes no key');
+  // Wrong passwords: 403, no key, and each one counts toward the sign-in limit (ten block the address).
+  const t0 = Date.now();
+  const wrong = await post(s, '/api/auth/keys', { currentPassword: 'not the password' }, headers);
+  assert.equal(wrong.status, 403);
+  assert.equal((await wrong.json()).error, 'Current password is incorrect');
+  assert.ok(Date.now() - t0 >= 450);
+  for (let i = 0; i < 9; i++) assert.equal((await post(s, '/api/auth/keys', { currentPassword: 'not the password' }, headers)).status, 403);
+  const blocked = await post(s, '/api/auth/keys', { currentPassword: PASSWORD }, headers);
+  assert.equal(blocked.status, 429);
+  assert.deepEqual(s.readAuth().keys, []);
+  // Another address is another bucket: the right password makes the key.
+  const made = await post(s, '/api/auth/keys', { name: 'Phone', currentPassword: PASSWORD }, { ...AJAX, Cookie: s.seeded.cookie, 'X-Forwarded-For': '203.0.113.8' });
+  assert.equal(made.status, 200);
+  assert.equal(await status(s, (await made.json()).accessKey), 200);
+  assert.equal(s.readAuth().keys.length, 1);
 });
 
 test('remove one key and remove all; a removed key is refused at once and only that key is lost', async (t) => {

@@ -348,8 +348,10 @@ opens on a setup screen before anything else: protect ArrView with a password, o
 continue without one. It says plainly that without a password anyone who can reach
 the address can use ArrView, including deleting files. Setting the password signs
 that browser in. Continuing without one writes `auth.json` with no password, so the
-screen never comes back; Settings can set a password later. Existing installs
-(where `config.json` exists) never see it. **On a brand-new install that is
+screen never comes back; Settings can set a password later. Installs that have a
+`config.json` never see it. An install that keeps every service in Docker variables
+and has no `config.json` shows it once after upgrading; Continue without a password
+dismisses it for good. **On a brand-new install that is
 reachable from outside, the first visitor could set the password.** The Docker
 password, `ARRVIEW_AUTH=off` or removing `auth.json` recover it (see Recovery).
 The screen makes nothing else public: `GET /api/auth/status` only reports whether
@@ -427,7 +429,8 @@ the cookie its `Secure` flag.
 
 **App keys (apps and scripts).** Make one key for each app or script, so you can
 remove one without touching the others. In **Settings → Security → Keys for apps
-and scripts** a signed-in browser can make a key (with an optional name, up to 40
+and scripts** a signed-in browser can make a key (it asks for your current password,
+and a wrong one counts toward the sign-in limit; the name is optional, up to 40
 characters, "App key" if left empty), see the list (name, created, last used) and
 remove one key or all of them. A new key appears once, in a read-only field, with a
 **Copy** button; **ArrView stores only a digest, so nothing can show it again.**

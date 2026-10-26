@@ -19,6 +19,10 @@ function mount(status, handler) {
 afterEach(() => vi.unstubAllGlobals())
 const body = call => JSON.parse(call[1].body)
 const field = label => screen.getByLabelText(label)
+// The key form and the password forms each have a Current password field: pick the form first.
+const passwordFormField = label => within(document.querySelector('form:not(.key-create)')).getByLabelText(label)
+const keyPasswordField = () => within(document.querySelector('.key-create')).getByLabelText('Current password')
+const makeKey = (password = 'my password!') => { fireEvent.change(keyPasswordField(), { target: { value: password } }); click(/Make a key/) }
 const click = name => fireEvent.click(screen.getByRole('button', { name }))
 const paths = () => fn.mock.calls.map(c => c[0])
 const LIST = { keys: [{ id: '0123456789abcdef', name: 'Sonarr script', created: 1_790_000_000, lastUsed: null }, { id: 'fedcba9876543210', name: 'Phone', created: 1_790_100_000, lastUsed: 1_790_200_000 }] }
@@ -82,7 +86,7 @@ test('on (Settings): change sends currentPassword, remove asks to confirm first,
   expect(screen.getByText(/iOS and tvOS apps can’t sign in yet/)).toBeVisible()
   expect(container.querySelector('h2 svg')).not.toBeNull()
   click('Change password')
-  fireEvent.change(field('Current password'), { target: { value: 'old password!' } })
+  fireEvent.change(passwordFormField('Current password'), { target: { value: 'old password!' } })
   fireEvent.change(field('New password'), { target: { value: 'new password!' } })
   fireEvent.change(field('Confirm new password'), { target: { value: 'new password!' } })
   click('Change password')
@@ -91,7 +95,7 @@ test('on (Settings): change sends currentPassword, remove asks to confirm first,
 
   fn.mockClear()
   click('Remove password')
-  fireEvent.change(field('Current password'), { target: { value: 'old password!' } })
+  fireEvent.change(passwordFormField('Current password'), { target: { value: 'old password!' } })
   click('Remove password')
   expect(fn).not.toHaveBeenCalled()
   const sheet = await screen.findByRole('dialog', {}, { timeout: 2000 }).catch(() => null)
@@ -114,19 +118,36 @@ test('keys: the list shows name, created and last used and never a key; a new ke
   expect(screen.getByText(/Last used Never/)).toBeVisible()
   expect(screen.getByText(/shown only once/)).toBeVisible()
   expect(container.textContent).not.toContain(KEY)
+  expect(keyPasswordField()).toHaveAttribute('autocomplete', 'current-password')
+  expect(keyPasswordField()).toHaveAttribute('type', 'password')
+  expect(container.querySelector('.key-create input[autocomplete="username"]')).toHaveValue('ArrView')
   fireEvent.change(field('Key name (optional)'), { target: { value: '  Cron job ' } })
+  // no password: nothing is sent
   click(/Make a key/)
+  expect(screen.getByRole('alert')).toHaveTextContent('Enter your current password')
+  expect(fn).not.toHaveBeenCalled()
+  makeKey('my password!')
   const shown = await screen.findByLabelText('New key for Cron job')
   expect(shown).toHaveValue(KEY)
   expect(shown).toHaveAttribute('readonly')
   expect(screen.getByText('Copy it now. It will not be shown again.')).toBeVisible()
   expect(fn.mock.calls[0][0]).toBe('/api/auth/keys')
   expect(fn.mock.calls[0][1].method).toBe('POST')
-  expect(body(fn.mock.calls[0])).toEqual({ name: 'Cron job' })
+  expect(body(fn.mock.calls[0])).toEqual({ name: 'Cron job', currentPassword: 'my password!' })
   expect(paths()).toEqual(['/api/auth/keys', '/api/auth/keys'])
+  expect(keyPasswordField()).toHaveValue('')
+  expect(document.body.innerHTML).not.toContain('my password!')
   // Done removes the key from the page for good
   click('Done')
   expect(document.body.innerHTML).not.toContain(KEY)
+})
+
+test('a wrong current password shows the server error and still clears the field', async () => {
+  await mountOn(ON, url => (url === '/api/auth/keys' ? reply(403, { error: 'Current password is incorrect' }) : reply(200, {})))
+  makeKey('wrong one')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Current password is incorrect')
+  expect(keyPasswordField()).toHaveValue('')
+  expect(screen.queryByRole('group', { name: 'New key' })).toBeNull()
 })
 
 test('Copy writes the visible key in the same click with no request first (secure page)', async () => {
@@ -134,7 +155,7 @@ test('Copy writes the visible key in the same click with no request first (secur
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
   await mountOn(ON, () => reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'App key', created: 1 }))
-  click(/Make a key/)
+  makeKey()
   await screen.findByLabelText('New key for App key')
   fn.mockClear()
   fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
@@ -149,7 +170,7 @@ test('Copy on a plain-HTTP page selects the visible field and uses the copy comm
   const exec = vi.fn(() => true)
   document.execCommand = exec
   await mountOn(ON, () => reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'App key', created: 1 }))
-  click(/Make a key/)
+  makeKey()
   const shown = await screen.findByLabelText('New key for App key')
   fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
   expect(exec).toHaveBeenCalledWith('copy')
@@ -164,7 +185,7 @@ test('when the browser refuses, the key stays selected with a hand-copy hint tha
   Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
   document.execCommand = vi.fn(() => false)
   await mountOn(ON, () => reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'App key', created: 1 }))
-  click(/Make a key/)
+  makeKey()
   const shown = await screen.findByLabelText('New key for App key')
   fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
   expect(await screen.findByText(/copy it by hand now\. It will not be shown again/)).toBeVisible()
