@@ -155,6 +155,37 @@ test('a later successful auth write also makes the deletion durable, and a Sign 
   assert.equal(await status(again, { Cookie: seeded.cookie }), 401);
 });
 
+for (const [label, retry] of [
+  ['a Sign out with no cookie', (s) => post(s, '/api/auth/logout', {}, { ...AJAX })],
+  ['a new sign-in', (s, seeded) => post(s, '/api/auth/login', { password: seeded.password }, { ...AJAX })],
+]) {
+  test(`Sign out everywhere: write fails, every session and key is refused at once, ${label} after recovery makes it durable`, async (t) => {
+    const state = { fail: true };
+    const root = newRoot(t);
+    const seeded = seedAuth(root, undefined, { sessions: [30 * DAY, 30 * DAY], keys: ['One', 'Two'] });
+    const s = await startServer(t, { root, fsOverrides: failRename(state) });
+    const failed = await post(s, '/api/auth/logout-all', {}, { ...AJAX, Cookie: seeded.cookie });
+    assert.equal(failed.status, 500);
+    assert.equal(setCookies(failed).length, 0, 'a failed Sign out everywhere must not set a cookie');
+    const text = (await failed.json()).error;
+    assert.doesNotMatch(text, /save the password/i);
+    assert.match(text, /signed out everywhere.*could not be saved.*try again/i);
+    assert.equal(s.readAuth().sessions.length, 2, 'the file is unchanged after the failure');
+    assert.equal(s.readAuth().keys.length, 2);
+    for (const cookie of seeded.cookies) assert.equal(await status(s, { Cookie: cookie }), 401, 'every session is refused at once');
+    for (const key of seeded.accessKeys) assert.equal(await status(s, { 'X-Api-Key': key }), 401, 'every key is refused at once');
+    state.fail = false;
+    const done = await retry(s, seeded);
+    assert.equal(done.status, 200);
+    assert.equal(s.readAuth().keys.length, 0, 'the retry must write the deletion');
+    assert.ok(s.readAuth().sessions.length <= 1);
+    await s.close();
+    const again = await startServer(t, { root });
+    for (const cookie of seeded.cookies) assert.equal(await status(again, { Cookie: cookie }), 401);
+    for (const key of seeded.accessKeys) assert.equal(await status(again, { 'X-Api-Key': key }), 401);
+  });
+}
+
 for (const [label, removeOnce, removeRetry] of [
   ['one key', (s, h, seeded) => post(s, '/api/auth/keys/remove', { id: seeded.keyIds[0] }, h), (s, h, seeded) => post(s, '/api/auth/keys/remove', { id: seeded.keyIds[0] }, h)],
   ['all keys', (s, h) => post(s, '/api/auth/keys/remove-all', {}, h), (s, h) => post(s, '/api/auth/keys/remove-all', {}, h)],

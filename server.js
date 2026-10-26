@@ -808,7 +808,14 @@ app.post('/api/auth/logout-all', authRoute((req, res) => {
   return authQueued(() => {
     if (!reauthorised(req)) return staleReply(res);
     if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
-    if (!commitAuth(res, { record: auth.record, sessions: [], keys: [] })) return undefined;
+    // Like Sign out and key removal: access ends in memory at once (event streams included); the file follows.
+    auth.sessions = [];
+    auth.keys = [];
+    revocationPending = true;
+    closeInvalidStreams();
+    try { writeAuthFile(auth); } catch (_) {
+      return res.status(500).json({ error: 'Signed out everywhere here, but the change could not be saved, so it may come back after a restart. Try again; you will need to sign in once storage works.' });
+    }
     clearSessionCookie(req, res);
     return res.json({ success: true });
   });
