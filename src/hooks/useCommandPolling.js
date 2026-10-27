@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { apiFetch } from '../api'
 
 // Track user-started Sonarr commands without leaving timers/listeners behind
 // when a tab closes. Hiding the app pauses checks; returning checks immediately.
@@ -34,7 +35,7 @@ export function useCommandPolling() {
       const controller = new AbortController()
       job.controller = controller
       try {
-        const response = await fetch(`/api/sonarr/command/${id}`, { signal: controller.signal })
+        const response = await apiFetch(`/api/sonarr/command/${id}`, { signal: controller.signal })
         if (!response.ok) throw new Error('Command unavailable')
         const data = await response.json()
         if (controller.signal.aborted || !mounted.current) return

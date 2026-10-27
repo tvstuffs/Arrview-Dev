@@ -1,5 +1,7 @@
+import { apiFetch } from './api'
+
 export async function checkedFetch(url, options) {
-  const response = await fetch(url, options)
+  const response = await apiFetch(url, options)
   const data = await response.json().catch(() => ({}))
   if (!response.ok || data.error) throw new Error(data.error || `Request failed (${response.status})`)
   return data

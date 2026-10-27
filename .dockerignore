@@ -13,6 +13,8 @@ config.json
 data
 .env
 secrets
+auth.json
+.auth.json.*.tmp
 dist
 .github
 .DS_Store

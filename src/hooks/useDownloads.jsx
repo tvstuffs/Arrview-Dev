@@ -3,6 +3,7 @@ import { useVisiblePolling } from './lifecycle'
 import { useSingleFlight } from './useSingleFlight'
 import { useIdentity } from '../components/modern/LibraryProvider.jsx'
 import { buildQueueItems, leadItem, pillItem } from '../downloads'
+import { apiFetch } from '../api'
 
 // One shared store for every download surface in the Modern shell. Surfaces register what they need with
 // useDownloadNeeds; nothing is polled unless a registered, visible surface needs it, and nothing is polled twice.
@@ -29,7 +30,7 @@ export function useDownloadNeeds(spec) {
 }
 
 async function readQueue(url) {
-  const response = await fetch(url)
+  const response = await apiFetch(url)
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(body?.error || `Request failed (${response.status})`)
   return body

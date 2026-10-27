@@ -45,6 +45,17 @@ test('the Downloads glyph icons (file, package, music-notes, book-open) render f
     expect(render(<Icon name={name} weight="fill" />).container.querySelector('path').getAttribute('d')).toBe(d)
   }
 })
+test('the login icons render from the staged Phosphor regular set', () => {
+  const staged = { 'lock': 'M208,80H176V56a48,48,0,0,0-96,0V80H48', 'lock-open': 'M208,80H96V56a32,32,0,0,1,32-32c15.37', 'key': 'M216.57,39.43A80,80,0,0,0,83.91,120.78',
+    'sign-in': 'M141.66,133.66l-40,40a8,8,0,0,1-11.32-11.32', 'sign-out': 'M120,216a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V40', 'shield-check': 'M208,40H48A16,16,0,0,0,32,56v56c0,52.72',
+    'copy': 'M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216' }
+  for (const [name, start] of Object.entries(staged)) {
+    expect(ICON_NAMES).toContain(name)
+    const d = render(<Icon name={name} />).container.querySelector('path').getAttribute('d')
+    expect(d.startsWith(start), name).toBe(true)
+    expect(render(<Icon name={name} weight="fill" />).container.querySelector('path').getAttribute('d')).toBe(d)
+  }
+})
 test('unknown icon names render nothing', () => {
   const { container } = render(<Icon name="no-such-icon" />)
   expect(container).toBeEmptyDOMElement()

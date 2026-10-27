@@ -7,6 +7,7 @@ import { useMediaActions } from '../hooks/useMediaActions'
 import { usePreference, textPreference, oneOf, idList } from '../hooks/usePreference'
 import { useServerEvents, useVisiblePolling } from '../hooks/lifecycle'
 import { mainSeasonCounts } from '../media'
+import { apiFetch } from '../api'
 import AddMediaModal from './AddMediaModal.jsx'
 import EpisodeSearchModal from './EpisodeSearchModal.jsx'
 
@@ -89,7 +90,7 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
 
   const fetchEpisodes = useCallback(async () => {
     try {
-      const r = await fetch(`/api/sonarr/series/${show.id}/episodes`)
+      const r = await apiFetch(`/api/sonarr/series/${show.id}/episodes`)
       const data = await r.json()
       setEpisodes(Array.isArray(data) ? data : [])
     } catch {
@@ -287,7 +288,7 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
 
   const fetchSeries = useCallback(async () => {
     try {
-      const r = await fetch('/api/sonarr/series')
+      const r = await apiFetch('/api/sonarr/series')
       if (!r.ok) throw new Error((await r.json()).error)
       const data = await r.json()
       setSeries(Array.isArray(data) ? data : [])

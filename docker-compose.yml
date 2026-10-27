@@ -30,6 +30,11 @@ services:
       # ARRVIEW_SABNZBD_API_KEY: <your-sabnzbd-api-key>
       # ARRVIEW_NZBHYDRA_API_KEY: <your-nzbhydra-api-key>
       # ARRVIEW_SONARR_URL: http://<docker-host-address>:8989   # per-service override
+      # Optional password login (off by default; see "Password login" in the README):
+      # ARRVIEW_PASSWORD: <your-password>                       # visible in `docker inspect`; prefer the file form
+      # ARRVIEW_PASSWORD_FILE: /run/secrets/arrview_password    # bind-mount ./secrets/arrview_password
+      # ARRVIEW_AUTH: "off"                                     # recovery switch: turns the login off
+      # ARRVIEW_TRUSTED_PROXIES: 192.0.2.10, 198.51.100.0/24    # reverse proxies whose X-Forwarded-* is believed
     volumes:
       - ./data:/data
       # For *_API_KEY_FILE secrets (keep ./secrets out of git):

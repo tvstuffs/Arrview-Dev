@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react'
 import { checkedFetch } from '../../actions'
+import { apiFetch } from '../../api'
 import { useVisiblePolling, useServerEvents } from '../../hooks/lifecycle'
 
 const Library = createContext(null)
@@ -14,7 +15,7 @@ export function LibraryProvider({ children }) {
   }, [])
   const fetchSeries = useCallback(async () => {
     try {
-      const r = await fetch('/api/sonarr/series')
+      const r = await apiFetch('/api/sonarr/series')
       if (!r.ok) throw new Error((await r.json()).error)
       const data = await r.json()
       setState(s => ({ ...s, series: Array.isArray(data) ? data : [], seriesError: null }))
@@ -22,7 +23,7 @@ export function LibraryProvider({ children }) {
   }, [])
   const fetchMovies = useCallback(async () => {
     try {
-      const r = await fetch('/api/radarr/movies')
+      const r = await apiFetch('/api/radarr/movies')
       if (!r.ok) throw new Error((await r.json()).error)
       const data = await r.json()
       setState(s => ({ ...s, movies: Array.isArray(data) ? data : [], moviesError: null }))

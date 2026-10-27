@@ -2,6 +2,7 @@ import Sheet from './Sheet'
 import { usePreference, oneOf } from '../hooks/usePreference'
 import { useState, useEffect } from 'react'
 import Icon from './Icon.jsx'
+import { apiFetch } from '../api'
 import './EpisodeSearchModal.css'
 
 function formatSize(bytes) {
@@ -46,7 +47,7 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
           season:      episode.seasonNumber,
           episode:     episode.episodeNumber,
         })
-        const r = await fetch(`/api/${service}/release?${params}`)
+        const r = await apiFetch(`/api/${service}/release?${params}`)
         const data = await r.json()
         if (!r.ok) throw new Error(data.error || 'Search failed')
         setResults(Array.isArray(data) ? data : [])
@@ -66,14 +67,14 @@ export default function ReleaseSearchModal({ episode, movie, seriesTitle, nzbhyd
       let r, data
       if (release._source === 'nzbhydra') {
         // NZBHydra-direct result: send NZB URL straight to SABnzbd
-        r = await fetch('/api/sabnzbd/addurl', {
+        r = await apiFetch('/api/sabnzbd/addurl', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: release._nzbUrl, name: release.title }),
         })
       } else {
         // Managed release: let the target service grab it
-        r = await fetch(`/api/${service}/release`, {
+        r = await apiFetch(`/api/${service}/release`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(release),

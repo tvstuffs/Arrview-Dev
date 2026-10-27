@@ -196,7 +196,7 @@ test('Settings asks at once, shows the answer, and asks again every five seconds
     'Radarr: No event since ArrView started 10 minutes ago.',
   ])
   // It does not use a cached answer.
-  expect(fn.calls.find(call => call.url.startsWith('/api/webhooks/last')).init).toEqual({ cache: 'no-store' })
+  expect(fn.calls.find(call => call.url.startsWith('/api/webhooks/last')).init).toMatchObject({ cache: 'no-store' })
 })
 
 test('a failed poll keeps the last answer on the page instead of an error, and the next good one replaces it', async () => {

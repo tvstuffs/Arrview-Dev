@@ -162,6 +162,6 @@ test('identify advertises the new capabilities', async (t) => {
   const { base } = await startProxy(t, 'sonarr');
   const identity = await (await fetch(base + '/api/arrview/identify')).json();
   assert.deepEqual(identity.capabilities, ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit',
-    'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar']);
+    'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar', 'auth']);
   assert.equal(identity.version, APP_VERSION);
 });

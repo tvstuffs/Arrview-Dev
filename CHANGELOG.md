@@ -1,5 +1,101 @@
 # ArrView server development changelog
 
+## Unreleased — Optional password login
+
+No version change: the maintainer renames this section when the version is set. `APP_VERSION` and `package.json` are
+untouched.
+
+- **An optional password login, off by default.** With no password nothing changes. With one (Settings → Security,
+  or the Docker variables `ARRVIEW_PASSWORD` / `ARRVIEW_PASSWORD_FILE`) one gate in front of every `/api` route
+  answers `401 {"error":"Authentication required","auth":true}` to anyone not signed in. Public: the app shell,
+  `GET /api/health`, `GET /api/arrview/identify`, `GET /api/auth/status`, `POST /api/auth/login`,
+  `POST /api/auth/logout`, `POST /api/auth/token` and the two webhook receivers. `GET /api/webhooks/last` is
+  protected. A browser signs in with the password and holds a random session token in a 30-day sliding cookie
+  (`arrview_session`); the server keeps only the token's SHA-256 digest. Apps and scripts send an app key as
+  `X-Api-Key` or `Authorization: Bearer`; each app or script gets its own key, also stored only as a digest.
+- **New routes (JSON):**
+  - `GET /api/auth/status` → `{required, signedIn, source: "none"|"settings"|"docker", authDisabledByDocker,
+    setupPending, passwordMinLength, passwordMaxLength}` (signed-out while required: `{required:true,
+    signedIn:false}` plus `unavailable:true` when failing closed).
+  - `POST /api/auth/login` `{password}` → `200 {success:true}` + cookie, `401 {error:"Incorrect password"}`, `429`.
+  - `POST /api/auth/logout` → `200 {success:true}`; ends only that browser's session.
+  - `POST /api/auth/token` `{password, name?}` → `200 {accessKey, id, name, created}`, no cookie; the key is in this
+    response only. `409` at 50 keys.
+  - `POST /api/auth/password` `{currentPassword?, newPassword}` (cookie session only), `POST /api/auth/password/remove`
+    `{currentPassword}`, `POST /api/auth/logout-all`.
+  - `GET /api/auth/keys` → `{max, keys:[{id, name, created, lastUsed}]}`, `POST /api/auth/keys` `{currentPassword, name?}`
+    (same response as `/token`; `400` without the password, `403` when wrong, counted by the sign-in limit), `POST /api/auth/keys/remove` `{id}`, `POST /api/auth/keys/remove-all` (cookie session
+    only). `GET /api/auth/access-key` and `POST /api/auth/access-key/regenerate` are gone: no key can be read back.
+  - `POST /api/auth/setup/skip` (first-run choice, only while setup is pending).
+- **`GET /api/arrview/identify`** gains `auth` (boolean) and the `'auth'` capability (last in the list).
+- **New file and variables.** `auth.json` in the data directory (version 2; mode `0600`, atomic writes; the scrypt
+  hash plus session and key digests, nothing usable to sign in; never in `config.json`). Sessions: at most 50, the
+  oldest dropped, extended at most once a day. Keys: at most 50, each with a name (40 characters, default "App key"),
+  a created date and a last-used date written at most once a day. A version 1 file from an earlier test build keeps
+  its password and drops the old secret and key (everyone signs in again; logged). Variables: `ARRVIEW_PASSWORD`,
+  `ARRVIEW_PASSWORD_FILE`, `ARRVIEW_AUTH` (`off` is the recovery switch), `ARRVIEW_TRUSTED_PROXIES` (an invalid
+  entry, including IPv4-compatible `::192.0.2.1` forms, trusts nothing; a parser error can no longer stop start-up).
+  A broken Docker password setting or an unreadable `auth.json` keeps the login on and lets nobody in.
+- **Removing a session or a key cuts access at once,** open event streams included. Sign out everywhere and any
+  password change remove every session and every key.
+- **Removing the Docker password turns the login off.** With `ARRVIEW_PASSWORD` and `ARRVIEW_PASSWORD_FILE` both
+  unset at start and a stored password that came from Docker, the password, sessions and keys are deleted and one
+  line is logged. A password set in Settings is not affected.
+- **First-run screen.** A new install (neither `config.json` nor `auth.json`, no Docker password, `ARRVIEW_AUTH` not
+  `off`) opens on a setup screen: protect ArrView with a password or continue without one (it says that without a
+  password anyone who can reach the address can use ArrView, including deleting files). Same screen in Modern and
+  Classic. On a brand-new install reachable from outside, the first visitor could set the password; the Docker
+  password, `ARRVIEW_AUTH=off` or removing `auth.json` recover it. An install that keeps every service in Docker
+  variables and has no `config.json` shows the screen once after upgrading; Continue without a password dismisses it
+  for good.
+- **Web.** The first-run screen, a Sign in screen before any data loads, a Security card in Settings (both layouts)
+  with a key list (make, remove one, remove all), and one `apiFetch` for every request (adds `X-Requested-With:
+  ArrView`, announces a mid-session 401). A new key is shown once in a read-only field and Copy writes it in the same
+  click (Clipboard API on secure pages, otherwise the copy command on the selected field, via `src/clipboard.js`);
+  if a browser refuses, the key stays selected with a hint to copy it by hand.
+- **Read before turning it on.** Behind a reverse proxy without `ARRVIEW_TRUSTED_PROXIES` every client shares one
+  sign-in limit, so ten wrong passwords from anyone lock everyone out for 15 minutes. Each password check needs about
+  128 MiB of memory for a moment, so a container with a tight memory limit cannot sign anyone in and a Docker password
+  then fails closed. Rolling back to 1.9A4 or earlier opens the server.
+- **The iOS and tvOS apps cannot sign in yet:** with the login on they fail with a 401 until an app update.
+- **Not verified by the factory:** brute-force behaviour, proxies other than the maintainer's, any app sign-in, the
+  fail2ban regex, and a run in real Chromium (CI).
+- **Human test plan:**
+  1. Upgrade an existing install (populated `config.json`, no `auth.json`): nothing changes; the shipped iOS app still
+     works; webhooks still arrive; `identify` says `auth: false`.
+  2. Set a password in Settings: that browser stays signed in; a private window gets Sign in; try a wrong password and
+     the limit.
+  3. Reload, relaunch the Home Screen app, restart the container: still signed in.
+  4. Sign out; Sign out everywhere also signs out a second browser. Copy the cookie of a browser before signing it out:
+     it no longer works. With two browsers signed in, Sign out in one leaves the other signed in.
+  4a. Keys: in Settings make a key named "Script": the form asks for your current password. Leave it empty or type a
+     wrong one: no key is made, the field is cleared, and ten wrong ones block the address for 15 minutes. With the
+     right one the key appears in a read-only field and is not shown again after Done
+     or a reload. Press Copy and paste somewhere: the same text. Check the list (name, created, last used) and make a
+     second key. Remove one: only that one stops (curl returns 401 at once, also on an open `/api/events`). Remove all.
+     Sign out everywhere and a password change also remove every key.
+  4b. Copy in Safari: on a Mac and on an iPhone, open ArrView over plain HTTP (`http://arrview.example:7777`), make a
+     key and press Copy, then paste it: it must paste. If it does not, the key is left selected with the hint to copy
+     it by hand. Repeat over HTTPS and in one other browser.
+  4c. New install: start with an empty data folder (no `config.json`, no `auth.json`, no Docker password). The first
+     screen offers a password or "Continue without a password" with the delete-files warning, in Modern and in
+     Classic. Choosing a password signs that browser in; choosing none never shows the screen again after a restart;
+     Settings can still set a password. An install with a `config.json` never shows it, nor does one with
+     `ARRVIEW_PASSWORD` or `ARRVIEW_AUTH=off`. An install with every service in Docker variables and no `config.json`
+     shows it once after upgrading; Continue without a password dismisses it for good.
+  4d. With a Docker password on, remove `ARRVIEW_PASSWORD` and recreate the container: the login is off (one log
+     line says why). A password set in Settings survives the same step.
+  5. With the login on, the iOS app fails cleanly and keeps its server; Test from Sonarr and Radarr still shows under
+     "Last event received".
+  6. Docker: `ARRVIEW_PASSWORD` and `_FILE` with a recreate; the card is read-only; a changed value signs everyone
+     out; `ARRVIEW_AUTH=off`.
+  7. Behind an HTTPS proxy with `ARRVIEW_TRUSTED_PROXIES` set the cookie is `Secure`; without it, it is not, and
+     sign-in still works.
+  8. Roll back to the previous image: the server is open again, `auth.json` is ignored and Settings saves still work;
+     upgrade again and the password is still there.
+  9. curl: a protected route without credentials (401), with the access key (200), a cookie POST without the
+     `X-Requested-With` header (403).
+
 ## 1.9A4 (unreleased) — Webhooks in Settings
 
 - **Version 1.9A4.** Adds a Webhooks card to the Settings page. Server and web client only: one new read-only

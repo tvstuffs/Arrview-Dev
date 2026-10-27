@@ -2,6 +2,7 @@ import Sheet from './Sheet'
 import { usePreference, textPreference } from '../hooks/usePreference'
 import { useState, useRef, useCallback } from 'react'
 import Icon from './Icon.jsx'
+import { apiFetch } from '../api'
 import './NzbSearchModal.css'
 
 function formatSize(bytes) {
@@ -38,7 +39,7 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
     setError(null)
     setResults(null)
     try {
-      const r = await fetch(`/api/nzbhydra/search?q=${encodeURIComponent(q.trim())}`)
+      const r = await apiFetch(`/api/nzbhydra/search?q=${encodeURIComponent(q.trim())}`)
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || 'Search failed')
       setResults(data)
@@ -58,7 +59,7 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
     const key = result.guid
     setSending(s => ({ ...s, [key]: true }))
     try {
-      const r = await fetch('/api/sabnzbd/addurl', {
+      const r = await apiFetch('/api/sabnzbd/addurl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: result.link, name: result.title }),

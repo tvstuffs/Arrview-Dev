@@ -10,6 +10,7 @@ import Icon from './Icon.jsx'
 import { MovieDeleteSheet } from './MediaSheets'
 import { useMediaActions } from '../hooks/useMediaActions'
 import { checkedFetch } from '../actions'
+import { apiFetch } from '../api'
 import { MOVIE_STATUS, getMovieStatus, isMovieMissing, movieFileLine } from '../media'
 
 function MovieCard({ movie, onChanged, onToast, identity, view = "list" }) {
@@ -102,7 +103,7 @@ export default function MoviesTab({ onToast }) {
 
   const fetchMovies = useCallback(async () => {
     try {
-      const r = await fetch('/api/radarr/movies')
+      const r = await apiFetch('/api/radarr/movies')
       if (!r.ok) throw new Error((await r.json()).error)
       const data = await r.json()
       setMovies(Array.isArray(data) ? data : [])

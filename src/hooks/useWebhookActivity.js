@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useVisiblePolling } from './lifecycle'
 import { readActivity } from '../webhooks'
+import { apiFetch } from '../api'
 
 export const ACTIVITY_POLL_MS = 5000
 
@@ -13,7 +14,7 @@ export function useWebhookActivity(enabled) {
   const [state, setState] = useState({ status: 'loading', data: null, receivedAt: 0 })
   const refresh = useCallback(async () => {
     try {
-      const response = await fetch('/api/webhooks/last', { cache: 'no-store' })
+      const response = await apiFetch('/api/webhooks/last', { cache: 'no-store' })
       if (response.status === 404) { setState({ status: 'old', data: null, receivedAt: 0 }); return }
       const data = response.ok ? readActivity(await response.json()) : null
       if (!data) throw new Error('unreadable answer')

@@ -8,6 +8,7 @@ import { useLibraryOnce } from './LibraryProvider.jsx'
 import useUpcoming from '../../hooks/useUpcoming'
 import { useDownloads, useDownloadNeeds, useDownloadHistory, useNow } from '../../hooks/useDownloads.jsx'
 import { checkedFetch } from '../../actions'
+import { apiFetch } from '../../api'
 import { artUrl } from '../../media'
 import { dayDate, entryLabel, groupByDay, timeText } from '../../upcoming'
 import { buildHistoryItems, formatLeft, formatSize, idleLead, kindLabel, relativeTime, rowStatus } from '../../downloads'
@@ -176,7 +177,7 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
 
   async function post(mode, nzoId) {
     try {
-      const r = await fetch('/api/sabnzbd/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, nzo_id: nzoId }) })
+      const r = await apiFetch('/api/sabnzbd/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, nzo_id: nzoId }) })
       const data = await r.json()
       if (data.error) throw new Error(data.error)
       dl.refresh()
