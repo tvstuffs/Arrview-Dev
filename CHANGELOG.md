@@ -1,9 +1,9 @@
 # ArrView server development changelog
 
-## Unreleased — Optional password login
+## 1.9A5 (unreleased) — Optional password login
 
-No version change: the maintainer renames this section when the version is set. `APP_VERSION` and `package.json` are
-untouched.
+- **Version 1.9A5.** Test build of the optional password login, on top of 1.9A4. It merges factory job 008 into
+  `main`. `package.json` is unchanged.
 
 - **An optional password login, off by default.** With no password nothing changes. With one (Settings → Security,
   or the Docker variables `ARRVIEW_PASSWORD` / `ARRVIEW_PASSWORD_FILE`) one gate in front of every `/api` route

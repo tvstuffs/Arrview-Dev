@@ -15,10 +15,10 @@ test('README documents the variables and the app warning', () => {
   assert.ok(!readme.includes('still has no built-in'));
 });
 
-test('CHANGELOG starts with the unreleased login section', () => {
-  const first = changelog.split('\n').find(l => l.startsWith('## '));
-  assert.equal(first, '## Unreleased — Optional password login');
-  assert.ok(changelog.indexOf('## Unreleased') < changelog.indexOf('## 1.9A4'));
+test('CHANGELOG has the 1.9A5 login section above 1.9A4', () => {
+  const heading = '## 1.9A5 (unreleased) — Optional password login';
+  assert.ok(changelog.split('\n').includes(heading), heading);
+  assert.ok(changelog.indexOf(heading) < changelog.indexOf('## 1.9A4'));
 });
 
 test('README, CHANGELOG and the compose file hold no local path or private network address', () => {

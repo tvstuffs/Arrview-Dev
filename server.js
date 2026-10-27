@@ -16,7 +16,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 // Pre-2.0 track: each build increments the A number (1.9A1, 1.9A2, ...). The label
 // is display text; clients detect features through `capabilities`, never by
 // comparing versions (1.9A1 sorts below 1.10.2 as numbers).
-const APP_VERSION = '1.9A4';
+const APP_VERSION = '1.9A5';
 
 // ── Password login (optional, off by default) ────────────────────────────────
 // All of it lives in this file (the Dockerfile copies only server.js). State is in memory, read once from
