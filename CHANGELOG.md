@@ -1,5 +1,81 @@
 # ArrView server development changelog
 
+## 1.9A6 (unreleased) — Web fixes: Downloads history, season packs, show pages, movie artwork, Settings
+
+- **Version 1.9A6.** Seven web changes on top of 1.9A5, from the maintainer's review of the redesign. No server
+  route, request or config change; the only server line that changed is the version. `package.json` is unchanged.
+  Each change is its own commit, so one can be reverted on its own (the season dropdown and the trash buttons share
+  one, because they change the same row).
+
+- **Downloads: Recent History shows five rows, three on phones.** Fifteen rows pushed Coming up far down the idle
+  page. Load more still adds fifteen. At least fifteen are still fetched, so the idle lead (the newest finished
+  download with artwork) is chosen from the same rows as before. Classic is unchanged.
+- **Season packs in Recent History.** A release with a whole season (`S03`) or a run of seasons (`S01-S03`) and no
+  episode number now matches its series: the row has the poster and "Season 3" (or "Seasons 1–3"), and a finished
+  pack leads the idle Downloads page. Before, a pack was listed as an unmatched TV download and the lead skipped it
+  for an older episode. A release without a year now also matches a Sonarr title such as "Show (2024)" when no title
+  matches exactly; two shows that both fit still match neither. An unmatched pack says "TV · S3" and "Not in Sonarr".
+  The queue already matched packs (by download id) and is unchanged.
+- **Movie posters on Upcoming.** In the thumbnail view the sharp movie poster measured 0 px wide (`width: auto` on an
+  absolutely positioned box whose image is absolutely positioned too), so a movie tile showed only its blurred
+  backdrop. It now takes its width from a 2:3 ratio; the e2e layout test measures it at 320, 402, 834 and 1440 px.
+- **Artwork from older Sonarr and Radarr.** `artUrl` prefers `remoteUrl` and falls back to an absolute `url`, which is
+  where queue and calendar answers that skip the local-cover mapping carry the remote address in older versions.
+  Current Sonarr and Radarr send `remoteUrl`; no older version was tested.
+- **Show page: a season dropdown.** A native select (newest first, specials excluded) replaces the row of season
+  chips, which did not scale to long-running shows. A show with one season shows its name instead. 16 px, so iOS
+  Safari does not zoom when it is tapped.
+- **Trash buttons instead of More.** On the show page the show's More button opened only the remove sheet and the
+  season's only the delete-and-unmonitor sheet. Both are now the bundled Phosphor trash icon with the danger hover,
+  named as in the Classic layout: "Remove <show> from Sonarr" and "Delete downloaded files in Season N". The sheets
+  and their wording are unchanged.
+- **Completeness colours.** The episode bars (Modern poster tiles, list rows and show page; Classic show cards) are
+  red under a third, yellow under four fifths, green below complete and grey when every episode is on disk
+  (`completenessTone` in `src/media.js`). The share is the one the bars already showed: episodes on disk out of every
+  episode in the main seasons. A library that keeps only recent seasons of long-running shows is therefore mostly red.
+  Poster tiles of monitored shows now show the bar when complete too (grey); unmonitored shows still have none.
+- **Settings.** Security comes first. The services are one list: each app is a row with its icon, description and a
+  connection status from the existing `GET /api/<service>/ping` route (Connected, Can't connect, Not set up,
+  Checking…), polled every 60 seconds while the page is visible; a Test result replaces it. A saved app starts closed
+  and opens to its address and key fields (they stay in the page while closed); an app that is not set up starts
+  open, so a first run looks as before. The Service checklist card, which repeated the same facts, is gone. The other
+  cards lose their outlines, text fields are filled until focused (16 px on touch screens), and Layout is a
+  segmented control over the same radio buttons, which also fixes the 44 px radio circles on phones.
+
+- **Tests:** server 211/211, web (vitest) 475/475 (459 at 1.9A5), e2e 158/158 in Microsoft Edge on macOS (CI
+  repeats them in real Chromium). New: season-pack and "(year)" matching, tones, the `url` fallback, five and three
+  history rows, the season dropdown and one-season name, the trash buttons, the Services rows (status from pings,
+  closed and open states, Test result, no ping restart on a new but equal config, first run), the order of Settings,
+  and the measured movie poster on Upcoming.
+- **Not verified:** a real iPhone or iPad (Safari, Home Screen app, VoiceOver); Firefox and Safari on a Mac; a season
+  pack while it is still in the queue (only finished packs in a real SABnzbd history were checked); an older Sonarr or
+  Radarr for the `url` fallback; the Classic layout's colours on a device.
+- **Human test plan:**
+  1. Downloads, with nothing downloading, in the Home Screen app on a phone and in a desktop browser: Recent History
+     shows three rows on the phone and five on the desktop, Coming up follows it, and Load more adds fifteen.
+  2. After a whole-season download finishes (one NZB for a season): the Downloads page leads with that show
+     ("Downloaded … ago", "Season N", its artwork) and its Recent History row has the poster and "Season N". Do the
+     same for a show whose Sonarr title ends in a year, with a release named without it.
+  3. While a season pack downloads: its queue row shows the show and "S3 · Episodes 1–10" (unchanged; check it).
+  4. Upcoming, thumbnail view, on the phone and the desktop: every movie tile shows a sharp poster centred on its
+     blurred backdrop, with the Digital or Physical badge. The list view is unchanged.
+  5. Movie artwork elsewhere on Downloads (queue row while a movie downloads, Recent History, Coming up): it should
+     show the poster. This could not be reproduced as broken before the change; report the view and movie if one
+     still is not right.
+  6. A show with many seasons: the Season dropdown lists every season, newest first; picking one swaps the episodes
+     and the count; Search N Missing and the season trash act on the picked season. On an iPhone, tapping it opens
+     the system picker without zooming the page. A show with one season shows "Season 1".
+  7. On a show page: the trash next to Open in Sonarr opens "Remove series from Sonarr?" (Keep Files / Delete); the
+     season's trash opens "Delete Season N files?"; Cancel does nothing. Classic is unchanged.
+  8. Shows grid, list and show page, then the Classic layout: red, yellow, green and grey bars as above; a complete
+     monitored show has a grey bar on its poster; an unmonitored show has none.
+  9. Settings in both layouts: Security is first; each saved app's row says Connected. Stop one app (or put a wrong
+     key in its row and press Test): its row says Can't connect or Test failed. Open a row, change the address: the
+     key must be re-entered before Save, as before. Save still works, and the Layout control switches layouts. On a
+     phone, tapping a field does not zoom.
+  10. First run (empty data folder): every app row is open and Save works as before.
+  11. Roll back to the 1.9A5 image: nothing to migrate; the old page comes back.
+
 ## 1.9A5 (unreleased) — Optional password login
 
 - **Version 1.9A5.** Test build of the optional password login, on top of 1.9A4. It merges factory job 008 into

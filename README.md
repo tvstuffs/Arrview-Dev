@@ -796,8 +796,9 @@ preserves the upstream resource's other fields. It does not delete series files.
 
 Downloads poll every 2 seconds while downloading and 10 seconds idle while
 visible; W2 hidden/resume rules still apply. Load more increases history by 15,
-up to 1000. Settings lists configured services (not a connectivity claim; use
-Test to verify). Movie presentation joins the existing browser-local preferences.
+up to 1000 (the Modern Downloads page starts with 5 rows, 3 on phones). Settings
+shows each saved service's connection status from its ping route; use Test to
+check an address before saving. Movie presentation joins the existing browser-local preferences.
 Human release checks are in CHANGELOG 1.10.2; native apps and Core are unchanged.
 
 ## Web redesign routes
