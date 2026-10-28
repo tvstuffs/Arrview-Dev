@@ -241,8 +241,8 @@ test('Settings shows the card for a saved Sonarr or Radarr, between the services
   const card = screen.getByRole('heading', { level: 2, name: 'Webhooks' }).closest('section')
   expect(urlOf('Sonarr')).toBeInTheDocument()
   expect(screen.queryByLabelText('Radarr webhook URL')).toBeNull()
-  const order = [...container.querySelectorAll('.services-grid, .webhook-card, .install-help')]
-  expect(order.map(el => el.className.split(' ')[0])).toEqual(['services-grid', 'webhook-card', 'install-help'])
+  const order = [...container.querySelectorAll('.service-list, .webhook-card, .install-help')]
+  expect(order.map(el => el.className.split(' ')[0])).toEqual(['service-list', 'webhook-card', 'install-help'])
   expect(card.contains(screen.getByLabelText('ArrView address for Sonarr and Radarr'))).toBe(true)
   unmount()
   render(<ConfigPage onSave={() => {}} />)

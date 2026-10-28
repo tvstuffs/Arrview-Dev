@@ -60,13 +60,13 @@ test('only an unavailable Bonjour is flagged', () => {
   }
 })
 
-test('first-run Settings shows the notice above the service checklist once the server has answered', async () => {
+test('first-run Settings shows the notice above the Services list once the server has answered', async () => {
   stubFetch(identify(blocked))
   render(<ConfigPage onSave={() => {}} />)
   const notice = await screen.findByRole('status', NOTICE)
   expect(await screen.findByText('ArrView v1.9A3')).toBeInTheDocument()
-  const checklist = screen.getByRole('region', { name: 'Service checklist' })
-  expect(notice.compareDocumentPosition(checklist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const services = screen.getByRole('region', { name: 'Services' })
+  expect(notice.compareDocumentPosition(services) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
 test('Settings shows no notice while Bonjour works, is starting or off, or the server predates the field', async () => {

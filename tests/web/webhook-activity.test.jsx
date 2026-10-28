@@ -183,7 +183,8 @@ test('Settings asks at once, shows the answer, and asks again every five seconds
   fakeTimers()
   const fn = stubFetch({ '/api/webhooks/last': sequence(answer(), answer({ uptimeSeconds: 605, sonarr: { event: seen('Download', 2), test: seen('Test', 4) } })) })
   settings()
-  expect(screen.getByText('Checking…')).toBeInTheDocument()
+  // The service rows say Checking… too, while their own pings are out.
+  expect(within(screen.getByRole('heading', { level: 2, name: 'Webhooks' }).closest('section')).getByText('Checking…')).toBeInTheDocument()
   await advance(10)
   expect(lastCalls(fn)).toBe(1)
   expect(items()).toEqual(['Sonarr: No event since ArrView started 10 minutes ago.', 'Radarr: No event since ArrView started 10 minutes ago.'])

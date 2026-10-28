@@ -190,3 +190,82 @@ test('19d: a spaces-only key does not count as a configured service', async () =
   await waitFor(() => expect(screen.getByText(/letter or number|at least one service/)).toBeInTheDocument())
   expect(configPosts(fetch)).toHaveLength(0)
 })
+
+// ---- Services list ----
+const row = name => screen.getByRole('button', { name, exact: true })
+const statusOf = name => document.getElementById(`${name.toLowerCase()}-status`).textContent
+const pings = fetch => fetch.mock.calls.map(([u]) => u).filter(u => u.endsWith('/ping'))
+
+test('Services: a saved service starts closed with its ping status; one that is not set up starts open and says so', async () => {
+  const fetch = stubFetch(url => url === '/api/sabnzbd/ping' ? reply({ error: 'Service unavailable' }, false, 503) : url.endsWith('/ping') ? reply({ status: 'ok' }) : reply({ version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  expect(row('Sonarr')).toHaveAttribute('aria-expanded', 'false')
+  expect(document.getElementById('sonarr-panel')).not.toBeVisible()
+  expect(statusOf('Sonarr')).toBe('Checking…')
+  await waitFor(() => expect(statusOf('Sonarr')).toBe('Connected'))
+  await waitFor(() => expect(statusOf('SABnzbd')).toBe('Can’t connect'))
+  expect(row('Sonarr')).toHaveAccessibleDescription('TV show management Connected')
+  for (const name of ['Radarr', 'NZBHydra']) {
+    expect(row(name)).toHaveAttribute('aria-expanded', 'true')
+    expect(statusOf(name)).toBe('Not set up')
+  }
+  expect(document.getElementById('radarr-panel')).toBeVisible()
+  expect(pings(fetch).sort()).toEqual(['/api/sabnzbd/ping', '/api/sonarr/ping'])
+  expect(screen.queryByRole('region', { name: 'Service checklist' })).toBeNull()
+})
+
+test('Services: a row opens and closes; its fields keep their values', () => {
+  stubFetch(() => reply({ version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  fireEvent.click(row('Sonarr'))
+  expect(row('Sonarr')).toHaveAttribute('aria-expanded', 'true')
+  expect(document.getElementById('sonarr-panel')).toBeVisible()
+  expect(screen.getByRole('group', { name: 'Sonarr connection' })).toContainElement(screen.getByLabelText('Server URL', { selector: '#sonarr-url' }))
+  fireEvent.change(screen.getByLabelText('Server URL', { selector: '#sonarr-url' }), { target: { value: 'http://other.example.invalid:8989' } })
+  fireEvent.click(row('Sonarr'))
+  expect(document.getElementById('sonarr-panel')).not.toBeVisible()
+  fireEvent.click(row('Sonarr'))
+  expect(screen.getByLabelText('Server URL', { selector: '#sonarr-url' })).toHaveValue('http://other.example.invalid:8989')
+})
+
+test('Services: a Test result replaces the ping status in the row', async () => {
+  let ok = true
+  stubFetch(url => url === '/api/test/sonarr' ? reply(ok ? { success: true, version: '4.0.20' } : { error: 'HTTP 401: Unauthorized' }, ok) : reply({ status: 'ok', version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  fireEvent.click(row('Sonarr'))
+  const test = () => screen.getByLabelText('API Key', { selector: '#sonarr-key' }).closest('.input-group').querySelector('button')
+  fireEvent.click(test())
+  await waitFor(() => expect(statusOf('Sonarr')).toBe('Connected · v4.0.20'))
+  ok = false
+  fireEvent.click(test())
+  await waitFor(() => expect(statusOf('Sonarr')).toBe('Test failed'))
+  expect(screen.getByText('HTTP 401: Unauthorized')).toBeInTheDocument()
+})
+
+test('Services: pings start once and do not restart when the parent passes a new, equal config on every render', async () => {
+  const fetch = stubFetch(url => url.endsWith('/ping') ? reply({ status: 'ok' }) : reply({ version: '1' }))
+  const { rerender } = render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  await waitFor(() => expect(statusOf('Sonarr')).toBe('Connected'))
+  for (let i = 0; i < 5; i++) rerender(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(pings(fetch).filter(u => u === '/api/sonarr/ping')).toHaveLength(1)
+})
+
+test('Services: a first run with nothing saved opens every row and pings nothing', async () => {
+  const fetch = stubFetch(() => reply({ version: '1' }))
+  const { rerender } = render(<ConfigPage onSave={() => {}} />)
+  rerender(<ConfigPage onSave={() => {}} />)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  for (const name of ['SABnzbd', 'NZBHydra', 'Sonarr', 'Radarr']) {
+    expect(row(name)).toHaveAttribute('aria-expanded', 'true')
+    expect(statusOf(name)).toBe('Not set up')
+  }
+  expect(pings(fetch)).toEqual([])
+})
+
+test('the Services list sits between Layout and the Webhooks card', () => {
+  stubFetch(() => reply({ version: '1' }))
+  const { container } = render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} layout="modern" onLayoutChange={() => {}} />)
+  const order = [...container.querySelectorAll('.layout-choice, .service-list, .webhook-card')].map(el => el.className.split(' ').find(name => name !== 'card'))
+  expect(order).toEqual(['layout-choice', 'service-list', 'webhook-card'])
+})

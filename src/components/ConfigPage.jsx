@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import './ConfigPage.css'
 import InstallHelp from './InstallHelp.jsx'
 import DiscoveryNotice from './DiscoveryNotice.jsx'
@@ -7,6 +7,7 @@ import SecurityCard from './SecurityCard.jsx'
 import Icon from './Icon.jsx'
 import { normalizeAddress } from '../webhooks'
 import { useWebhookActivity } from '../hooks/useWebhookActivity'
+import { useServiceStatus } from '../hooks/useServiceStatus'
 import { apiFetch } from '../api'
 
 const SERVICES = [
@@ -48,7 +49,21 @@ const isMasked = key => String(key || '').startsWith(MASK_PREFIX)
 const hasUsableKey = key => isMasked(key) || /[A-Za-z0-9]/.test(String(key || ''))
 const sendKey = key => (isMasked(key) ? key : String(key || '').trim())
 
-function ServiceCard({ service, values, onChange, onTest, envManaged = false, keyHint = false }) {
+// What a service row says about its connection: the last Test wins, then the background ping of a saved service.
+function connectionOf({ saved, ping, testResult }) {
+  if (testResult) return testResult.success
+    ? { tone: 'ok', text: `Connected${testResult.version ? ` · v${testResult.version}` : ''}` }
+    : { tone: 'bad', text: 'Test failed' }
+  if (!saved) return { tone: 'off', text: 'Not set up' }
+  if (ping === 'online') return { tone: 'ok', text: 'Connected' }
+  if (ping === 'offline') return { tone: 'bad', text: 'Can’t connect' }
+  return { tone: 'off', text: 'Checking…' }
+}
+
+// One row of the Services list: name, description and connection status; it opens to the address and key fields.
+// A saved service starts closed, one that is not set up starts open. Closed fields stay in the page (hidden).
+function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged = false, keyHint = false }) {
+  const [open, setOpen] = useState(!saved)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
 
@@ -63,34 +78,32 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
   const hasCredentials = values.url && hasUsableKey(values.apikey)
   const noteId = `${service.id}-env-note`
   const hintId = `${service.id}-key-hint`
+  const panelId = `${service.id}-panel`
+  const connection = connectionOf({ saved, ping, testResult })
 
   return (
-    <div className="service-card card">
-      <div className="service-header">
+    <li className={`service-row${open ? ' is-open' : ''}`}>
+      <button type="button" className="service-row-head" aria-label={service.name} aria-describedby={`${service.id}-desc ${service.id}-status`}
+        aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(value => !value)}>
         <span className="service-icon"><Icon name={service.icon} /></span>
-        <div>
-          <div className="font-semibold">{service.name}</div>
-          <div className="text-sm text-muted">{service.description}</div>
-        </div>
-        {testResult && (
-          <div className={`test-badge ${testResult.success ? 'badge-muted' : 'badge-danger'} badge ml-auto`}>
-            {testResult.success
-              ? <><Icon name="check" /> Connected{testResult.version ? ` v${testResult.version}` : ""}</>
-              : 'Failed'}
-          </div>
+        <span className="service-row-text">
+          <span className="service-name">{service.name}</span>
+          <span className="service-desc" id={`${service.id}-desc`}>{service.description}</span>
+        </span>
+        <span className={`service-status is-${connection.tone}`} id={`${service.id}-status`}><span className="service-dot" aria-hidden="true" />{connection.text}</span>
+        <Icon name="caret-down" className="icon service-caret" />
+      </button>
+
+      <div className="service-panel" id={panelId} role="group" aria-label={`${service.name} connection`} hidden={!open}>
+        {envManaged && (
+          <p id={noteId} className="text-sm text-muted">
+            Set in the Docker configuration (ARRVIEW_{service.id.toUpperCase()}_* environment variables).
+            To change it, edit your compose file, .env or secret file and recreate the container
+            with <code>docker compose up -d</code>. No image rebuild is needed.
+          </p>
         )}
-      </div>
 
-      {envManaged && (
-        <p id={noteId} className="text-sm text-muted">
-          Set in the Docker configuration (ARRVIEW_{service.id.toUpperCase()}_* environment variables).
-          To change it, edit your compose file, .env or secret file and recreate the container
-          with <code>docker compose up -d</code>. No image rebuild is needed.
-        </p>
-      )}
-
-      <div className="service-fields">
-        <div className="field-group">
+        <div className="service-field">
           <label htmlFor={`${service.id}-url`}>Server URL</label>
           <input
             id={`${service.id}-url`} type="url"
@@ -101,7 +114,7 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
             onChange={e => onChange(service.id, 'url', e.target.value)}
           />
         </div>
-        <div className="field-group">
+        <div className="service-field">
           <label htmlFor={`${service.id}-key`}>API Key</label>
           <div className="input-group">
             <input
@@ -113,7 +126,8 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
               onChange={e => onChange(service.id, 'apikey', e.target.value)}
             />
             <button
-              className="btn btn-secondary btn-sm"
+              type="button"
+              className="btn btn-secondary"
               disabled={!hasCredentials || testing}
               onClick={handleTest}
             >
@@ -121,18 +135,18 @@ function ServiceCard({ service, values, onChange, onTest, envManaged = false, ke
             </button>
           </div>
         </div>
+
+        {keyHint && !envManaged && (
+          <div id={hintId} className="text-sm text-muted">Re-enter the API key for the new address.</div>
+        )}
+
+        {testResult && !testResult.success && (
+          <div className="error-banner" style={{fontSize: 12}}>
+            {testResult.error}
+          </div>
+        )}
       </div>
-
-      {keyHint && !envManaged && (
-        <div id={hintId} className="text-sm text-muted">Re-enter the API key for the new address.</div>
-      )}
-
-      {testResult && !testResult.success && (
-        <div className="error-banner mt-2" style={{fontSize: 12}}>
-          {testResult.error}
-        </div>
-      )}
-    </div>
+    </li>
   )
 }
 
@@ -148,6 +162,11 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
   const savedAddress = initialConfig.webhooks?.baseUrl || ''
   const [webhookAddress, setWebhookAddress] = useState(savedAddress)
   const savedService = id => Boolean(initialConfig[id]?.url && hasUsableKey(initialConfig[id].apikey))
+  // The rows ping only saved services. The key changes only when a saved address does, so a page whose parent passes
+  // a new object on every render does not restart the pings (or loop).
+  const pingKey = SERVICES.map(s => (savedService(s.id) ? `${s.id}=${initialConfig[s.id].url}` : '')).join('|')
+  const pingConfig = useMemo(() => Object.fromEntries(SERVICES.filter(s => savedService(s.id)).map(s => [s.id, initialConfig[s.id]])), [pingKey])
+  const { status: ping } = useServiceStatus(pingConfig)
   // What Sonarr and Radarr last delivered is only asked for while their card is on the page.
   const webhookActivity = useWebhookActivity(savedService('sonarr') || savedService('radarr'))
   const [keyHints, setKeyHints] = useState({})
@@ -265,30 +284,34 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
 
         {layout && onLayoutChange && <fieldset className="layout-choice">
           <legend>Layout</legend>
-          {[['modern', 'Modern'], ['classic', 'Classic']].map(([value, label]) => <label key={value}>
-            <input type="radio" name="layout" value={value} checked={layout === value} onChange={() => onLayoutChange(value)} /> {label}
-          </label>)}
+          <div className="segmented">
+            {[['modern', 'Modern'], ['classic', 'Classic']].map(([value, label]) => <label key={value} className={layout === value ? 'is-on' : undefined}>
+              <input type="radio" name="layout" value={value} checked={layout === value} onChange={() => onLayoutChange(value)} /><span>{label}</span>
+            </label>)}
+          </div>
         </fieldset>}
 
         <DiscoveryNotice bonjour={bonjour} />
 
-        <section className="card" aria-label="Service checklist"><h2>Services</h2>
-          <p className="text-muted">Configured connections (use Test below to verify connectivity).</p>
-          <ul>{SERVICES.map(service => <li key={service.id}>{service.name}: {config[service.id].url && hasUsableKey(config[service.id].apikey) ? <><Icon name="check" /> Configured</> : 'Not configured'}</li>)}</ul>
+        <section className="settings-section" aria-labelledby="settings-services">
+          <h2 id="settings-services">Services</h2>
+          <p className="text-muted text-sm">The address and API key ArrView uses for each app. Open a row to change it; Save applies every change.</p>
+          <ul className="service-list">
+            {SERVICES.map(service => (
+              <ServiceRow
+                key={service.id}
+                service={service}
+                values={config[service.id]}
+                saved={savedService(service.id)}
+                ping={ping[service.id]}
+                onChange={handleChange}
+                onTest={handleTest}
+                envManaged={Boolean(envManaged[service.id])}
+                keyHint={Boolean(keyHints[service.id])}
+              />
+            ))}
+          </ul>
         </section>
-        <div className="services-grid">
-          {SERVICES.map(service => (
-            <ServiceCard
-              key={service.id}
-              service={service}
-              values={config[service.id]}
-              onChange={handleChange}
-              onTest={handleTest}
-              envManaged={Boolean(envManaged[service.id])}
-              keyHint={Boolean(keyHints[service.id])}
-            />
-          ))}
-        </div>
 
         <WebhookSettings address={webhookAddress} onAddressChange={setWebhookAddress}
           sonarr={savedService('sonarr')} radarr={savedService('radarr')} activity={webhookActivity} />

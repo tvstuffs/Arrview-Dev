@@ -31,33 +31,54 @@
   line-height: 1.6;
 }
 
-.services-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+/* -- Settings sections: grouped, borderless surfaces instead of outlined cards -------------------------- */
+.config-page .card { border-color: transparent; border-radius: 14px; padding: 18px 20px; }
+.config-page h2 { font-size: 18px; font-weight: 650; }
+.settings-section { display: flex; flex-direction: column; gap: 10px; }
+.settings-section > h2 { margin: 0; }
+.settings-section > p { margin: 0; }
+
+/* Text fields on this page: filled, no outline until focused. */
+.config-page input[type="text"], .config-page input[type="url"], .config-page input[type="password"] {
+  padding: 10px 12px; background: var(--raised-2); border: 1px solid transparent; border-radius: 10px; font-size: 14px;
 }
+.config-page input[type="text"]:focus, .config-page input[type="url"]:focus, .config-page input[type="password"]:focus { border-color: var(--hair-2); }
+.config-page input[readonly] { color: var(--text-2); }
+
+/* -- Services: one grouped list, a row per app that opens to its fields ------------------------------- */
+.service-list { list-style: none; margin: 0; padding: 0; border-radius: 14px; background: var(--raised); overflow: hidden; }
+.service-row + .service-row { border-top: 1px solid var(--hair); }
+.service-row-head {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto 18px; align-items: center; gap: 14px;
+  width: 100%; min-height: 64px; padding: 12px 16px; border: 0; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.service-row-head:hover { background: rgba(255, 255, 255, .03); }
+.service-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: var(--raised-2); color: var(--text); font-size: 20px; }
+.service-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.service-name { font-size: 15px; font-weight: 600; }
+.service-desc { font-size: 12px; color: var(--text-2); }
+.service-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.service-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none; }
+.service-status.is-ok .service-dot { background: var(--ok); }
+.service-status.is-bad { color: var(--danger); }
+.service-status.is-bad .service-dot { background: var(--danger); }
+.service-caret { color: var(--text-3); font-size: 16px; transition: transform .15s ease; }
+.service-row.is-open .service-caret { transform: rotate(180deg); }
+.service-panel { display: flex; flex-direction: column; gap: 12px; padding: 2px 16px 18px 70px; }
+.service-panel[hidden] { display: none; }
+.service-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 12px; }
+.service-field label { margin: 0; font-size: 13px; color: var(--text-2); }
+.service-panel .input-group .btn { flex: none; }
 @media (max-width: 620px) {
-  .services-grid { grid-template-columns: 1fr; }
+  .service-row-head { grid-template-columns: 36px minmax(0, 1fr) auto 16px; gap: 12px; padding: 12px 14px; }
+  .service-icon { width: 36px; height: 36px; font-size: 18px; }
+  .service-desc { display: none; }
+  .service-panel { padding: 0 14px 16px; }
+  .service-field { grid-template-columns: 1fr; gap: 6px; }
 }
+@media (prefers-reduced-motion: reduce) { .service-caret { transition: none; } }
 
-.service-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.service-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.service-icon { font-size: 24px; flex-shrink: 0; display: inline-flex; color: var(--text-2); }
-
-.service-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
 .field-group { display: flex; flex-direction: column; }
 
 .discovery-notice {
@@ -104,10 +125,15 @@
   overflow-wrap: anywhere;
 }
 
-.layout-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; border: 0; padding: 0; }
-.layout-choice legend { font-weight: 600; margin-bottom: 4px; }
-.layout-choice label { display: flex; align-items: center; gap: 4px; min-height: 44px; }
-.layout-choice input { accent-color: var(--text); }
+/* Layout: a two-option segmented control over real radio buttons (they stay focusable and named). */
+.layout-choice { border: 0; padding: 0; margin: 0; min-width: 0; }
+.layout-choice legend { padding: 0; margin-bottom: 10px; font-size: 18px; font-weight: 650; }
+.segmented { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--raised); }
+.segmented label { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 18px; margin: 0; border-radius: 8px; color: var(--text-2); font-size: 14px; font-weight: 500; cursor: pointer; }
+.segmented label.is-on { background: var(--raised-2); color: var(--text); }
+.layout-choice .segmented input { position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; margin: 0; opacity: 0; cursor: pointer; }
+.segmented label:focus-within { outline: 2px solid var(--text); outline-offset: 2px; }
+@media (pointer: coarse), (max-width: 639px) { .segmented label { min-height: 44px; } }
 
 .config-footer {
   display: flex;
@@ -130,4 +156,8 @@
   .config-footer { flex-direction: column; align-items: stretch; }
   .config-footer-actions { flex-direction: column; }
   .config-footer button { width: 100%; justify-content: center; }
+}
+/* 16 px on touch screens and phones, as elsewhere (responsive.css), so iOS Safari does not zoom into a field. */
+@media (pointer: coarse), (max-width: 639px) {
+  .config-page input[type="text"], .config-page input[type="url"], .config-page input[type="password"] { font-size: 16px; }
 }
