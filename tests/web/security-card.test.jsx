@@ -233,3 +233,13 @@ test('disabled by ARRVIEW_AUTH=off: warning text and disabled controls', () => {
   expect(screen.getByText(/turned off by ARRVIEW_AUTH=off/)).toBeVisible()
   expect(screen.getByRole('button', { name: /Set a password/ })).toBeDisabled()
 })
+
+test('Settings puts Security first, above Layout and the Webhooks card', () => {
+  vi.stubGlobal('fetch', vi.fn(async () => reply(200, { version: '1' })))
+  const config = { sonarr: { url: 'http://sonarr.example.invalid:8989', apikey: '••••xxxx' } }
+  const { container } = render(<AuthContext.Provider value={{ status: base, refresh: async () => {} }}>
+    <ConfigPage initialConfig={config} onSave={() => {}} layout="modern" onLayoutChange={() => {}} />
+  </AuthContext.Provider>)
+  const order = [...container.querySelectorAll('.security-card, .layout-choice, .webhook-card')].map(el => el.className.split(' ').find(name => name !== 'card'))
+  expect(order).toEqual(['security-card', 'layout-choice', 'webhook-card'])
+})

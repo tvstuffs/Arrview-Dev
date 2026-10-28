@@ -261,6 +261,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
           </p>
         </header>}
 
+        <SecurityCard />
+
         {layout && onLayoutChange && <fieldset className="layout-choice">
           <legend>Layout</legend>
           {[['modern', 'Modern'], ['classic', 'Classic']].map(([value, label]) => <label key={value}>
@@ -290,8 +292,6 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
 
         <WebhookSettings address={webhookAddress} onAddressChange={setWebhookAddress}
           sonarr={savedService('sonarr')} radarr={savedService('radarr')} activity={webhookActivity} />
-
-        <SecurityCard />
 
         <InstallHelp />
 
