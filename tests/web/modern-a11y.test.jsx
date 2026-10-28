@@ -37,7 +37,7 @@ for (const [phone, hover] of [[false, true], [true, false]]) {
     }
   })
 }
-test('icon-only Modern controls are named: nav links, gear, Add, view toggle, More, Monitored, overlay buttons, back (criterion 32)', async () => {
+test('icon-only Modern controls are named: nav links, gear, Add, view toggle, Remove, Monitored, overlay buttons, back (criterion 32)', async () => {
   restoreMedia = stubMedia({ phone: true, hover: false })
   window.location.hash = '#/shows'
   const first = render(<Dashboard config={config} onConfigSaved={() => {}} />)
@@ -48,7 +48,7 @@ test('icon-only Modern controls are named: nav links, gear, Add, view toggle, Mo
   window.location.hash = '#/shows/1'
   const second = render(<Dashboard config={config} onConfigSaved={() => {}} />)
   await settle('Alpha Show')
-  for (const name of ['More actions for Alpha Show', 'Monitored: Alpha Show']) expect(screen.getByRole('button', { name })).toBeInTheDocument()
+  for (const name of ['Remove Alpha Show from Sonarr', 'Monitored: Alpha Show']) expect(screen.getByRole('button', { name })).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'Back to TV Shows' })).toBeInTheDocument()
   second.unmount()
   restoreMedia(); restoreMedia = stubMedia({ phone: false, hover: true })

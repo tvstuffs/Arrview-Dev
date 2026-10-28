@@ -205,6 +205,11 @@
 .m-seasons h2 { margin: 16px 0 12px; font-size: 18px; font-weight: 650; }
 .m-season-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 16px 0; }
 .m-season-meta { margin-right: auto; color: var(--text-2); font-size: 13px; }
+/* Season picker: a native select (any number of seasons) with its own caret; 16 px so iOS Safari does not zoom on focus. */
+.m-season-pick { position: relative; display: inline-flex; align-items: center; }
+.m-season-pick .m-select { appearance: none; -webkit-appearance: none; padding: 8px 36px 8px 14px; font-size: 16px; font-weight: 600; }
+.m-season-pick > .icon { position: absolute; right: 12px; pointer-events: none; color: var(--text-2); }
+.m-season-name { font-size: 16px; font-weight: 600; }
 .m-episodes { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .m-ep { display: grid; grid-template-columns: 168px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 8px; border-radius: 12px; }
 .m-ep:hover { background: var(--raised); }

@@ -114,7 +114,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
           <MonitorToggle media={show} service="sonarr" onChanged={refresh} onToast={onToast} />
           {sonarrUrl && show.titleSlug && <a className="btn btn-icon" href={`${sonarrUrl}/series/${show.titleSlug}`} target="_blank" rel="noopener noreferrer"
             title="Open in Sonarr" aria-label="Open in Sonarr"><Icon name="arrow-square-out" /></a>}
-          <button className="btn btn-icon" aria-label={`More actions for ${show.title}`} title="More actions" onClick={() => setConfirmRemove(true)}><Icon name="dots-three" /></button>
+          <button className="btn btn-icon btn-icon-danger" aria-label={`Remove ${show.title} from Sonarr`} title={`Remove ${show.title} from Sonarr`} onClick={() => setConfirmRemove(true)}><Icon name="trash" /></button>
         </div>
       </div>
     </section>
@@ -126,13 +126,18 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
         : seasons.length === 0
           ? <p className="text-muted text-sm">No episodes found</p>
           : <>
-            <div className="m-chips" role="group" aria-label="Seasons">
-              {seasons.map(sn => <button key={sn} aria-pressed={sn === season} onClick={() => setSelected(sn)}>Season {sn}</button>)}
-            </div>
             <div className="m-season-bar">
+              {seasons.length > 1
+                ? <span className="m-season-pick">
+                  <select className="m-select" aria-label="Season" value={season} onChange={e => setSelected(Number(e.target.value))}>
+                    {seasons.map(sn => <option key={sn} value={sn}>Season {sn}</option>)}
+                  </select>
+                  <Icon name="caret-down" />
+                </span>
+                : <span className="m-season-name">Season {season}</span>}
               <span className="m-season-meta">{downloaded} of {eps.length} episodes</span>
               {missingIds.length > 0 && <button className="btn btn-attn btn-sm" onClick={() => actions.searchSeason(season, missingIds)}>Search {missingIds.length} Missing</button>}
-              {downloaded > 0 && <button className="btn btn-icon" aria-label={`More actions for Season ${season}`} title={`More actions for Season ${season}`} onClick={() => setConfirmSeason(season)}><Icon name="dots-three" /></button>}
+              {downloaded > 0 && <button className="btn btn-icon btn-icon-danger" aria-label={`Delete downloaded files in Season ${season}`} title={`Delete downloaded files in Season ${season}`} onClick={() => setConfirmSeason(season)}><Icon name="trash" /></button>}
             </div>
             <ul className="m-episodes">
               {eps.map(ep => <EpisodeItem key={ep.id} ep={ep} fanart={fanart} live={episodeState(ep) === 'downloaded' ? null : downloads.byEpisode(ep.id)} onSearch={actions.searchEpisode} onInteractive={setInteractiveEp} onDelete={setConfirmEpisode} />)}

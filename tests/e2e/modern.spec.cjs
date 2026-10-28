@@ -216,7 +216,8 @@ test('show page: hero geometry, clamp, ambient layer, seasons and the three stil
   await expect(page.locator('img.m-ambient')).toHaveCount(1)
   await expect(page.locator('.m-hero-art img')).toHaveAttribute('src', /arrview-icon\.svg$/)
   await expect(page.getByText('Fixture Network · Drama · Mystery · Thriller · Continuing').or(page.getByText(/2024 · Fixture Network · Drama · Mystery · Thriller · Continuing/))).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Season 1', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.m-season-name')).toHaveText('Season 1')
+  await expect(page.getByRole('combobox', { name: 'Season' })).toHaveCount(0)
   const rows = page.locator('.m-ep')
   await expect(rows).toHaveCount(3)
   const still = await rows.first().locator('.m-art-still').boundingBox()
@@ -260,7 +261,7 @@ test('show page actions: Search Missing, Monitored, Open in Sonarr, More sheet w
   const link = page.getByRole('link', { name: 'Open in Sonarr' })
   await expect(link).toHaveAttribute('target', '_blank')
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
-  await page.getByRole('button', { name: 'More actions for ' + SHOW }).click()
+  await page.getByRole('button', { name: 'Remove ' + SHOW + ' from Sonarr' }).click()
   await expect(page.getByRole('dialog').getByText('Remove series from Sonarr?')).toBeVisible()
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect((await (await request.get('/__fixture/requests')).json()).filter(r => r.method !== 'GET')).toEqual([])
@@ -423,7 +424,7 @@ async function walk(page, count) {
   return seen
 }
 const mainFocusables = page => page.locator('main').locator('a[href], button:not([disabled]), input, select, [tabindex]:not([tabindex="-1"])').evaluateAll(els => els.map(el => el.getAttribute('aria-label') || el.textContent.replace(/\s+/g, ' ').trim()))
-const SHOW_SEQUENCE = ['Search Missing', 'Monitored: ' + SHOW, 'Open in Sonarr', 'More actions for ' + SHOW, 'Season 1', 'Search 1 Missing', 'More actions for Season 1',
+const SHOW_SEQUENCE = ['Search Missing', 'Monitored: ' + SHOW, 'Open in Sonarr', 'Remove ' + SHOW + ' from Sonarr', 'Search 1 Missing', 'Delete downloaded files in Season 1',
   'Download', 'Interactive search — pick a release manually', 'Delete and unmonitor ' + EP_DOWNLOADED]
 for (const [width, phone] of [[1024, false], [402, true]]) {
   test(`focus order on the show and movie pages (${width}px) (criterion 31)`, async ({ page }) => {
@@ -461,7 +462,7 @@ test('coarse pointers: every focusable Modern control is at least 44 x 44 with t
     }
   }
   await open(page, '/shows/1')
-  await page.getByRole('button', { name: 'More actions for ' + SHOW }).tap()
+  await page.getByRole('button', { name: 'Remove ' + SHOW + ' from Sonarr' }).tap()
   for (const button of await page.getByRole('dialog').getByRole('button').all()) {
     const box = await button.boundingBox()
     expect(box.width).toBeGreaterThanOrEqual(43.9); expect(box.height).toBeGreaterThanOrEqual(43.9)
@@ -496,7 +497,7 @@ async function dialogRingColours(page) {
 }
 test('sheets opened from Modern use the neutral focus ring; Classic sheets stay cyan (criterion 30)', async ({ page }) => {
   await open(page, '/shows/1')
-  await page.getByRole('button', { name: 'More actions for ' + SHOW }).click()
+  await page.getByRole('button', { name: 'Remove ' + SHOW + ' from Sonarr' }).click()
   await expect(page.getByRole('dialog').getByText('Remove series from Sonarr?')).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveClass(/m-sheet/)
   let colours = await dialogRingColours(page)
