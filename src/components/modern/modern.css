@@ -238,7 +238,7 @@
 .m-utile-box { position: relative; display: block; z-index: 1; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; background: var(--raised); }
 .m-utile-still { position: absolute; left: 0; top: 0; height: 100%; }
 .m-utile-blur { position: absolute; left: -8%; top: -8%; width: 116%; height: 116%; object-fit: cover; filter: blur(18px); opacity: .55; pointer-events: none; }
-.m-utile-box .m-utile-poster { position: absolute; left: 50%; top: 6%; width: auto; height: 88%; transform: translateX(-50%); border-radius: 4px; }
+.m-utile-box .m-utile-poster { position: absolute; left: 50%; top: 6%; width: auto; height: 88%; aspect-ratio: 2 / 3; transform: translateX(-50%); border-radius: 4px; }
 .m-utile-badges { position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 2; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 4px; }
 .m-utile-badgerow { display: flex; flex-wrap: wrap; gap: 4px; }
 .m-utile-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; background: rgba(0, 0, 0, .72); color: var(--text); font-size: 11px; font-weight: 600; white-space: nowrap; }

@@ -21,7 +21,7 @@ export function categoryInfo(category) {
 const TECHNICAL = new Set(('2160p 1080p 720p 576p 480p 4k uhd web web-dl webdl webrip bluray blu-ray bdrip brrip dvdrip hdtv remux hdr hdr10 hdr10+ hlg dv dovi '
   + 'hevc avc h264 h265 x264 x265 xvid dd ddp ddp5 dd5 aac ac3 dts truehd atmos flac mp3 24bit 16bit epub mobi pdf proper repack internal multi '
   + 'atvp amzn nf dsnp hmax hulu ip nzb').split(' '))
-const isMarker = token => /^S\d{1,2}E\d{1,3}/i.test(token) || /^(19|20)\d\d$/.test(token) || TECHNICAL.has(token.toLowerCase())
+const isMarker = token => /^S\d{1,2}(E\d{1,3})?$/i.test(token) || /^S\d{1,2}E\d{1,3}/i.test(token) || /^(19|20)\d\d$/.test(token) || TECHNICAL.has(token.toLowerCase())
 
 function tokenize(raw) {
   const name = String(raw ?? '').replace(/\.nzb$/i, '')
@@ -51,6 +51,8 @@ export function tidyName(raw) {
 }
 
 const SEASON_EPISODE = /(?:^|[^a-z0-9])S(\d{1,2})E(\d{1,3})(?![0-9])/i
+// A season pack: S03, or a run of seasons such as S01-S03, with no episode number after it.
+const SEASON_ONLY = /(?:^|[^a-z0-9])S(\d{1,2})(?:-S?(\d{1,2}))?(?![a-z0-9])/i
 // Tokens are bounded by non-alphanumerics. No lookbehind: older iPhones' Safari rejects it and would break the whole bundle.
 const RESOLUTION = /(?:^|[^a-z0-9])(2160|1080|720|576|480)p(?![a-z0-9])/i
 const resolutionText = value => { const m = RESOLUTION.exec(value || ''); return m ? (m[1] === '2160' ? '4K' : `${m[1]}p`) : null }
@@ -65,15 +67,17 @@ const FLAGS = [
 ]
 const flagsIn = text => FLAGS.filter(([, pattern]) => pattern.test(text)).map(([label]) => label)
 
-// What a release name says about itself: { season, episode, year, resolution, flags }.
+// What a release name says about itself: { season, episode, year, resolution, flags }. A season pack has a
+// season and a null episode.
 export function parseRelease(raw) {
   const name = String(raw ?? '')
   const se = SEASON_EPISODE.exec(name)
+  const pack = se ? null : SEASON_ONLY.exec(name)
   let year = null
   tokenize(name).forEach((token, i) => token.split('-').forEach((segment, k) => {
     if (year === null && !(i === 0 && k === 0) && /^(19|20)\d\d$/.test(segment)) year = Number(segment)
   }))
-  return { season: se ? Number(se[1]) : null, episode: se ? Number(se[2]) : null, year, resolution: resolutionText(name), flags: flagsIn(name) }
+  return { season: se ? Number(se[1]) : pack ? Number(pack[1]) : null, episode: se ? Number(se[2]) : null, year, resolution: resolutionText(name), flags: flagsIn(name) }
 }
 
 // D18: "4K · Dolby Vision · HDR · Atmos". The matched record's quality name wins for the resolution.
@@ -201,10 +205,10 @@ export function hintFor(raw, category, ok = {}) {
   if (MOVIE_SHAPE.test(String(raw ?? '')) && String(category ?? '').toLowerCase() === 'movies' && ok.radarr) return 'Not in Radarr'
   return null
 }
-// D15: category label, then S2 E5 or the year.
+// D15: category label, then S2 E5 (S2 for a season pack) or the year.
 export function unmatchedSubtitle(raw, category) {
   const release = parseRelease(raw)
-  const marker = release.season !== null ? `S${release.season} E${release.episode}` : release.year
+  const marker = release.season !== null ? (release.episode !== null ? `S${release.season} E${release.episode}` : `S${release.season}`) : release.year
   return [categoryInfo(category).label, marker].filter(value => value !== null && value !== undefined && value !== '').join(' · ')
 }
 
@@ -263,24 +267,40 @@ export function buildQueueItems(slots, arr = {}) {
 // ---- History ----------------------------------------------------------------------------------
 
 const TV_SHAPE = /^(.+?)[._ -]+S(\d{1,2})E(\d{1,3})/i
+// Season packs: the title, then S03 or S01-S03 with no episode number.
+const PACK_SHAPE = /^(.+?)[._ -]+S(\d{1,2})(?:-S?(\d{1,2}))?(?=[._ -]|$)/i
 const TRAILING_YEAR = /^(.+?)[._ -]+\(?((?:19|20)\d\d)\)?$/
+// Sonarr names a show that shares its title with another one "Tracker (2024)"; releases usually leave the year out.
+const TITLE_YEAR = /\s*\((?:19|20)\d\d\)\s*$/
 
-// D5: { kind: 'tv', series, season, number } | { kind: 'movie', movie } | null. A list that is null is not loaded.
+// The one series a release's title part names, or null when none or several do. An exact title match wins;
+// only without one is a title with its "(2024)" suffix removed compared.
+function findSeries(titlePart, series) {
+  const full = normalise(titlePart)
+  if (!full) return null
+  const dated = TRAILING_YEAR.exec(titlePart)
+  const year = dated ? Number(dated[2]) : null
+  const stripped = dated ? normalise(dated[1]) : null
+  const named = title => title === full || (stripped !== null && title === stripped)
+  const candidates = series.filter(show => year === null || Number(show.year) === year)
+  const exact = candidates.filter(show => named(normalise(show.title)))
+  const found = exact.length ? exact : candidates.filter(show => named(normalise(String(show.title ?? '').replace(TITLE_YEAR, ''))))
+  return found.length === 1 ? found[0] : null
+}
+
+// D5: { kind: 'tv', series, season, number, lastSeason } | { kind: 'movie', movie } | null. A season pack has a
+// null number (and lastSeason for a run of seasons). A list that is null is not loaded.
 export function matchHistory(name, { series = null, movies = null } = {}) {
   const raw = String(name ?? '')
   const tv = TV_SHAPE.exec(raw)
-  if (tv) {
+  const pack = tv ? null : PACK_SHAPE.exec(raw)
+  if (tv || pack) {
     if (!Array.isArray(series)) return null
-    const full = normalise(tv[1])
-    const dated = TRAILING_YEAR.exec(tv[1])
-    const year = dated ? Number(dated[2]) : null
-    const stripped = dated ? normalise(dated[1]) : null
-    const found = series.filter(show => {
-      if (year !== null && Number(show.year) !== year) return false
-      const title = normalise(show.title)
-      return title === full || (stripped !== null && title === stripped)
-    })
-    return found.length === 1 ? { kind: 'tv', series: found[0], season: Number(tv[2]), number: Number(tv[3]) } : null
+    const show = findSeries((tv || pack)[1], series)
+    if (!show) return null
+    if (tv) return { kind: 'tv', series: show, season: Number(tv[2]), number: Number(tv[3]), lastSeason: null }
+    const first = Number(pack[2]), last = pack[3] === undefined ? first : Number(pack[3])
+    return { kind: 'tv', series: show, season: first, number: null, lastSeason: last > first ? last : null }
   }
   const film = MOVIE_SHAPE.exec(raw)
   if (film) {
@@ -303,8 +323,10 @@ export function buildHistoryItems(slots, libraries = {}, hints = {}) {
     const base = { key: slot.nzo_id || `h${index}`, slot, release, status: slot.status, completed: Number(slot.completed) || 0,
       size: formatSize(mb), quality: qualityLine({ release }) }
     if (match?.kind === 'tv') {
+      const subtitle = match.number !== null ? `S${match.season} E${match.number}`
+        : match.lastSeason !== null ? `Seasons ${match.season}–${match.lastSeason}` : `Season ${match.season}`
       return { ...base, kind: 'tv', matched: true, media: match.series, mediaId: match.series.id, title: match.series.title,
-        subtitle: `S${match.season} E${match.number}`, hint: null, category: categoryInfo('tv'), art: arts(match.series) }
+        subtitle, hint: null, category: categoryInfo('tv'), art: arts(match.series) }
     }
     if (match?.kind === 'movie') {
       return { ...base, kind: 'movie', matched: true, media: match.movie, mediaId: match.movie.id, title: match.movie.title,

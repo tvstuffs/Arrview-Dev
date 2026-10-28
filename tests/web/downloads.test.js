@@ -90,6 +90,23 @@ describe('history matching (criterion 3)', () => {
     expect(matchHistory('Fixture.Show.1999.S01E01.WEB-GRP', libs)).toBeNull()
     expect(matchHistory('Other.Show.S01E01-GRP', { series: null, movies })).toBeNull()
   })
+  test('season packs: S03 and S01-S03 with no episode number match the series', () => {
+    expect(matchHistory('Other.Show.S03.1080p.WEB-DL.DDP5.1-GRP', libs)).toEqual({ kind: 'tv', series: series[3], season: 3, number: null, lastSeason: null })
+    expect(matchHistory('other.show.s02.720p.hdtv-grp', libs)).toMatchObject({ series: { id: 4 }, season: 2, number: null })
+    expect(matchHistory('Other.Show.S01-S03.1080p.BluRay-GRP', libs)).toMatchObject({ series: { id: 4 }, season: 1, number: null, lastSeason: 3 })
+    expect(matchHistory('Fixture.Show.2015.S04.2160p.WEB-GRP', libs)).toMatchObject({ series: { id: 2 }, season: 4, number: null })
+    expect(matchHistory('Fixture.Show.S04.2160p.WEB-GRP', libs)).toBeNull()
+    expect(matchHistory('Other.Show.S2024.WEB-GRP', libs)).toBeNull()
+  })
+  test('a Sonarr title ending in (year) matches a release without the year; an exact title wins', () => {
+    const dated = [{ id: 7, title: 'Tracker (2024)', year: 2024 }]
+    expect(matchHistory('tracker.s04e01.2160p.web.h265-grp', { series: dated })).toMatchObject({ series: { id: 7 }, season: 4, number: 1 })
+    expect(matchHistory('Tracker.2024.S04E04.720p.HDTV-GRP', { series: dated })).toMatchObject({ series: { id: 7 } })
+    expect(matchHistory('Tracker.S01.1080p-GRP', { series: dated })).toMatchObject({ series: { id: 7 }, number: null })
+    expect(matchHistory('Tracker.S01E01-GRP', { series: [...dated, { id: 8, title: 'Tracker', year: 1990 }] })).toMatchObject({ series: { id: 8 } })
+    expect(matchHistory('Tracker.S01E01-GRP', { series: [...dated, { id: 9, title: 'Tracker (1990)', year: 1990 }] })).toBeNull()
+    expect(matchHistory('..S01E01-GRP', { series: [{ id: 10, title: '!!!', year: 2020 }] })).toBeNull()
+  })
   test('movies by normalised title and year', () => {
     expect(matchHistory(FILM_RELEASE.replace('Film.Title', 'Film'), libs)).toMatchObject({ kind: 'movie', movie: { id: 10 } })
     expect(matchHistory('Fixture.Film.1999.1080p-GRP', libs)).toMatchObject({ movie: { id: 11 } })
@@ -106,6 +123,18 @@ describe('history matching (criterion 3)', () => {
       [true, 'Other Show', 'S1 E2', '1.0 GB', null], [false, 'Missing Show', 'TV · S1 E2', '512 MB', 'Not in Sonarr'], [true, 'Fixture Film', '2023 · Movie', '0 MB', null]])
     const unloaded = buildHistoryItems(slots, { series: null, movies: null }, { sonarr: true, radarr: true })
     expect(unloaded.map(item => item.hint)).toEqual([null, null, null])
+  })
+  test('a season pack is a matched history item with a Season subtitle, and it can lead', () => {
+    const art = [{ coverType: 'poster', remoteUrl: 'https://img.invalid/p.jpg' }]
+    const lib = { series: [{ id: 1, title: 'Art Show', images: art }], movies: [] }
+    const slots = [{ nzo_id: 'pack', name: 'Art.Show.S03.1080p.WEB-DL-GRP', status: 'Completed', completed: 500, category: 'tv' },
+      { nzo_id: 'run', name: 'Art.Show.S01-S02.1080p.BluRay-GRP', status: 'Completed', completed: 400, category: 'tv' },
+      { nzo_id: 'episode', name: 'Art.Show.S02E01-GRP', status: 'Completed', completed: 300, category: 'tv' },
+      { nzo_id: 'stranger', name: 'Unknown.Show.S05.1080p-GRP', status: 'Completed', completed: 200, category: 'tv' }]
+    const items = buildHistoryItems(slots, lib, { sonarr: true, radarr: true })
+    expect(items.map(item => [item.matched, item.title, item.subtitle, item.hint])).toEqual([
+      [true, 'Art Show', 'Season 3', null], [true, 'Art Show', 'Seasons 1–2', null], [true, 'Art Show', 'S2 E1', null], [false, 'Unknown Show', 'TV · S5', 'Not in Sonarr']])
+    expect(idleLead(items).key).toBe('pack')
   })
   test('the idle lead is the newest Completed matched item with art', () => {
     const art = [{ coverType: 'poster', remoteUrl: 'https://img.invalid/p.jpg' }]
@@ -148,6 +177,8 @@ describe('names (criterion 5)', () => {
     expect(tidyName('Fixture Plain Release Name')).toBe('Fixture Plain Release Name')
     expect(tidyName('2160p.Fixture')).toBe('2160p.Fixture')
     expect(tidyName('Fixture_Under_Score.S01E01.nzb')).toBe('Fixture Under Score')
+    expect(tidyName('Fixture.Show.Name.S03.1080p.WEB-DL-GRP')).toBe('Fixture Show Name')
+    expect(tidyName('Fixture.Show.Name.S01-S03.1080p-GRP')).toBe('Fixture Show Name')
     expect(tidyName('')).toBe('')
   })
   test('parseRelease', () => {
@@ -155,6 +186,9 @@ describe('names (criterion 5)', () => {
     expect(parseRelease(FILM_RELEASE)).toEqual({ season: null, episode: null, year: 2023, resolution: '1080p', flags: [] })
     expect(parseRelease(MUSIC_RELEASE)).toEqual({ season: null, episode: null, year: 2024, resolution: null, flags: ['FLAC', '24-bit'] })
     expect(parseRelease('Fixture.Editor.3.2.1.x64.Setup')).toMatchObject({ season: null, year: null, resolution: null, flags: [] })
+    expect(parseRelease('Fixture.Show.S03.1080p.WEB-DL.DDP5.1.Atmos-GRP')).toEqual({ season: 3, episode: null, year: null, resolution: '1080p', flags: ['Atmos'] })
+    expect(parseRelease('Fixture.Show.S01-S03.720p-GRP')).toMatchObject({ season: 1, episode: null })
+    expect(parseRelease('S1m0ne.2002.1080p-GRP')).toMatchObject({ season: null, year: 2002 })
   })
   test('hint rules (D16)', () => {
     const both = { sonarr: true, radarr: true }

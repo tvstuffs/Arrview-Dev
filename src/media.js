@@ -68,11 +68,12 @@ const TMDB_WIDTH = { grid: 'w342', detail: 'w780', backdrop: 'w1280' }
 export const isHttpUrl = value => typeof value === 'string' && /^https?:\/\//i.test(value)
 
 // First http(s) image of a cover type; TMDB originals are rewritten to the width the view needs.
-// Episode stills (size 'still') are never rewritten.
+// Episode stills (size 'still') are never rewritten. `remoteUrl` is preferred; an absolute `url` is the
+// remote address in answers that skip the local-cover mapping (queue and calendar on older Sonarr and Radarr).
 export function artUrl(media, coverType, size) {
-  const image = (media?.images || []).find(entry => entry?.coverType === coverType && isHttpUrl(entry.remoteUrl))
+  const image = (media?.images || []).find(entry => entry?.coverType === coverType && (isHttpUrl(entry.remoteUrl) || isHttpUrl(entry.url)))
   if (!image) return null
-  const url = image.remoteUrl
+  const url = isHttpUrl(image.remoteUrl) ? image.remoteUrl : image.url
   const width = TMDB_WIDTH[size]
   if (width && url.startsWith(TMDB_ORIGINAL)) return `https://image.tmdb.org/t/p/${width}/${url.slice(TMDB_ORIGINAL.length)}`
   return url

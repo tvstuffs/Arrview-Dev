@@ -28,7 +28,7 @@ async function openClassic(ctx, page) {
 }
 
 for (const width of WIDTHS) {
-  test(`Modern Upcoming at ${width}px: no overflow, one drop tile, 16:9 stills, no overlap, agenda columns (criteria 12, 25)`, async ({ browser }) => {
+  test(`Modern Upcoming at ${width}px: no overflow, one drop tile, 16:9 stills, 2:3 movie posters, no overlap, agenda columns (criteria 12, 25)`, async ({ browser }) => {
     const { ctx, page } = await modern(browser, { viewport: { width, height: 900 } })
     await openModern(page)
     await expect(page.locator('.m-utile', { hasText: DROP })).toHaveCount(1)
@@ -41,11 +41,19 @@ for (const width of WIDTHS) {
       const overlap = tiles.some((a, i) => tiles.some((b, j) => j > i && a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5))
       const ratios = [...document.querySelectorAll('.m-utile-box')].map(rect).map(r => r.width / r.height)
       const lefts = new Set([...document.querySelectorAll('.m-agenda-day')].map(el => Math.round(el.getBoundingClientRect().left)))
-      return { overlap, ratios, columns: lefts.size, days: document.querySelectorAll('.m-agenda-day').length, tiles: tiles.length }
+      // A movie tile's sharp poster sits centred in the 16:9 box; it once collapsed to zero width and left only the blur.
+      const posters = [...document.querySelectorAll('.m-utile.is-movie')].map(tile => ({ box: rect(tile.querySelector('.m-utile-box')), poster: rect(tile.querySelector('.m-utile-poster')) }))
+      return { overlap, ratios, posters, columns: lefts.size, days: document.querySelectorAll('.m-agenda-day').length, tiles: tiles.length }
     })
     expect(layout.tiles).toBeGreaterThan(8)
     expect(layout.overlap).toBe(false)
     for (const ratio of layout.ratios) expect(Math.abs(ratio - 16 / 9)).toBeLessThan(0.02)
+    expect(layout.posters.length).toBeGreaterThan(0)
+    for (const { box, poster } of layout.posters) {
+      expect(poster.height).toBeGreaterThan(box.height * 0.8)
+      expect(Math.abs(poster.width / poster.height - 2 / 3)).toBeLessThan(0.02)
+      expect(Math.abs((poster.left + poster.right) / 2 - (box.left + box.right) / 2)).toBeLessThan(1)
+    }
     if (width <= 402) expect(layout.columns).toBe(1)
     if (width === 1440) { expect(layout.days).toBeGreaterThanOrEqual(2); expect(layout.columns).toBeGreaterThanOrEqual(2) }
     await ctx.close()

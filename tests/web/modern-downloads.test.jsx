@@ -291,6 +291,23 @@ test('history rows: thumbnail or glyph, title, subtitle, size or Failed, relativ
   fireEvent.click(within(section).getByRole('button', { name: 'Load more' }))
   await waitFor(() => expect(fn.calls.some(call => call.url === '/api/sabnzbd/history?limit=30')).toBe(true))
 })
+test('a finished season pack is matched in Recent History and leads the idle page', async () => {
+  fixClock()
+  world({ history: [
+    { nzo_id: 'pack', name: 'Fixture.Show.S03.1080p.WEB-DL.DDP5.1-GRP', status: 'Completed', bytes: 14 * 1073741824, completed: secondsAgo(25 * MIN), category: 'tv' },
+    { nzo_id: 'older', name: 'Fixture.Show.S02E09.720p.HDTV-GRP', status: 'Completed', bytes: 1073741824, completed: secondsAgo(2 * DAYMS), category: 'tv' },
+  ] })
+  page()
+  const section = (await screen.findByRole('heading', { level: 2, name: 'Recent History' })).closest('section')
+  await waitFor(() => expect(within(section).getAllByRole('link', { name: 'Fixture Show' })).toHaveLength(2))
+  const [pack] = section.querySelectorAll('li.m-dl-row')
+  expect(within(pack).getByText('Season 3')).toBeInTheDocument()
+  expect(within(pack).getByText('14.0 GB')).toBeInTheDocument()
+  expect(pack.querySelector('.m-dl-glyph')).toBeNull()
+  const hero = document.querySelector('.m-dl-hero')
+  expect(within(hero).getByText('Downloaded 25 min ago')).toBeInTheDocument()
+  expect(within(hero).getByText('Season 3')).toBeInTheDocument()
+})
 
 // ---- Idle (criterion 20) ----
 const calendarEpisode = (id, seriesId, title, hours) => ({ id, seriesId, seasonNumber: 1, episodeNumber: 1, title: 'E', airDateUtc: new Date(NOW + hours * 3600000).toISOString(), hasFile: false, series: { id: seriesId, title, images: [img('poster', 'https://img.invalid/cal.jpg')] } })

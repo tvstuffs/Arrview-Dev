@@ -22,6 +22,13 @@ test('artUrl rejects unsafe schemes, missing urls and other cover types', () => 
   expect(artUrl(null, 'poster', 'grid')).toBeNull()
   expect(artUrl({ images: [{ coverType: 'poster', remoteUrl: 'javascript:x' }, { coverType: 'poster', remoteUrl: 'https://a.invalid/p.jpg' }] }, 'poster', 'grid')).toBe('https://a.invalid/p.jpg')
 })
+test('artUrl falls back to an absolute url when remoteUrl is missing (queue and calendar on older Sonarr and Radarr)', () => {
+  expect(artUrl({ images: [{ coverType: 'poster', url: TMDB }] }, 'poster', 'grid')).toBe('https://image.tmdb.org/t/p/w342/abc.jpg')
+  expect(artUrl({ images: [{ coverType: 'poster', url: '/MediaCover/1/poster.jpg', remoteUrl: TMDB }] }, 'poster', 'grid')).toBe('https://image.tmdb.org/t/p/w342/abc.jpg')
+  expect(artUrl({ images: [{ coverType: 'poster', url: 'https://a.invalid/local.jpg', remoteUrl: 'https://b.invalid/remote.jpg' }] }, 'poster', 'grid')).toBe('https://b.invalid/remote.jpg')
+  expect(artUrl({ images: [{ coverType: 'poster', url: '/MediaCover/1/poster.jpg' }] }, 'poster', 'grid')).toBeNull()
+  expect(artUrl({ images: [{ coverType: 'poster', url: 'javascript:alert(1)' }] }, 'poster', 'grid')).toBeNull()
+})
 test('nextRelease picks the earliest future date, digital on a tie, and falls back to null', () => {
   const day = n => new Date(NOW + n * 86400000).toISOString()
   expect(nextRelease({ digitalRelease: day(10), physicalRelease: day(3) }, NOW)).toMatchObject({ kind: 'Physical' })
