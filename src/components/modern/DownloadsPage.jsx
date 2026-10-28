@@ -14,6 +14,12 @@ import { dayDate, entryLabel, groupByDay, timeText } from '../../upcoming'
 import { buildHistoryItems, formatLeft, formatSize, idleLead, kindLabel, relativeTime, rowStatus } from '../../downloads'
 
 const NEEDS = { sab: true, page: true, sonarr: 'always', radarr: 'always' }
+// Recent History shows five rows (three on phones, whose rows are taller) so Coming up stays in view; Load more
+// adds fifteen. At least fifteen are fetched, so the idle lead (the newest finished download with artwork) is still
+// chosen from fifteen.
+const HISTORY_ROWS = { wide: 5, phone: 3 }
+const HISTORY_STEP = 15
+const HISTORY_FETCH = 15
 const TONE = { downloading: 'live', paused: 'attn', queued: 'muted', processing: 'muted' }
 const SERVICE_NAME = { sonarr: 'Sonarr', radarr: 'Radarr' }
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
@@ -170,7 +176,9 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
   useDownloadNeeds(NEEDS)
   const dl = useDownloads()
   const now = useNow(30000)
-  const [limit, setLimit] = useState(15)
+  const [extra, setExtra] = useState(0)
+  const shown = Math.min(1000, (phone ? HISTORY_ROWS.phone : HISTORY_ROWS.wide) + extra)
+  const limit = Math.max(shown, HISTORY_FETCH)
   const [removing, setRemoving] = useState(null)
   const library = useLibraryOnce({ series: dl.configured.sonarr, movies: dl.configured.radarr })
   const history = useDownloadHistory({ slots: dl.slots, limit, enabled: dl.configured.sab })
@@ -213,7 +221,8 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
   const rest = items.filter(item => item !== active)
   const downloading = queue?.status === 'Downloading'
   const left = formatLeft(queue?.timeleft)
-  const more = limit < 1000 && (history.total != null ? historyItems.length < history.total : historyItems.length >= limit)
+  const historyRows = historyItems.slice(0, shown)
+  const more = shown < 1000 && (historyItems.length > shown || (history.total != null ? historyItems.length < history.total : historyItems.length >= limit))
   const plainHeader = idle && historyLoaded && !lead
   const downloadedAt = lead ? relativeTime(lead.completed, now) : null
 
@@ -253,8 +262,8 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
       </section>
       {historyItems.length > 0 && <section className="m-dl-section">
         <div className="m-dl-head"><h2>Recent History</h2></div>
-        <ul className="m-dl-list">{historyItems.map(item => <HistoryRow key={item.key} item={item} now={now} />)}</ul>
-        {more && <button className="btn btn-secondary" onClick={() => setLimit(value => Math.min(1000, value + 15))}>Load more</button>}
+        <ul className="m-dl-list">{historyRows.map(item => <HistoryRow key={item.key} item={item} now={now} />)}</ul>
+        {more && <button className="btn btn-secondary" onClick={() => setExtra(value => value + HISTORY_STEP)}>Load more</button>}
       </section>}
     </div>
     {idle && <ComingUp config={config} now={now} />}

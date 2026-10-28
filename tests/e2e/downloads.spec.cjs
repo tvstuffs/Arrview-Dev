@@ -71,7 +71,9 @@ for (const width of WIDTHS) {
     await expect(hero.getByText('Season 1, Episode 2 · Missing episode with a long title')).toBeVisible()
     await expect(hero.getByText('4K · Dolby Vision · HDR · Atmos')).toBeVisible()
     await expect(queueRows(page)).toHaveCount(5)
-    await expect(historyRows(page)).toHaveCount(4)
+    // Four history slots: phones (below 640 px) show three rows and Load more, wider screens all four.
+    await expect(historyRows(page)).toHaveCount(width < 640 ? 3 : 4)
+    if (width < 640) await expect(page.getByRole('button', { name: 'Load more' })).toBeVisible()
     // Unmatched: music, software, a show that is not in Sonarr and the case-mismatched id each show a category glyph tile.
     await expect(page.locator('.m-dl-cols > .m-dl-section:nth-child(1) .m-dl-glyph')).toHaveCount(4)
     for (const label of ['Music', 'Software']) await expect(queueRows(page).getByRole('img', { name: label })).toHaveCount(1)
