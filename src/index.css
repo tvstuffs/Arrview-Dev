@@ -220,6 +220,12 @@ label {
 }
 .progress-fill.is-ok { background: var(--ok); }
 .progress-fill.is-attn { background: var(--attn); }
+/* Completeness of a show in the Classic layout (completenessTone in media.js); Modern has the same in modern.css. */
+.progress-fill.is-low { background: var(--danger); }
+.progress-fill.is-mid { background: var(--attn); }
+.progress-fill.is-high { background: var(--ok); }
+.progress-fill.is-done { background: var(--text-3); }
+.progress-fill.is-none { background: transparent; }
 
 /* -- Loading spinner ------------------------------------- */
 @keyframes spin { to { transform: rotate(360deg); } }

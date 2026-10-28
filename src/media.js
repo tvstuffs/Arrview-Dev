@@ -13,6 +13,15 @@ export function mainSeasonCounts(show) {
   return { total: stats.totalEpisodeCount || 0, onDisk: stats.episodeFileCount || 0 }
 }
 
+// Colour of a show's episode bar: red under a third, yellow under four fifths, green below complete and
+// grey once every episode is on disk. 'none' when the show has no episodes yet.
+export function completenessTone(onDisk, total) {
+  if (!(total > 0)) return 'none'
+  if (onDisk >= total) return 'done'
+  const share = onDisk / total
+  return share < 1 / 3 ? 'low' : share < 0.8 ? 'mid' : 'high'
+}
+
 export const MOVIE_STATUS = {
   available:    { label: 'Downloaded',   cls: 'badge-success' },
   missing:      { label: 'Missing',      cls: 'badge-warning' },

@@ -9,7 +9,7 @@ import ArtImage from './ArtImage.jsx'
 import { useSeries } from './LibraryProvider.jsx'
 import { useMediaActions } from '../../hooks/useMediaActions'
 import { usePreference, textPreference, oneOf } from '../../hooks/usePreference'
-import { mainSeasonCounts, artUrl } from '../../media'
+import { mainSeasonCounts, artUrl, completenessTone } from '../../media'
 
 const FILTERS = [['all', 'All'], ['missing', 'Has Missing'], ['continuing', 'Continuing'], ['ended', 'Ended']]
 const capitalise = text => text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
@@ -21,7 +21,8 @@ export function showStats(show) {
 }
 
 function ShowTile({ show, small }) {
-  const { missing, pct } = showStats(show)
+  const { total, onDisk, missing, pct } = showStats(show)
+  const tone = completenessTone(onDisk, total)
   const unmonitored = !show.monitored
   const meta = unmonitored ? 'Unmonitored' : missing > 0 ? `${missing} missing` : [show.network, show.year].filter(Boolean).join(' · ')
   const metaId = `show-meta-${show.id}`
@@ -29,7 +30,7 @@ function ShowTile({ show, small }) {
     <a className="m-tile" href={`#/shows/${show.id}`} aria-label={show.title} title={small ? show.title : undefined} aria-describedby={small ? undefined : metaId}>
       <span className={`m-poster${unmonitored ? ' is-grey' : ''}`}>
         <ArtImage srcs={[artUrl(show, 'poster', 'grid')]} className="m-art-poster" width="200" height="300" icon="television-simple" />
-        {!unmonitored && missing > 0 && <span className="m-tilebar" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>}
+        {!unmonitored && tone !== 'none' && <span className="m-tilebar" aria-hidden="true"><span className={`is-${tone}`} style={{ width: `${pct}%` }} /></span>}
       </span>
       {!small && <>
         <span className="m-tile-title">{show.title}</span>
@@ -50,7 +51,7 @@ function ShowRow({ show, actions, onToast, refresh }) {
         <span className="m-row-title">{show.title}</span>
         <span className="m-row-meta">{[show.network, show.year, capitalise(show.status)].filter(Boolean).join(' · ')}</span>
         <span className="m-progress">
-          <span className="m-progress-bar" aria-hidden="true"><span className={missing > 0 ? 'is-attn' : ''} style={{ width: `${pct}%` }} /></span>
+          <span className="m-progress-bar" aria-hidden="true"><span className={`is-${completenessTone(onDisk, total)}`} style={{ width: `${pct}%` }} /></span>
           <span>{onDisk} of {total} episodes</span>
           {missing > 0 && <span className="m-attn">{missing} missing</span>}
         </span>

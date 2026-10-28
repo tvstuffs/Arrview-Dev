@@ -133,6 +133,11 @@
 .m-tile-meta.is-attn { color: var(--attn); }
 .m-tilebar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0, 0, 0, .55); }
 .m-tilebar span { display: block; height: 100%; background: var(--attn); }
+/* Completeness of a show (completenessTone in media.js): red, yellow, green, grey once complete. */
+.m-tilebar span.is-low, .m-progress-bar span.is-low { background: var(--danger); }
+.m-tilebar span.is-mid, .m-progress-bar span.is-mid { background: var(--attn); }
+.m-tilebar span.is-high, .m-progress-bar span.is-high { background: var(--ok); }
+.m-tilebar span.is-done, .m-progress-bar span.is-done { background: var(--text-3); }
 .m-art { position: relative; display: block; width: 100%; overflow: hidden; background: var(--raised); }
 .m-art img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .m-art-empty { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: 40px; }

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mainSeasonCounts, isMovieMissing, getMovieStatus, MOVIE_STATUS, nextRelease, releaseLabel, movieFileLine, artUrl, episodeState } from '../../src/media'
+import { mainSeasonCounts, isMovieMissing, getMovieStatus, MOVIE_STATUS, nextRelease, releaseLabel, movieFileLine, artUrl, episodeState, completenessTone } from '../../src/media'
 
 const NOW = Date.parse('2026-10-17T12:00:00Z')
 const TMDB = 'https://image.tmdb.org/t/p/original/abc.jpg'
@@ -70,4 +70,8 @@ test('mainSeasonCounts excludes specials and falls back to show-level statistics
   expect(mainSeasonCounts({ seasons: [{ seasonNumber: 0, statistics: { totalEpisodeCount: 5, episodeFileCount: 5 } }, { seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 2 } }] })).toEqual({ total: 3, onDisk: 2 })
   expect(mainSeasonCounts({ statistics: { totalEpisodeCount: 8, episodeFileCount: 6 } })).toEqual({ total: 8, onDisk: 6 })
   expect(mainSeasonCounts({})).toEqual({ total: 0, onDisk: 0 })
+})
+test('completenessTone: red under a third, yellow under four fifths, green below complete, grey when complete', () => {
+  expect([[0, 0], [0, 10], [3, 10], [4, 12], [5, 12], [7, 10], [8, 10], [9, 10], [99, 100], [10, 10], [11, 10]].map(([onDisk, total]) => completenessTone(onDisk, total)))
+    .toEqual(['none', 'low', 'low', 'mid', 'mid', 'mid', 'high', 'high', 'high', 'done', 'done'])
 })

@@ -6,7 +6,7 @@ import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from './Medi
 import { useMediaActions } from '../hooks/useMediaActions'
 import { usePreference, textPreference, oneOf, idList } from '../hooks/usePreference'
 import { useServerEvents, useVisiblePolling } from '../hooks/lifecycle'
-import { mainSeasonCounts } from '../media'
+import { mainSeasonCounts, completenessTone } from '../media'
 import { apiFetch } from '../api'
 import AddMediaModal from './AddMediaModal.jsx'
 import EpisodeSearchModal from './EpisodeSearchModal.jsx'
@@ -166,7 +166,7 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
           </div>
           <div className="show-progress">
             <div className="progress-bar" style={{height:4}}>
-              <div className={`progress-fill ${missing > 0 ? 'is-attn' : 'is-ok'}`} style={{width:`${pct}%`}} />
+              <div className={`progress-fill is-${completenessTone(onDisk, total)}`} style={{width:`${pct}%`}} />
             </div>
             <span className="text-xs text-muted">
               {onDisk}/{total} eps

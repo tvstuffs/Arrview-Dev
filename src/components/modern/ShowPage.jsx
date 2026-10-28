@@ -13,7 +13,7 @@ import { showStats } from './ShowsPage.jsx'
 import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
 import { useMediaActions } from '../../hooks/useMediaActions'
 import { useVisiblePolling, useServerEvents } from '../../hooks/lifecycle'
-import { artUrl, episodeState } from '../../media'
+import { artUrl, completenessTone, episodeState } from '../../media'
 
 const capitalise = text => text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
 const goToShows = () => { window.location.hash = '/shows' }
@@ -103,7 +103,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
         {meta && <p className="m-hero-meta">{meta}</p>}
         {show.overview && <p className="m-overview">{show.overview}</p>}
         <p className="m-progress">
-          <span className="m-progress-bar" aria-hidden="true"><span className={missing > 0 ? 'is-attn' : ''} style={{ width: `${pct}%` }} /></span>
+          <span className="m-progress-bar" aria-hidden="true"><span className={`is-${completenessTone(onDisk, total)}`} style={{ width: `${pct}%` }} /></span>
           <span>{onDisk} of {total} episodes</span>
           {missing > 0 && <span className="m-attn">{missing} missing</span>}
         </p>

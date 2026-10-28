@@ -52,6 +52,7 @@ test('Large view: tile links, meta rules (D16), progress bar, greyscale and artw
   expect(alpha).toHaveAttribute('href', '#/shows/1')
   expect(within(alpha).getByText('2 missing')).toHaveClass('is-attn')
   expect(alpha.querySelector('.m-tilebar span')).toHaveStyle({ width: '60%' })
+  expect(alpha.querySelector('.m-tilebar span')).toHaveClass('is-mid')
   const img = alpha.querySelector('img')
   expect(img).toHaveAttribute('src', 'https://image.tmdb.org/t/p/w342/alpha-poster.jpg')
   expect(img).toHaveAttribute('loading', 'lazy')
@@ -67,6 +68,8 @@ test('Large view: tile links, meta rules (D16), progress bar, greyscale and artw
   expect(within(gamma).getByText('2022')).toBeInTheDocument()
   expect(gamma.querySelector('img')).toBeNull()
   expect(gamma.querySelector('.m-art-empty')).not.toBeNull()
+  expect(gamma.querySelector('.m-tilebar span')).toHaveClass('is-done')
+  expect(gamma.querySelector('.m-tilebar span')).toHaveStyle({ width: '100%' })
   expect(container.querySelectorAll('li a button')).toHaveLength(0)
 })
 test('Small view: posters only, accessible name and title are the show title, preference persists (criteria 13, 14)', async () => {
