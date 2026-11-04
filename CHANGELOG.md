@@ -1,9 +1,9 @@
 # ArrView server development changelog
 
-## Unreleased — Login follow-ups
+## 1.9A9 (unreleased) — Login follow-ups
 
-- **Four follow-ups to the optional password login (1.9A5).** Server, the Security card and tests. No route was added
-  or removed, no file format changed, and the version is unchanged (the maintainer sets it per build).
+- **Version 1.9A9: four follow-ups to the optional password login (1.9A5)**, built by factory job 009 from the maintainer's
+  decisions of 2026-11-04. Server, the Security card and tests. No route was added or removed and no file format changed.
 
 - **Sign out everywhere, Remove key and Remove all keys work while the server is busy.** With 16 password checks
   waiting they used to answer 503 "The server is busy", so someone sending checks from several addresses could block
