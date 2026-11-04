@@ -1,5 +1,64 @@
 # ArrView server development changelog
 
+## 1.9A8 (unreleased) — Shows: the episode bar and the missing count follow what Sonarr wants
+
+- **Version 1.9A8.** One web change on top of 1.9A7, from the maintainer's decisions of 2026-11-04 (the bar counts
+  what Sonarr wants, and so does the missing count). No server route, request or config change; the only server line
+  that changed is the version. `package.json` is unchanged.
+
+- **The bar counts what Sonarr wants.** The episode bar showed episodes on disk out of every episode of the main
+  seasons, so a long-running show whose old seasons are not kept was mostly red. It now shows the episodes on disk out
+  of what Sonarr wants from the series: the episodes that are monitored and have aired, plus any that have a file
+  (`episodeCount` in the season statistics, specials left out), like Sonarr's own bars. The colours are as before: red
+  under a third, yellow under four fifths, green below complete, grey when complete. The caption follows: "12 of 15
+  episodes" in Modern (list rows and the show page) and "12/15 eps" in Classic. A show where Sonarr wants nothing
+  (nothing monitored, nothing on disk, however many episodes it has) draws no bar and says "Nothing wanted".
+- **The missing count is Sonarr's.** The web counted every episode without a file, unaired and unmonitored ones
+  included, so a show Sonarr wants nothing from said "187 missing" and offered Search Missing. It now counts the wanted
+  episodes without a file, the number the iOS app already showed: the "N missing" on tiles, rows and cards, the "N
+  missing episodes" link and chip, Has Missing, Most Missing, and when Search Missing shows (rows, cards and the show
+  page). The per-season "Search N Missing" button on the show page is unchanged: it still counts the aired episodes of
+  that season without a file, monitored or not.
+- **The iOS app is not changed.** Its missing count already matched; its bar still divides by every episode.
+
+- **Tests:** server 211/211, web (vitest) 487/487 (479 at 1.9A7), e2e 160/160 in Microsoft Edge on macOS (CI repeats
+  them in real Chromium). New: the helper's numbers (specials, show-level fallback, nothing monitored, an unmonitored
+  show with files, files beyond what is wanted), the Modern tiles, rows, show page, filter, sort and missing link, the
+  same for the Classic tab (a new test file), and an e2e test that checks the bar colours and widths, the captions and
+  the missing count in both layouts. The test fixtures now carry `episodeCount`, as every Sonarr does. Six deliberate
+  breakages (the old bar, the old missing count, no clamp, no "nothing wanted" state, a numeric caption for it, the old
+  Classic filter) each turned the matching test red.
+- **Checked against a real library (read only):** the Shows page rendered from this build with the Sonarr library of a
+  real install, compared with an independent count of the same data: the tile bars by colour, the "N missing
+  episodes" link, the Classic chip, the "Nothing wanted" rows and the number of Search Missing buttons all matched.
+- **Checked in a container** (the image built from this commit, an empty data folder, a fake Sonarr that checks the API
+  key): the first run (the choice, every row open, Save, no first-run screen after a restart); the 1.9A7 Test button
+  with a good key, a wrong key, a corrected key and a slow answer whose address was edited meanwhile (check, X, ready
+  at once, no stale result, four seconds back to Test); the saved row says Connected after a reload; a rollback to the
+  published 1.9A6 and 1.9A5 images and forward again, with `config.json` byte-identical throughout; the login in Docker
+  (a password, a password file with a changed value, the variable removed, `ARRVIEW_AUTH=off`, a 256 MiB limit, and the
+  curl cases of the 1.9A5 test plan); and, read only against a real library, the season dropdown and both trash sheets
+  with Cancel on a show with many seasons, and the Season 1 name of a one-season show.
+- **Not verified:** a real iPhone or iPad; Firefox and Safari; a Sonarr that does not send `episodeCount` (every
+  version known to send it; such a Sonarr would read as "Nothing wanted" for every show); the iOS app (unchanged).
+  Still owed from 1.9A5 and needing a person or a device: Safari's Copy of an access key over plain HTTP on a Mac and
+  an iPhone, a real reverse proxy with `ARRVIEW_TRUSTED_PROXIES`, a screen reader and a password manager on the two
+  Current password fields, and the iOS apps against a server with and without a password.
+- **Human test plan:**
+  1. Shows, Large posters: the bars along the bottom of the posters are red or yellow where little of what Sonarr wants
+     is on disk, green where most is, grey where all is, and absent where Sonarr wants nothing. Open the List view and
+     compare a few captions ("12 of 15 episodes") with the "12 / 15" Sonarr shows for the same series.
+  2. The "N missing episodes" link under the title is close to the total of Sonarr's Wanted > Missing (ArrView leaves
+     monitored specials out). Press it: only shows with missing episodes remain (Has Missing).
+  3. Sort by Most Missing: the show with the most wanted-but-missing episodes comes first.
+  4. A show where Sonarr wants nothing: the List says "Nothing wanted" and has no Search Missing; its page says the
+     same and has no Search Missing button either.
+  5. Search Missing on a show that has missing episodes: Sonarr starts a search (see its queue or history). The
+     per-season Search N Missing on the show page is unchanged.
+  6. Classic layout: the same captions ("12/15 eps"), badges and bars; the Missing Episodes chip equals the link in
+     Modern.
+  7. Roll back to the 1.9A7 image: nothing to migrate; the old bars and counts come back.
+
 ## 1.9A7 (unreleased) — Settings: the Test button shows its result; the NZBHydra row names Newznab indexers
 
 - **Version 1.9A7.** Two web changes on top of 1.9A6, from the maintainer's test of a standalone Newznab indexer on
