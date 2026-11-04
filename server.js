@@ -2180,6 +2180,10 @@ const WEBHOOK_NAME = 'ArrView';
 const WEBHOOK_READ_TIMEOUT_MS = 15000;
 // The apps' own limit for their test is 100 s, and they finish a create even when the caller gives up.
 const WEBHOOK_CREATE_TIMEOUT_MS = 115000;
+// After a create whose outcome is unknown the app may still save it, so no other create is sent for this long after
+// ArrView gave up on it, unless the list shows ours before then. It covers the app's 100 s limit with a margin.
+const WEBHOOK_UNRESOLVED_MS = 120000;
+const webhookUnresolvedUntil = { sonarr: 0, radarr: 0 };
 
 // The triggers ArrView sets on, per service, in the order the guide lists them. src/webhooks.js holds a copy for
 // the guide and the preview, and a test checks the two are the same. Every other trigger stays off.
@@ -2280,6 +2284,13 @@ function cleanAppText(text) {
   return line.length > 300 ? `${line.slice(0, 300)}…` : line;
 }
 
+// The list read and classified. Ours in the list settles an unknown create: whatever it was, it is now there.
+async function readAndClassify(conn, service, url) {
+  const c = classifyWebhooks(await readWebhookList(conn), service, url);
+  if (c.ours.length) webhookUnresolvedUntil[service] = 0;
+  return c;
+}
+
 const webhookTail = { sonarr: Promise.resolve(), radarr: Promise.resolve() };
 function webhookQueued(service, fn) {
   const run = webhookTail[service].then(fn);
@@ -2313,7 +2324,7 @@ app.get('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
   const conn = connectionOf(arr);
   if (!conn) return { status: 200, body: { service, state: 'not-configured', url } };
   if (!url) return { status: 200, body: { service, state: 'needs-address', url } };
-  const c = classifyWebhooks(await readWebhookList(conn), service, url);
+  const c = await readAndClassify(conn, service, url);
   return { status: 200, body: { service, state: c.state, url, ...shownAddress(c) } };
 }, false));
 
@@ -2347,11 +2358,13 @@ async function webhookCreateOutcome(service, arr, conn, url, send, sentAt) {
     timedOut = !e.response && (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT');
   }
   // The outcome is unknown: the app may have saved it anyway, so the list says what happened.
-  const c = classifyWebhooks(await readWebhookList(conn), service, url);
+  const c = await readAndClassify(conn, service, url);
   if (c.state === 'present') {
     console.log(`[Webhook setup] ${service}: created`);
     return { status: 201, body: created() };
   }
+  // Not there yet is not the same as not saved: the app may still be testing it.
+  if (!c.ours.length) webhookUnresolvedUntil[service] = Date.now() + WEBHOOK_UNRESOLVED_MS;
   const status = timedOut ? 504 : 502;
   if (c.state === 'absent') {
     return { status, body: { error: `${arr.name} did not confirm the webhook, and it is not in ${arr.name}'s list yet. ${arr.name} may still be testing the address: check the status again in two minutes before trying again.`, state: 'absent' } };
@@ -2390,8 +2403,11 @@ app.post('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
   if (!conn) return webhookStateAnswer({ state: 'not-configured' }, arr.name);
   const url = webhookTargetUrl(service);
   if (!url) return webhookStateAnswer({ state: 'needs-address' }, arr.name);
-  let c = classifyWebhooks(await readWebhookList(conn), service, url);
+  let c = await readAndClassify(conn, service, url);
   if (c.state !== 'absent') return webhookStateAnswer(c, arr.name);
+  if (Date.now() < webhookUnresolvedUntil[service]) {
+    return { status: 409, body: { error: `${arr.name} has not confirmed the last set-up and may still save it. Check the status again in two minutes before trying again.`, state: 'absent', pending: true } };
+  }
 
   let template = null;
   try {
@@ -2408,7 +2424,7 @@ app.post('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
   if (!send) return { status: 502, body: { error: `${arr.name} offered no Webhook connection to create` } };
 
   // Read again right before the create: the app does not stop two creates of the same name.
-  c = classifyWebhooks(await readWebhookList(conn), service, url);
+  c = await readAndClassify(conn, service, url);
   if (c.state !== 'absent') return webhookStateAnswer(c, arr.name);
   return webhookCreateOutcome(service, arr, conn, url, send, Date.now());
 }, true));
@@ -2417,7 +2433,7 @@ app.delete('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
   const conn = connectionOf(arr);
   if (!conn) return webhookStateAnswer({ state: 'not-configured' }, arr.name);
   const url = webhookTargetUrl(service);
-  const c = classifyWebhooks(await readWebhookList(conn), service, url);
+  const c = await readAndClassify(conn, service, url);
   if (c.state === 'unreachable' || c.state === 'key-rejected') return webhookStateAnswer(c, arr.name);
   if (c.state === 'absent' || c.state === 'name-taken') return { status: 404, body: { state: c.state, error: `There is no ArrView webhook in ${arr.name}` } };
   if (c.state === 'multiple') return webhookStateAnswer(c, arr.name);

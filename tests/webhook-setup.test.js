@@ -100,6 +100,14 @@ async function startFakeArr(t, service) {
   async function create(body, res) {
     // The name is checked first, then the (slow) test runs, then it is saved: two creates can both pass the check.
     if (fake.named(String(body?.name ?? '')).length) return send(res, 400, [UNIQUE(body.name)]);
+    // The connection to the caller is lost at once, but the app goes on and saves it later.
+    if (fake.create === 'resetThenSave') {
+      res.socket.destroy();
+      if (fake.gate) await fake.gate;
+      await postTest();
+      save(body);
+      return undefined;
+    }
     if (fake.gate) await fake.gate;
     const url = body.fields.find(f => f.name === 'url')?.value;
     switch (fake.create) {
@@ -442,7 +450,8 @@ test('the list is read again right before the create, and a change found there w
 });
 
 test('every create outcome is mapped, the app text is cleaned, and the stack trace is never read', async t => {
-  const { s, post, seen, sonarr } = await setup(t, { services: ['sonarr'] });
+  let later = 0;
+  const { s, post, seen, sonarr } = await setup(t, { services: ['sonarr'], clock: () => Date.now() + later });
   const run = async (mode, arrange = () => {}) => {
     sonarr.list = [];
     sonarr.create = mode;
@@ -469,6 +478,12 @@ test('every create outcome is mapped, the app text is cleaned, and the stack tra
   r = await run('html500');
   assert.equal(r.status, 502);
   assert.deepEqual(r.body, { error: "Sonarr did not confirm the webhook, and it is not in Sonarr's list yet. Sonarr may still be testing the address: check the status again in two minutes before trying again.", state: 'absent' });
+  // That create may still be saved, so the next set-up waits for it.
+  const createsSoFar = sonarr.creates().length;
+  r = await run('ok');
+  assert.deepEqual([r.status, r.body.pending], [409, true]);
+  assert.equal(sonarr.creates().length, createsSoFar);
+  later += 120001;
   // A 2xx that is not the stored connection: unknown, and the list shows it was saved.
   r = await run('noId');
   assert.deepEqual([r.status, r.body], [201, { state: 'present', created: true, skipped: [], testReceived: true }]);
@@ -485,7 +500,9 @@ test('every create outcome is mapped, the app text is cleaned, and the stack tra
 
 test('after ArrView itself times out the list decides: saved means set up, not saved means check again later', async t => {
   const timeouts = [];
-  const { post, get, sonarr } = await setup(t, { services: ['sonarr'], modules: { axios: shortCreate(150, timeouts) } });
+  let later = 0;
+  const { post, get, sonarr } = await setup(t, { services: ['sonarr'], modules: { axios: shortCreate(150, timeouts) },
+    clock: () => Date.now() + later });
   sonarr.create = 'saveThenHang';
   let r = await post('sonarr');
   assert.deepEqual([r.status, r.body], [201, { state: 'present', created: true, skipped: [], testReceived: true }]);
@@ -495,6 +512,8 @@ test('after ArrView itself times out the list decides: saved means set up, not s
   r = await post('sonarr');
   assert.equal(r.status, 504);
   assert.deepEqual(r.body, { error: "Sonarr did not confirm the webhook, and it is not in Sonarr's list yet. Sonarr may still be testing the address: check the status again in two minutes before trying again.", state: 'absent' });
+  // Once the window has passed with nothing saved, a set-up is sent again.
+  later += 120001;
   // The re-read finds something else: the plain message, with that state.
   sonarr.create = 'hang';
   sonarr.onSchema = null;
@@ -568,6 +587,58 @@ test('the queue moves on after a create that times out', async t => {
   assert.equal(created.status, 504);
   assert.equal(created.body.state, 'absent');
   assert.deepEqual([removed.status, removed.body], [404, { state: 'absent', error: 'There is no ArrView webhook in Sonarr' }]);
+});
+
+test('a create the app saves after ArrView gave up blocks a queued second set-up, so there is still one webhook', async t => {
+  for (const mode of ['ok', 'resetThenSave']) {
+    let later = 0;
+    const { post, get, del, sonarr } = await setup(t, { services: ['sonarr'], modules: { axios: shortCreate(150, []) },
+      clock: () => Date.now() + later });
+    sonarr.create = mode;
+    sonarr.hold();
+    const first = post('sonarr');
+    await until(() => sonarr.creates().length === 1, `the first create (${mode})`);
+    const second = post('sonarr');
+    const [a, b] = await Promise.all([first, second]);
+    // 'ok' times out; 'resetThenSave' loses its connection at once.
+    assert.deepEqual([a.status, a.body.state], [mode === 'ok' ? 504 : 502, 'absent']);
+    assert.deepEqual([b.status, b.body], [409, { error: 'Sonarr has not confirmed the last set-up and may still save it. Check the status again in two minutes before trying again.', state: 'absent', pending: true }]);
+    assert.equal(sonarr.creates().length, 1);
+    // The status read still answers, and so does the queue.
+    assert.equal((await get('sonarr')).body.state, 'absent');
+    assert.deepEqual((await del('sonarr')).status, 404);
+    assert.equal((await post('sonarr')).status, 409);
+    sonarr.release();
+    await until(() => sonarr.list.length === 1, `the late save (${mode})`);
+    assert.equal((await get('sonarr')).body.state, 'present');
+    // Later, and after the window, a set-up finds it there and makes no other.
+    later += 120001;
+    const r = await post('sonarr');
+    assert.deepEqual([r.status, r.body], [200, { state: 'present', created: false }]);
+    assert.equal(sonarr.creates().length, 1);
+    assert.equal(sonarr.named('ArrView').length, 1);
+  }
+});
+
+test('the wait after an unknown create ends when ours shows up, or after two minutes with nothing saved', async t => {
+  let later = 0;
+  const { post, get, del, sonarr } = await setup(t, { services: ['sonarr'], modules: { axios: shortCreate(150, []) },
+    clock: () => Date.now() + later });
+  sonarr.create = 'hang';
+  assert.equal((await post('sonarr')).status, 504);
+  later += 119000;
+  assert.equal((await post('sonarr')).status, 409);
+  later += 1001;
+  assert.equal((await post('sonarr')).status, 504);
+  assert.equal(sonarr.creates().length, 2);
+  // Ours seen by a status read ends the wait at once: removed and set up again without waiting.
+  sonarr.list = [webhookEntry(5, 'ArrView', target('sonarr'))];
+  assert.equal((await get('sonarr')).body.state, 'present');
+  assert.equal((await del('sonarr')).status, 200);
+  sonarr.create = 'ok';
+  const r = await post('sonarr');
+  assert.deepEqual([r.status, r.body.created], [201, true]);
+  assert.equal(sonarr.creates().length, 3);
 });
 
 // ── Remove ──────────────────────────────────────────────────────────────────

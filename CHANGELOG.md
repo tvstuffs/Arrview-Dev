@@ -24,7 +24,10 @@
   - Set up and remove for one service run one at a time, and the list is read again right before each create: the apps'
     unique-name check is not atomic. A create may take up to about 100 seconds (the app's own limit when the address
     never answers); ArrView waits up to 115 seconds, the card says why it is waiting after 3 seconds, and when the
-    outcome is unknown the server reads the list again before it answers.
+    outcome is unknown the server reads the list again before it answers. If ours is not there yet, the app may still
+    save it, so for two minutes after that no other set-up for that app sends a create (it answers 409 "check the
+    status again in two minutes"); the wait ends early when the list shows ours. The status read and remove still
+    answer meanwhile.
   - Remove deletes only the one connection recognised as ArrView's, by the id in the app's list, and reads the list again
     afterwards, because the apps answer 200 even for an id they do not have.
 - **A successful set-up reports whether ArrView itself received the app's test message.** The apps count any answer
@@ -45,10 +48,11 @@
   the apps' own); concurrency beyond six parallel creates against a fast receiver; how the created connection looks in
   the apps' own Settings, Connect pages; a reverse proxy in front of ArrView that cuts the request before the create
   timeout (nginx defaults to 60 s); and the 115 s create timeout end to end through ArrView.
-- **Tests:** server 246/246, web (vitest) 504/504, e2e 163/163 in Microsoft Edge on macOS (1.9A9 had 221, 488 and
-  160). New: `tests/webhook-setup.test.js` (25 tests against in-process fakes of Sonarr and Radarr that behave as the
+- **Tests:** server 248/248, web (vitest) 504/504, e2e 163/163 in Microsoft Edge on macOS (1.9A9 had 221, 488 and
+  160). New: `tests/webhook-setup.test.js` (27 tests against in-process fakes of Sonarr and Radarr that behave as the
   live apps did: every state, the exact create body, each create outcome, the timeout re-read, the one-at-a-time
-  queue for set-up and remove, remove with no saved address, the secret-leak sweep of answers and log lines, the login
+  queue for set-up and remove, a create the app saves after ArrView gave up (timed out or connection lost) with a
+  second set-up already queued, remove with no saved address, the secret-leak sweep of answers and log lines, the login
   and the JSON guard), `tests/fixtures/webhook-urls.json` (the URL table both sides use), `tests/web/webhook-triggers.test.js`
   (the trigger list and the URL rule are the same on both sides), 14 card tests in `tests/web/webhook-settings.test.jsx`,
   and set-up, remove and a refusal for both apps in `tests/e2e/webhooks.spec.cjs`. One guide assertion in
