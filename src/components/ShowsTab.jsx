@@ -84,9 +84,7 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
   const [confirmSeasonDelete, setConfirmSeasonDelete] = useState(null)
   const [confirmRemoveSeries, setConfirmRemoveSeries] = useState(false)
 
-  const { total, onDisk } = mainSeasonCounts(show)
-  const missing = Math.max(0, total - onDisk)
-  const pct     = total > 0 ? Math.round((onDisk / total) * 100) : 0
+  const { onDisk, wanted, missing, pct } = mainSeasonCounts(show)
 
   const fetchEpisodes = useCallback(async () => {
     try {
@@ -166,10 +164,10 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
           </div>
           <div className="show-progress">
             <div className="progress-bar" style={{height:4}}>
-              <div className={`progress-fill is-${completenessTone(onDisk, total)}`} style={{width:`${pct}%`}} />
+              <div className={`progress-fill is-${completenessTone(onDisk, wanted)}`} style={{width:`${pct}%`}} />
             </div>
             <span className="text-xs text-muted">
-              {onDisk}/{total} eps
+              {wanted > 0 ? `${onDisk}/${wanted} eps` : 'Nothing wanted'}
               {missing > 0 && <span className="missing-badge">{missing} missing</span>}
             </span>
           </div>
@@ -318,30 +316,19 @@ export default function ShowsTab({ onToast, sonarrUrl, nzbhydraUrl, onUpcoming, 
     )
   }
 
-  const totalMissing = series.reduce((sum, s) => {
-    const { total, onDisk } = mainSeasonCounts(s)
-    return sum + Math.max(0, total - onDisk)
-  }, 0)
+  const totalMissing = series.reduce((sum, s) => sum + mainSeasonCounts(s).missing, 0)
 
   let filtered = series.filter(s => {
     if (search && !s.title.toLowerCase().includes(search.toLowerCase())) return false
-    if (filter === 'missing') {
-      const { total, onDisk } = mainSeasonCounts(s)
-      return total > onDisk
-    }
+    if (filter === 'missing') return mainSeasonCounts(s).missing > 0
     if (filter === 'continuing') return s.status?.toLowerCase() === 'continuing'
     if (filter === 'ended') return s.status?.toLowerCase() === 'ended'
     return true
   })
 
   if (sort === 'alpha') filtered.sort((a, b) => a.title.localeCompare(b.title))
-  else if (sort === 'missing') {
-    filtered.sort((a, b) => {
-      const { total: ta, onDisk: oa } = mainSeasonCounts(a)
-      const { total: tb, onDisk: ob } = mainSeasonCounts(b)
-      return Math.max(0, tb - ob) - Math.max(0, ta - oa)
-    })
-  } else if (sort === 'year') filtered.sort((a, b) => (b.year || 0) - (a.year || 0))
+  else if (sort === 'missing') filtered.sort((a, b) => mainSeasonCounts(b).missing - mainSeasonCounts(a).missing)
+  else if (sort === 'year') filtered.sort((a, b) => (b.year || 0) - (a.year || 0))
 
   return (
     <div className="shows-tab">

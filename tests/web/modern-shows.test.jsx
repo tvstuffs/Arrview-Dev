@@ -21,7 +21,7 @@ test('shows header: title, meta line, search, chips, sort, view toggle and Add S
   stubFetch(); list()
   expect(await screen.findByRole('heading', { level: 1, name: 'TV Shows' })).toBeInTheDocument()
   await screen.findByText('3 shows')
-  expect(document.querySelector('.m-meta')).toHaveTextContent('3 shows · 5 missing episodes')
+  expect(document.querySelector('.m-meta')).toHaveTextContent('3 shows · 2 missing episodes')
   expect(screen.getByLabelText('Search shows')).toBeInTheDocument()
   const filter = screen.getByRole('group', { name: 'Filter' })
   expect(within(filter).getAllByRole('button').map(b => b.textContent)).toEqual(['All', 'Has Missing', 'Continuing', 'Ended'])
@@ -33,17 +33,18 @@ test('shows header: title, meta line, search, chips, sort, view toggle and Add S
   expect(screen.getByRole('button', { name: 'Add Show' })).toBeInTheDocument()
 })
 test('singular wording and the amber link only while episodes are missing', async () => {
-  stubFetch({}, { series: [{ ...series[0], seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 2, episodeFileCount: 1 } }] }] }); list()
+  stubFetch({}, { series: [{ ...series[0], seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 2, episodeFileCount: 1, episodeCount: 2 } }] }] }); list()
   await screen.findByText('1 show')
   expect(document.querySelector('.m-meta')).toHaveTextContent('1 show · 1 missing episode')
   expect(screen.queryByText('1 missing episodes')).toBeNull()
 })
 test('clicking the amber missing count presses Has Missing and persists shows.filter', async () => {
   stubFetch(); list()
-  fireEvent.click(await screen.findByRole('button', { name: '5 missing episodes' }))
+  fireEvent.click(await screen.findByRole('button', { name: '2 missing episodes' }))
   expect(screen.getByRole('button', { name: 'Has Missing' })).toHaveAttribute('aria-pressed', 'true')
   expect(localStorage.getItem('arrview.ui.v1.shows.filter')).toBe('"missing"')
   expect(screen.queryByRole('link', { name: 'Gamma Show' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Beta Show' })).toBeNull()
   expect(screen.getByRole('link', { name: 'Alpha Show' })).toBeInTheDocument()
 })
 test('Large view: tile links, meta rules (D16), progress bar, greyscale and artwork URLs (criteria 13, 27)', async () => {
@@ -101,7 +102,7 @@ test('List view: thumbnail, details, progress, Search Missing only when missing,
   expect(screen.getByText('Net Two · 2018 · Ended')).toBeInTheDocument()
   expect(screen.getByText('3 of 5 episodes')).toBeInTheDocument()
   const buttons = screen.getAllByRole('button', { name: 'Search Missing' })
-  expect(buttons).toHaveLength(2)
+  expect(buttons).toHaveLength(1)
   container.querySelectorAll('li').forEach(li => { expect(li.querySelectorAll('a button, a a')).toHaveLength(0) })
   expect(container.querySelector('.m-row img').getAttribute('src')).toBe('https://image.tmdb.org/t/p/w342/alpha-poster.jpg')
   fireEvent.click(buttons[0])
@@ -343,4 +344,59 @@ test('phones add the round Settings button right after the back link (D22, D30)'
   await screen.findByRole('heading', { level: 1, name: 'Alpha Show' })
   const names = [...document.querySelectorAll('.m-detail a, .m-detail button')].slice(0, 3).map(el => el.getAttribute('aria-label') || el.textContent.trim())
   expect(names).toEqual(['Back to TV Shows', 'Settings', 'Search Missing'])
+})
+
+// ---- What Sonarr wants (the bar, the caption and the missing count) ----
+// Delta: 10 episodes, 5 wanted (the rest are unaired or not monitored), 4 on disk. Epsilon: 187 episodes, nothing monitored.
+// Zeta: 100 episodes, 9 wanted, none on disk.
+const wantedSeries = [
+  { id: 11, title: 'Delta Show', year: 2019, network: 'Net D', status: 'continuing', monitored: true, images: [], seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 10, episodeFileCount: 4, episodeCount: 5 } }] },
+  { id: 12, title: 'Epsilon Show', year: 2017, network: 'Net E', status: 'continuing', monitored: true, images: [], seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 187, episodeFileCount: 0, episodeCount: 0 } }] },
+  { id: 13, title: 'Zeta Show', year: 2016, network: 'Net Z', status: 'continuing', monitored: true, images: [], seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 100, episodeFileCount: 0, episodeCount: 9 } }] },
+]
+test('wanted: the tile bar and the missing count follow what Sonarr wants, not every episode of the series', async () => {
+  stubFetch({}, { series: wantedSeries }); list()
+  await screen.findByText('3 shows')
+  expect(document.querySelector('.m-meta')).toHaveTextContent('3 shows · 10 missing episodes')
+  const delta = screen.getByRole('link', { name: 'Delta Show' })
+  expect(within(delta).getByText('1 missing')).toHaveClass('is-attn')
+  expect(delta.querySelector('.m-tilebar span')).toHaveStyle({ width: '80%' })
+  expect(delta.querySelector('.m-tilebar span')).toHaveClass('is-high')
+  const zeta = screen.getByRole('link', { name: 'Zeta Show' })
+  expect(within(zeta).getByText('9 missing')).toHaveClass('is-attn')
+  expect(zeta.querySelector('.m-tilebar span')).toHaveStyle({ width: '0%' })
+  expect(zeta.querySelector('.m-tilebar span')).toHaveClass('is-low')
+  const epsilon = screen.getByRole('link', { name: 'Epsilon Show' })
+  expect(epsilon.querySelector('.m-tilebar')).toBeNull()
+  expect(within(epsilon).getByText('Net E · 2017')).not.toHaveClass('is-attn')
+})
+test('wanted: list rows say how much of what is wanted is on disk, or that nothing is wanted; Search Missing only where something is', async () => {
+  localStorage.setItem('arrview.ui.v1.shows.view', '"list"')
+  stubFetch({}, { series: wantedSeries }); list()
+  await screen.findByText('Net D · 2019 · Continuing')
+  expect(screen.getByText('4 of 5 episodes')).toBeInTheDocument()
+  expect(screen.getByText('0 of 9 episodes')).toBeInTheDocument()
+  expect(screen.getByText('Nothing wanted')).toBeInTheDocument()
+  expect(screen.queryByText(/of (10|100|187) episodes/)).toBeNull()
+  expect(screen.getAllByRole('button', { name: 'Search Missing' })).toHaveLength(2)
+})
+test('wanted: Most Missing and Has Missing count what Sonarr wants', async () => {
+  stubFetch({}, { series: wantedSeries }); list()
+  await screen.findByRole('link', { name: 'Delta Show' })
+  fireEvent.change(screen.getByLabelText('Sort results'), { target: { value: 'missing' } })
+  const order = () => screen.getAllByRole('link').map(a => a.getAttribute('aria-label')).filter(name => /Show$/.test(name || ''))
+  expect(order()).toEqual(['Zeta Show', 'Delta Show', 'Epsilon Show'])
+  fireEvent.click(screen.getByRole('button', { name: 'Has Missing' }))
+  expect(order()).toEqual(['Zeta Show', 'Delta Show'])
+})
+test('wanted: the show page captions what is wanted and offers Search Missing only when something is', async () => {
+  stubFetch({}, { series: wantedSeries }); const { unmount } = detail('11')
+  await screen.findByRole('heading', { level: 1, name: 'Delta Show' })
+  expect(document.querySelector('.m-detail .m-progress')).toHaveTextContent('4 of 5 episodes1 missing')
+  expect(screen.getByRole('button', { name: 'Search Missing' })).toBeInTheDocument()
+  unmount()
+  detail('12')
+  await screen.findByRole('heading', { level: 1, name: 'Epsilon Show' })
+  expect(document.querySelector('.m-detail .m-progress')).toHaveTextContent('Nothing wanted')
+  expect(screen.queryByRole('button', { name: 'Search Missing' })).toBeNull()
 })

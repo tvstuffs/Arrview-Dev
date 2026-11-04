@@ -66,10 +66,19 @@ test('episodeState: downloaded, missing (aired) and upcoming (future or undated)
   expect(episodeState({ hasFile: false, airDateUtc: '2099-01-01' }, NOW)).toBe('upcoming')
   expect(episodeState({ hasFile: false }, NOW)).toBe('upcoming')
 })
-test('mainSeasonCounts excludes specials and falls back to show-level statistics', () => {
-  expect(mainSeasonCounts({ seasons: [{ seasonNumber: 0, statistics: { totalEpisodeCount: 5, episodeFileCount: 5 } }, { seasonNumber: 1, statistics: { totalEpisodeCount: 3, episodeFileCount: 2 } }] })).toEqual({ total: 3, onDisk: 2 })
-  expect(mainSeasonCounts({ statistics: { totalEpisodeCount: 8, episodeFileCount: 6 } })).toEqual({ total: 8, onDisk: 6 })
-  expect(mainSeasonCounts({})).toEqual({ total: 0, onDisk: 0 })
+const season = (seasonNumber, total, onDisk, wanted) => ({ seasonNumber, statistics: { totalEpisodeCount: total, episodeFileCount: onDisk, episodeCount: wanted } })
+test('mainSeasonCounts: total, on disk, what Sonarr wants and what is missing; specials excluded; show-level fallback', () => {
+  expect(mainSeasonCounts({ seasons: [season(0, 5, 5, 5), season(1, 3, 2, 3), season(2, 10, 4, 5)] })).toEqual({ total: 13, onDisk: 6, wanted: 8, missing: 2, pct: 75 })
+  expect(mainSeasonCounts({ statistics: { totalEpisodeCount: 8, episodeFileCount: 6, episodeCount: 7 } })).toEqual({ total: 8, onDisk: 6, wanted: 7, missing: 1, pct: 86 })
+  expect(mainSeasonCounts({})).toEqual({ total: 0, onDisk: 0, wanted: 0, missing: 0, pct: 0 })
+})
+test('mainSeasonCounts: nothing monitored means nothing wanted and nothing missing, however many episodes the series has', () => {
+  expect(mainSeasonCounts({ seasons: [season(1, 187, 0, 0)] })).toEqual({ total: 187, onDisk: 0, wanted: 0, missing: 0, pct: 0 })
+  // An unmonitored series that has files: Sonarr counts them as wanted, so the bar is complete and nothing is missing.
+  expect(mainSeasonCounts({ monitored: false, seasons: [season(1, 40, 12, 12)] })).toEqual({ total: 40, onDisk: 12, wanted: 12, missing: 0, pct: 100 })
+})
+test('mainSeasonCounts: files beyond what is wanted never push the bar past 100 or the missing count below 0', () => {
+  expect(mainSeasonCounts({ seasons: [season(1, 10, 5, 3)] })).toEqual({ total: 10, onDisk: 5, wanted: 3, missing: 0, pct: 100 })
 })
 test('completenessTone: red under a third, yellow under four fifths, green below complete, grey when complete', () => {
   expect([[0, 0], [0, 10], [3, 10], [4, 12], [5, 12], [7, 10], [8, 10], [9, 10], [99, 100], [10, 10], [11, 10]].map(([onDisk, total]) => completenessTone(onDisk, total)))

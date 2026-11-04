@@ -1,24 +1,27 @@
 // Pure helpers shared by the Classic and Modern layouts.
 
-// Sum episode counts from main seasons only (exclude season 0 / specials)
+// A series' episode counts from Sonarr's own statistics, main seasons only (season 0 / specials are left out):
+//   total   every episode the series has (totalEpisodeCount)
+//   onDisk  episodes with a file (episodeFileCount)
+//   wanted  what Sonarr wants from the series: the monitored episodes that have aired, and any that have a file
+//           (episodeCount). It is 0 when nothing is monitored, whatever the total
+//   missing wanted but without a file: what Search Missing goes for, the same number the iOS app shows
+//   pct     the bar's width, 0 to 100: onDisk of wanted
 export function mainSeasonCounts(show) {
   const seasons = (show.seasons || []).filter(s => s.seasonNumber > 0)
-  if (seasons.length > 0) {
-    const total  = seasons.reduce((n, s) => n + (s.statistics?.totalEpisodeCount || 0), 0)
-    const onDisk = seasons.reduce((n, s) => n + (s.statistics?.episodeFileCount  || 0), 0)
-    return { total, onDisk }
-  }
   // Fallback: use show-level stats (no season breakdown available)
-  const stats = show.statistics || {}
-  return { total: stats.totalEpisodeCount || 0, onDisk: stats.episodeFileCount || 0 }
+  const stats = seasons.length > 0 ? seasons.map(s => s.statistics || {}) : [show.statistics || {}]
+  const sum = key => stats.reduce((n, s) => n + (s[key] || 0), 0)
+  const total = sum('totalEpisodeCount'), onDisk = sum('episodeFileCount'), wanted = sum('episodeCount')
+  return { total, onDisk, wanted, missing: Math.max(0, wanted - onDisk), pct: wanted > 0 ? Math.min(100, Math.round((onDisk / wanted) * 100)) : 0 }
 }
 
-// Colour of a show's episode bar: red under a third, yellow under four fifths, green below complete and
-// grey once every episode is on disk. 'none' when the show has no episodes yet.
-export function completenessTone(onDisk, total) {
-  if (!(total > 0)) return 'none'
-  if (onDisk >= total) return 'done'
-  const share = onDisk / total
+// Colour of a show's episode bar: red under a third of what Sonarr wants, yellow under four fifths, green below
+// complete and grey once all of it is on disk. 'none' when Sonarr wants nothing, so there is no bar to draw.
+export function completenessTone(onDisk, wanted) {
+  if (!(wanted > 0)) return 'none'
+  if (onDisk >= wanted) return 'done'
+  const share = onDisk / wanted
   return share < 1 / 3 ? 'low' : share < 0.8 ? 'mid' : 'high'
 }
 

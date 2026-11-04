@@ -630,3 +630,39 @@ test('Settings: the Test button keeps its size while it shows a spinner, a check
     await context.close()
   }
 })
+test('Shows: the bar, the caption and the missing count follow what Sonarr wants, in Modern and in Classic', async ({ page, request }) => {
+  const OK = 'rgb(126, 226, 160)', DANGER = 'rgb(255, 107, 107)'
+  const base = (await (await request.get('/api/sonarr/series')).json())[0]
+  // Delta: 10 episodes, 5 wanted, 4 on disk. Epsilon: 187 episodes, nothing monitored. Zeta: 100 episodes, 9 wanted, none on disk.
+  const show = (id, title, total, onDisk, wanted) => ({ ...base, id, title, titleSlug: title.toLowerCase().replace(/ /g, '-'), monitored: true, images: [],
+    seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: total, episodeFileCount: onDisk, episodeCount: wanted } }] })
+  await page.route('**/api/sonarr/series', route => route.fulfill({ json: [show(11, 'Delta Show', 10, 4, 5), show(12, 'Epsilon Show', 187, 0, 0), show(13, 'Zeta Show', 100, 0, 9)] }))
+  await open(page, '/shows')
+  await expect(page.locator('.m-meta')).toContainText('10 missing episodes')
+  const fill = title => page.locator('a.m-tile', { hasText: title }).locator('.m-tilebar span')
+  await expect(fill('Delta Show')).toHaveCSS('background-color', OK)
+  expect(await fill('Delta Show').evaluate(el => el.style.width)).toBe('80%')
+  await expect(fill('Zeta Show')).toHaveCSS('background-color', DANGER)
+  expect(await fill('Zeta Show').evaluate(el => el.style.width)).toBe('0%')
+  await expect(page.locator('a.m-tile', { hasText: 'Epsilon Show' })).toBeVisible()
+  await expect(page.locator('a.m-tile', { hasText: 'Epsilon Show' }).locator('.m-tilebar')).toHaveCount(0)
+  await page.getByRole('button', { name: 'List' }).click()
+  await expect(page.getByText('4 of 5 episodes')).toBeVisible()
+  await expect(page.getByText('0 of 9 episodes')).toBeVisible()
+  await expect(page.getByText('Nothing wanted')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Search Missing' })).toHaveCount(2)
+  await page.getByRole('button', { name: 'Has Missing' }).click()
+  await expect(page.locator('.m-row-title')).toHaveText(['Delta Show', 'Zeta Show'])
+
+  await page.evaluate(() => localStorage.setItem('arrview.ui.v1.layout', '"classic"'))
+  await page.reload()
+  // The Has Missing filter is a shared preference, so it carries over to Classic.
+  await page.getByRole('button', { name: 'All', exact: true }).click()
+  const card = title => page.locator('.show-card-main', { hasText: title })
+  await expect(card('Delta Show')).toContainText('4/5 eps')
+  await expect(card('Delta Show').locator('.progress-fill')).toHaveCSS('background-color', OK)
+  await expect(card('Zeta Show')).toContainText('0/9 eps')
+  await expect(card('Epsilon Show')).toContainText('Nothing wanted')
+  await expect(card('Epsilon Show').locator('.progress-fill')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(page.locator('.stat-chip', { hasText: 'Missing Episodes' })).toContainText('10')
+})

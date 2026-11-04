@@ -11,7 +11,7 @@ const reply = data => ({ ok: true, status: 200, json: async () => data })
 const GLYPHS = /[\u{1F000}-\u{1FAFF}←-⇿⌀-⏿①-➿⤀-⯿ℹ■-◿️]/u
 const past = new Date(Date.now() - 86400000 * 30).toISOString()
 
-const series = [{ id: 1, title: 'Show', titleSlug: 'show', status: 'continuing', year: 2020, seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 2, episodeFileCount: 1 } }] }]
+const series = [{ id: 1, title: 'Show', titleSlug: 'show', status: 'continuing', year: 2020, seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 2, episodeFileCount: 1, episodeCount: 2 } }] }]
 const episodes = [
   { id: 10, seasonNumber: 1, episodeNumber: 1, title: 'Pilot', hasFile: true, airDateUtc: past, overview: 'About the pilot' },
   { id: 11, seasonNumber: 1, episodeNumber: 2, title: 'Second', hasFile: false, airDateUtc: past },

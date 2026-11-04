@@ -15,14 +15,9 @@ const FILTERS = [['all', 'All'], ['missing', 'Has Missing'], ['continuing', 'Con
 const capitalise = text => text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
 
-export function showStats(show) {
-  const { total, onDisk } = mainSeasonCounts(show)
-  return { total, onDisk, missing: Math.max(0, total - onDisk), pct: total > 0 ? Math.round((onDisk / total) * 100) : 0 }
-}
-
 function ShowTile({ show, small }) {
-  const { total, onDisk, missing, pct } = showStats(show)
-  const tone = completenessTone(onDisk, total)
+  const { onDisk, wanted, missing, pct } = mainSeasonCounts(show)
+  const tone = completenessTone(onDisk, wanted)
   const unmonitored = !show.monitored
   const meta = unmonitored ? 'Unmonitored' : missing > 0 ? `${missing} missing` : [show.network, show.year].filter(Boolean).join(' · ')
   const metaId = `show-meta-${show.id}`
@@ -41,7 +36,7 @@ function ShowTile({ show, small }) {
 }
 
 function ShowRow({ show, actions, onToast, refresh }) {
-  const { total, onDisk, missing, pct } = showStats(show)
+  const { onDisk, wanted, missing, pct } = mainSeasonCounts(show)
   const [searching, setSearching] = useState(false)
   async function search() { setSearching(true); try { await actions.searchSeries(show) } finally { setSearching(false) } }
   return <li className="m-row">
@@ -51,8 +46,8 @@ function ShowRow({ show, actions, onToast, refresh }) {
         <span className="m-row-title">{show.title}</span>
         <span className="m-row-meta">{[show.network, show.year, capitalise(show.status)].filter(Boolean).join(' · ')}</span>
         <span className="m-progress">
-          <span className="m-progress-bar" aria-hidden="true"><span className={`is-${completenessTone(onDisk, total)}`} style={{ width: `${pct}%` }} /></span>
-          <span>{onDisk} of {total} episodes</span>
+          <span className="m-progress-bar" aria-hidden="true"><span className={`is-${completenessTone(onDisk, wanted)}`} style={{ width: `${pct}%` }} /></span>
+          <span>{wanted > 0 ? `${onDisk} of ${wanted} episodes` : 'Nothing wanted'}</span>
           {missing > 0 && <span className="m-attn">{missing} missing</span>}
         </span>
       </span>
@@ -85,16 +80,16 @@ export default function ShowsPage({ phone, onToast }) {
     <button className="btn btn-secondary mt-4" onClick={refresh}>Retry</button>
   </div>
   else {
-    const totalMissing = series.reduce((sum, s) => sum + showStats(s).missing, 0)
+    const totalMissing = series.reduce((sum, s) => sum + mainSeasonCounts(s).missing, 0)
     const filtered = series.filter(s => {
       if (search && !s.title.toLowerCase().includes(search.toLowerCase())) return false
-      if (filter === 'missing') return showStats(s).missing > 0
+      if (filter === 'missing') return mainSeasonCounts(s).missing > 0
       if (filter === 'continuing') return s.status?.toLowerCase() === 'continuing'
       if (filter === 'ended') return s.status?.toLowerCase() === 'ended'
       return true
     })
     if (sort === 'alpha') filtered.sort((a, b) => a.title.localeCompare(b.title))
-    else if (sort === 'missing') filtered.sort((a, b) => showStats(b).missing - showStats(a).missing)
+    else if (sort === 'missing') filtered.sort((a, b) => mainSeasonCounts(b).missing - mainSeasonCounts(a).missing)
     else if (sort === 'year') filtered.sort((a, b) => (b.year || 0) - (a.year || 0))
     body = <>
       <p className="m-meta">

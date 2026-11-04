@@ -9,11 +9,10 @@ import NotFound from './NotFound.jsx'
 import { SettingsLink } from './PageHeader.jsx'
 import { EpisodeLive } from './DownloadStatus.jsx'
 import { useSeries } from './LibraryProvider.jsx'
-import { showStats } from './ShowsPage.jsx'
 import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
 import { useMediaActions } from '../../hooks/useMediaActions'
 import { useVisiblePolling, useServerEvents } from '../../hooks/lifecycle'
-import { artUrl, completenessTone, episodeState } from '../../media'
+import { artUrl, completenessTone, episodeState, mainSeasonCounts } from '../../media'
 
 const capitalise = text => text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
 const goToShows = () => { window.location.hash = '/shows' }
@@ -66,7 +65,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
   useVisiblePolling(fetchEpisodes, 15000)
   useServerEvents('sonarr', event => { if (!event || event.seriesId == null || event.seriesId === show.id) fetchEpisodes() })
 
-  const { total, onDisk, missing, pct } = showStats(show)
+  const { onDisk, wanted, missing, pct } = mainSeasonCounts(show)
   const fanart = artUrl(show, 'fanart', 'backdrop')
   const poster = artUrl(show, 'poster', 'detail')
   const sonarrUrl = config.sonarr?.url
@@ -103,8 +102,8 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
         {meta && <p className="m-hero-meta">{meta}</p>}
         {show.overview && <p className="m-overview">{show.overview}</p>}
         <p className="m-progress">
-          <span className="m-progress-bar" aria-hidden="true"><span className={`is-${completenessTone(onDisk, total)}`} style={{ width: `${pct}%` }} /></span>
-          <span>{onDisk} of {total} episodes</span>
+          <span className="m-progress-bar" aria-hidden="true"><span className={`is-${completenessTone(onDisk, wanted)}`} style={{ width: `${pct}%` }} /></span>
+          <span>{wanted > 0 ? `${onDisk} of ${wanted} episodes` : 'Nothing wanted'}</span>
           {missing > 0 && <span className="m-attn">{missing} missing</span>}
         </p>
         <div className="m-hero-actions">

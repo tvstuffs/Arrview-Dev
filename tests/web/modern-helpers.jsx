@@ -15,11 +15,11 @@ export const tmdb = file => `https://image.tmdb.org/t/p/original/${file}`
 export const series = [
   { id: 1, title: 'Alpha Show', titleSlug: 'alpha-show', year: 2020, network: 'Net One', status: 'continuing', monitored: true, genres: ['Drama', 'Crime', 'Thriller', 'Extra'],
     overview: 'A fixture overview for the Alpha Show.', images: [{ coverType: 'poster', remoteUrl: tmdb('alpha-poster.jpg') }, { coverType: 'fanart', remoteUrl: tmdb('alpha-fanart.jpg') }],
-    seasons: [{ seasonNumber: 0, statistics: { totalEpisodeCount: 1, episodeFileCount: 0 } }, { seasonNumber: 1, statistics: { totalEpisodeCount: 2, episodeFileCount: 2 } }, { seasonNumber: 2, statistics: { totalEpisodeCount: 3, episodeFileCount: 1 } }] },
+    seasons: [{ seasonNumber: 0, statistics: { totalEpisodeCount: 1, episodeFileCount: 0, episodeCount: 1 } }, { seasonNumber: 1, statistics: { totalEpisodeCount: 2, episodeFileCount: 2, episodeCount: 2 } }, { seasonNumber: 2, statistics: { totalEpisodeCount: 3, episodeFileCount: 1, episodeCount: 3 } }] },
   { id: 2, title: 'Beta Show', year: 2018, network: 'Net Two', status: 'ended', monitored: false, images: [],
-    seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 4, episodeFileCount: 1 } }] },
+    seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 4, episodeFileCount: 1, episodeCount: 1 } }] },
   { id: 3, title: 'Gamma Show', year: 2022, network: '', status: 'continuing', monitored: true, images: [{ coverType: 'poster', remoteUrl: 'javascript:alert(1)' }],
-    seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 2, episodeFileCount: 2 } }] },
+    seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 2, episodeFileCount: 2, episodeCount: 2 } }] },
 ]
 export const episodes = [
   { id: 100, seasonNumber: 0, episodeNumber: 1, title: 'A special', hasFile: false, airDateUtc: past(100) },

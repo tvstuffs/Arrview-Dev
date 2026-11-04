@@ -30,7 +30,7 @@ test('the six Phosphor icons added in round 3 are defined', () => {
 test('episode: info toggle keeps its name and state; downloaded badge shows the Downloaded label', async () => {
   localStorage.setItem('arrview.ui.v1.shows.expanded', '1')
   localStorage.setItem('arrview.ui.v1.show.1.seasons', '[1]')
-  const series = [{ id: 1, title: 'Show', titleSlug: 'show', status: 'continuing', year: 2020, seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 1, episodeFileCount: 1 } }] }]
+  const series = [{ id: 1, title: 'Show', titleSlug: 'show', status: 'continuing', year: 2020, seasons: [{ seasonNumber: 1, statistics: { totalEpisodeCount: 1, episodeFileCount: 1, episodeCount: 1 } }] }]
   const episodes = [{ id: 10, seasonNumber: 1, episodeNumber: 1, title: 'Pilot', hasFile: true, airDateUtc: past, overview: 'About the pilot' }]
   vi.stubGlobal('fetch', vi.fn(async url => String(url).startsWith('/api/sonarr/series/1/episodes') ? reply(episodes) : reply(series)))
   const { container } = render(<ShowsTab onToast={() => {}} sonarrUrl="http://sonarr.invalid" onUpcoming={() => {}} />)
