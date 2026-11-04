@@ -3,6 +3,45 @@ export const WEBHOOK_PATHS = { sonarr: '/api/webhooks/sonarr', radarr: '/api/web
 
 export const webhookUrl = (base, service) => `${base}${WEBHOOK_PATHS[service]}`
 
+// The triggers ArrView needs, with their field names in Sonarr and Radarr and their labels in current versions.
+// A copy of the webhookTriggers block in server.js, which sets them on when it creates the webhook; a test checks
+// that the two are the same. Only triggers that change what ArrView shows are listed: health and update events
+// carry no library change, so ArrView would refresh for nothing.
+export const WEBHOOK_TRIGGERS = {
+  sonarr: [
+    { field: 'onDownload', label: 'On File Import' },
+    { field: 'onUpgrade', label: 'On File Upgrade' },
+    { field: 'onRename', label: 'On Rename' },
+    { field: 'onSeriesAdd', label: 'On Series Add' },
+    { field: 'onSeriesDelete', label: 'On Series Delete' },
+    { field: 'onEpisodeFileDelete', label: 'On Episode File Delete' },
+  ],
+  radarr: [
+    { field: 'onDownload', label: 'On File Import' },
+    { field: 'onUpgrade', label: 'On File Upgrade' },
+    { field: 'onRename', label: 'On Rename' },
+    { field: 'onMovieAdded', label: 'On Movie Added' },
+    { field: 'onMovieDelete', label: 'On Movie Delete' },
+    { field: 'onMovieFileDelete', label: 'On Movie File Delete' },
+  ],
+}
+
+// --- Whether the webhook is set up in Sonarr or Radarr (GET /api/webhook-setup/:service) ---
+
+export const SETUP_STATES = ['present', 'absent', 'different-address', 'needs-address', 'not-configured', 'unreachable',
+  'key-rejected', 'name-taken', 'multiple']
+
+// The server's answer in the shape the card uses, or null when it is not one (an older server's 404, a catch-all).
+export function readSetupStatus(body) {
+  if (!body || typeof body !== 'object' || !SETUP_STATES.includes(body.state)) return null
+  return {
+    state: body.state,
+    url: typeof body.url === 'string' ? body.url : null,
+    address: body.state === 'different-address' && typeof body.address === 'string' ? body.address : null,
+    extra: body.state === 'different-address' && body.extra === true,
+  }
+}
+
 // The rules are spelled out because browsers and Node disagree about what a URL parser lets through (Chromium
 // turns the space in "http://bad host" into %20; Node refuses it), and because the address is also printed inside
 // a shell command: only characters that mean nothing to a shell are allowed, which also rules out credentials,

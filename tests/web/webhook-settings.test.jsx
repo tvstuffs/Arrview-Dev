@@ -342,3 +342,249 @@ test('both layouts show the card on their Settings page', async () => {
   await screen.findByRole('heading', { level: 2, name: 'Webhooks' })
   expect(classic.container.querySelector('.dashboard .webhook-card')).not.toBeNull()
 })
+
+// --- Set up in / Remove from Sonarr and Radarr (GET, POST and DELETE /api/webhook-setup/:service) ---
+
+const SAVED = 'http://arrview.example:7777'
+const answer = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body, clone() { return this } })
+const notJson = status => ({ ok: false, status, json: async () => { throw new SyntaxError('not JSON') }, clone() { return this } })
+const stateOf = (service, state, extra = {}) => answer(200, { service, state, url: `${SAVED}/api/webhooks/${service}`, ...extra })
+// A fetch for the setup routes: `handlers[method]` answers each call, a function of the service.
+function setupFetch(handlers) {
+  const fn = vi.fn(async (url, init = {}) => {
+    const match = /^\/api\/webhook-setup\/(sonarr|radarr)$/.exec(String(url))
+    if (!match) return answer(200, {})
+    return handlers[init.method || 'GET'](match[1], init)
+  })
+  vi.stubGlobal('fetch', fn)
+  return fn
+}
+const setupCalls = (fetch, method) => fetch.mock.calls.filter(([url, init = {}]) => String(url).startsWith('/api/webhook-setup/') && (init.method || 'GET') === method)
+const block = name => screen.getByRole('group', { name: `Status in ${name}` })
+const live = name => block(name).querySelector('[aria-live="polite"]')
+const lines = name => [...live(name).querySelectorAll('p')].map(p => p.textContent)
+const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
+function SetupHarness(props) {
+  return <Harness initial={SAVED} savedAddress={SAVED} radarr={false} {...props} />
+}
+
+const STATUS_TEXTS = [
+  ['present', {}, 'Set up.'],
+  ['absent', {}, 'Not set up.'],
+  ['different-address', { address: 'http://old.example:7777/api/webhooks/sonarr' }, 'Set up, but at a different address: http://old.example:7777/api/webhooks/sonarr. Fix it in Sonarr under Settings, Connect, or remove it here and set up again.'],
+  ['different-address', { address: 'http://old.example:7777/api/webhooks/sonarr', extra: true }, 'Set up, but at a different address: http://old.example:7777/api/webhooks/sonarr. Its URL also carries login details or a query. Fix it in Sonarr under Settings, Connect, or remove it here and set up again.'],
+  ['needs-address', {}, 'Save the ArrView address above first.'],
+  ['not-configured', {}, 'Cannot check: Sonarr is not set up in ArrView.'],
+  ['unreachable', {}, 'Cannot check: Sonarr could not be reached.'],
+  ['key-rejected', {}, 'Cannot check: Sonarr rejected the API key.'],
+  ['name-taken', {}, 'Cannot set up: a connection named ArrView already exists in Sonarr. Rename or remove it there.'],
+  ['multiple', {}, 'Several ArrView webhooks exist in Sonarr. Remove the extra ones there.'],
+]
+
+test('each setup state has its own status text in a polite live region, with Set up only for absent and Remove only when there is one', async () => {
+  for (const [state, extra, text] of STATUS_TEXTS) {
+    setupFetch({ GET: service => stateOf(service, state, extra) })
+    const { unmount } = render(<SetupHarness />)
+    expect(live('Sonarr')).toHaveTextContent('Checking Sonarr…')
+    await waitFor(() => expect(live('Sonarr')).toHaveTextContent(text))
+    expect(live('Sonarr').textContent).toBe(text)
+    expect(within(block('Sonarr')).queryByRole('button', { name: 'Set up in Sonarr' }) !== null, state).toBe(state === 'absent')
+    expect(within(block('Sonarr')).queryByRole('button', { name: 'Remove from Sonarr' }) !== null, state).toBe(state === 'present' || state === 'different-address')
+    unmount()
+  }
+  // Radarr reads Radarr.
+  setupFetch({ GET: service => stateOf(service, 'unreachable') })
+  render(<SetupHarness sonarr={false} radarr />)
+  await waitFor(() => expect(live('Radarr')).toHaveTextContent('Cannot check: Radarr could not be reached.'))
+})
+
+test('an answer that is not a setup state, a 404 from an older server or a failed fetch says the status cannot be checked, with no buttons', async () => {
+  const answers = [() => answer(404, { error: 'Not found' }), () => answer(200, {}), () => answer(200, { state: 'weird' }), () => notJson(200),
+    () => { throw new TypeError('Failed to fetch') }, () => answer(500, { state: 'present' })]
+  for (const reply of answers) {
+    setupFetch({ GET: reply })
+    const { unmount } = render(<SetupHarness />)
+    await waitFor(() => expect(live('Sonarr')).toHaveTextContent('Cannot check the webhook status.'))
+    expect(within(block('Sonarr')).queryAllByRole('button')).toHaveLength(0)
+    unmount()
+  }
+})
+
+test('Set up is disabled while the address field differs from the saved address, and says why', async () => {
+  setupFetch({ GET: service => stateOf(service, 'absent') })
+  render(<SetupHarness />)
+  const button = await screen.findByRole('button', { name: 'Set up in Sonarr' })
+  expect(button).toBeEnabled()
+  expect(button).not.toHaveAccessibleDescription(/Save the address first/)
+  typeAddress('192.0.2.10:7777')
+  expect(button).toBeDisabled()
+  expect(button).toHaveAccessibleDescription('Save the address first: Set up uses the saved address.')
+  typeAddress(SAVED)
+  expect(button).toBeEnabled()
+})
+
+test('Set up opens a preview of exactly what is added, and Cancel closes it without writing anything', async () => {
+  const fetch = setupFetch({ GET: service => stateOf(service, 'absent') })
+  render(<SetupHarness />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up in Sonarr' }))
+  const preview = screen.getByRole('region', { name: 'Webhook to add in Sonarr' })
+  expect(block('Sonarr').contains(preview)).toBe(true)
+  expect(preview).toHaveTextContent('Name: ArrView')
+  expect(within(preview).getByText(`${SAVED}/api/webhooks/sonarr`).tagName).toBe('CODE')
+  expect(preview).toHaveTextContent('Method: POST')
+  for (const label of ['On File Import', 'On File Upgrade', 'On Rename', 'On Series Add', 'On Series Delete', 'On Episode File Delete']) expect(preview).toHaveTextContent(label)
+  expect(preview).toHaveTextContent('Sonarr sends ArrView a test message before saving. If Sonarr cannot reach the address, nothing is saved.')
+  fireEvent.click(within(preview).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('region', { name: 'Webhook to add in Sonarr' })).toBeNull()
+  expect(setupCalls(fetch, 'POST')).toHaveLength(0)
+})
+
+test('Add sends an empty JSON body through apiFetch, then re-reads the status and says that ArrView received the test message', async () => {
+  let state = 'absent'
+  const fetch = setupFetch({
+    GET: service => stateOf(service, state),
+    POST: () => { state = 'present'; return answer(201, { state: 'present', created: true, skipped: [], testReceived: true }) },
+  })
+  render(<SetupHarness />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up in Sonarr' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+  await waitFor(() => expect(lines('Sonarr')).toEqual(['Set up.', "ArrView received Sonarr's test message."]))
+  const [[url, init]] = setupCalls(fetch, 'POST')
+  expect(url).toBe('/api/webhook-setup/sonarr')
+  expect(init.body).toBe('{}')
+  expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
+  expect(new Headers(init.headers).get('X-Requested-With')).toBe('ArrView')
+  expect(setupCalls(fetch, 'GET')).toHaveLength(2)
+  expect(screen.queryByRole('region', { name: 'Webhook to add in Sonarr' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Remove from Sonarr' })).toBeEnabled()
+})
+
+test('a set-up whose test message never reached ArrView says so, and names the triggers this version does not offer', async () => {
+  let state = 'absent'
+  setupFetch({
+    GET: service => stateOf(service, state),
+    POST: () => { state = 'present'; return answer(201, { state: 'present', created: true, skipped: ['On Rename', 'On Series Delete'], testReceived: false }) },
+  })
+  render(<SetupHarness />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up in Sonarr' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+  await waitFor(() => expect(live('Sonarr')).toHaveTextContent(/^Set up\./))
+  expect(live('Sonarr')).toHaveTextContent('Sonarr saved the webhook, but ArrView did not receive its test message. Sonarr counts any answer below 400 as a pass, so a login page or a redirect at that address can pass its test. Check that the address reaches this ArrView, then check "Last event received" below.')
+  expect(live('Sonarr')).toHaveTextContent('This version of Sonarr does not offer: On Rename, On Series Delete.')
+  expect(live('Sonarr')).not.toHaveTextContent("ArrView received Sonarr's test message.")
+})
+
+test('the server error is shown as text, and the status is read again', async () => {
+  const fetch = setupFetch({
+    GET: service => stateOf(service, 'absent'),
+    POST: () => answer(422, { error: 'Sonarr refused the webhook: <b>Unable to post</b> [404:NotFound]', refused: true }),
+  })
+  render(<SetupHarness />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up in Sonarr' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+  await screen.findByText('Sonarr refused the webhook: <b>Unable to post</b> [404:NotFound]')
+  expect(block('Sonarr').querySelector('b')).toBeNull()
+  await waitFor(() => expect(setupCalls(fetch, 'GET')).toHaveLength(2))
+  expect(live('Sonarr')).toHaveTextContent('Not set up.')
+  expect(screen.getByRole('button', { name: 'Set up in Sonarr' })).toBeEnabled()
+})
+
+test('an answer that is not JSON, or none at all, says ArrView did not answer in time and re-checks the status', async () => {
+  for (const reply of [() => notJson(504), () => { throw new TypeError('Failed to fetch') }]) {
+    const fetch = setupFetch({ GET: service => stateOf(service, 'absent'), POST: reply })
+    const { unmount } = render(<SetupHarness />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up in Sonarr' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await screen.findByText('ArrView did not answer in time. Sonarr may still be testing the address: the status above is re-checked.')
+    await waitFor(() => expect(setupCalls(fetch, 'GET')).toHaveLength(2))
+    unmount()
+  }
+})
+
+test('while a set-up is pending every button of that service is disabled, and after 3 seconds the card says why it can take long', async () => {
+  vi.useFakeTimers()
+  const pending = deferred()
+  let state = 'absent'
+  setupFetch({ GET: service => stateOf(service, state), POST: () => pending.promise })
+  render(<SetupHarness />)
+  await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: 'Set up in Sonarr' }))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add' })) })
+  for (const button of within(block('Sonarr')).getAllByRole('button')) expect(button).toBeDisabled()
+  const waiting = 'Waiting for Sonarr to test the address. If Sonarr cannot reach ArrView, this can take up to two minutes.'
+  await act(async () => { await vi.advanceTimersByTimeAsync(2900) })
+  expect(live('Sonarr')).not.toHaveTextContent(waiting)
+  await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+  expect(live('Sonarr')).toHaveTextContent(waiting)
+  state = 'present'
+  await act(async () => { pending.resolve(answer(201, { state: 'present', created: true, skipped: [], testReceived: true })) })
+  await act(async () => {})
+  expect(live('Sonarr')).not.toHaveTextContent(waiting)
+  expect(lines('Sonarr')).toEqual(['Set up.', "ArrView received Sonarr's test message."])
+  for (const button of within(block('Sonarr')).getAllByRole('button')) expect(button).toBeEnabled()
+})
+
+test('Remove asks first, Cancel sends nothing, and confirming sends DELETE and re-reads the status', async () => {
+  let state = 'present'
+  const fetch = setupFetch({
+    GET: service => stateOf(service, state),
+    DELETE: () => { state = 'absent'; return answer(200, { state: 'absent', removed: true }) },
+  })
+  render(<SetupHarness />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove from Sonarr' }))
+  expect(block('Sonarr')).toHaveTextContent('Remove the ArrView webhook from Sonarr? Your other connections are not changed.')
+  fireEvent.click(within(block('Sonarr')).getByRole('button', { name: 'Cancel' }))
+  expect(block('Sonarr')).not.toHaveTextContent('Remove the ArrView webhook from Sonarr?')
+  expect(setupCalls(fetch, 'DELETE')).toHaveLength(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Remove from Sonarr' }))
+  fireEvent.click(within(block('Sonarr')).getByRole('button', { name: 'Remove' }))
+  await waitFor(() => expect(live('Sonarr')).toHaveTextContent('Not set up.'))
+  const [[url, init]] = setupCalls(fetch, 'DELETE')
+  expect(url).toBe('/api/webhook-setup/sonarr')
+  expect(new Headers(init.headers).get('X-Requested-With')).toBe('ArrView')
+  expect(screen.getByRole('button', { name: 'Set up in Sonarr' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Remove from Sonarr' })).toBeNull()
+})
+
+test('a remove the server refuses shows its error as text', async () => {
+  setupFetch({
+    GET: service => stateOf(service, 'different-address', { address: 'http://old.example/api/webhooks/sonarr' }),
+    DELETE: () => answer(502, { error: 'Sonarr answered, but the ArrView webhook is still there', state: 'different-address' }),
+  })
+  render(<SetupHarness />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove from Sonarr' }))
+  fireEvent.click(within(block('Sonarr')).getByRole('button', { name: 'Remove' }))
+  await screen.findByText('Sonarr answered, but the ArrView webhook is still there')
+})
+
+test('Last event received shows a Test message that arrived with no event', () => {
+  render(<Harness activity={{ status: 'ready', receivedAt: 1000, data: { uptimeSeconds: 30, sonarr: { event: null, test: { eventType: 'Test', ageSeconds: 0 } }, radarr: { event: null, test: null } } }} now={1000} />)
+  expect(within(screen.getByRole('list', { name: 'Last event received' })).getAllByRole('listitem')[0])
+    .toHaveTextContent('Sonarr: No event since ArrView started less than a minute ago. Test message received less than a minute ago.')
+})
+
+test('the guides no longer call a green Test check proof: the Test message is, and a login page or redirect is checked before the triggers', () => {
+  const { container } = render(<Harness initial="192.0.2.10:7777" />)
+  expect(container).not.toHaveTextContent('A green check means ArrView answered')
+  for (const name of ['Sonarr', 'Radarr']) {
+    const steps = [...screen.getByText(`Set up the webhook in ${name}`).closest('details').querySelectorAll('li')]
+    const step = steps.find(li => li.textContent.startsWith('Select Test.'))
+    expect(step).toHaveTextContent('"Test message received"')
+    expect(step).toHaveTextContent('a login page or a redirect also passes')
+  }
+  const item = within(screen.getByText('If it does not work').closest('details')).getByText('Test passes but nothing updates.').closest('li')
+  const text = item.textContent
+  expect(text.indexOf('login page')).toBeGreaterThan(-1)
+  expect(text.indexOf('login page')).toBeLessThan(text.indexOf('check the triggers'))
+  expect(text).toContain('Sonarr or Radarr counts any answer below 400 as a pass.')
+  expect(text).toContain('If it stays at "No event" while things change in Sonarr or Radarr, the events never arrive.')
+})
+
+test('Settings passes the saved address to the card: Set up is enabled until the address is edited', async () => {
+  setupFetch({ GET: service => stateOf(service, 'absent') })
+  render(<ConfigPage initialConfig={base({ webhooks: { baseUrl: SAVED } })} onSave={() => {}} onBack={() => {}} />)
+  const button = await screen.findByRole('button', { name: 'Set up in Sonarr' })
+  expect(button).toBeEnabled()
+  typeAddress('192.0.2.10:7777')
+  expect(button).toBeDisabled()
+})

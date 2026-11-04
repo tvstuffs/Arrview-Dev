@@ -162,6 +162,67 @@ test('an address that is not one is flagged as it is typed and blocks Save', asy
   expect((await (await request.get('/api/config')).json()).webhooks).toBeUndefined()
 })
 
+// Set up in and Remove from Sonarr and Radarr. The server's routes talk to the real apps, which the fixture does not
+// run, so the three calls are answered here the way the server answers them; tests/webhook-setup.test.js covers the
+// server against fakes of the apps.
+const setupBlock = (page, name) => page.getByRole('group', { name: `Status in ${name}` })
+function stubSetup(page, { create } = {}) {
+  const states = { sonarr: 'absent', radarr: 'absent' }
+  const calls = []
+  return page.route('**/api/webhook-setup/*', async route => {
+    const request = route.request()
+    const service = new URL(request.url()).pathname.split('/').pop()
+    calls.push(`${request.method()} ${service}`)
+    const url = `${BASE}/api/webhooks/${service}`
+    if (request.method() === 'GET') return route.fulfill({ json: { service, state: states[service], url } })
+    if (request.method() === 'POST') {
+      if (create) return route.fulfill(create(service))
+      states[service] = 'present'
+      return route.fulfill({ status: 201, json: { state: 'present', created: true, skipped: [], testReceived: true } })
+    }
+    states[service] = 'absent'
+    return route.fulfill({ json: { state: 'absent', removed: true } })
+  }).then(() => calls)
+}
+
+for (const [service, name] of [['sonarr', 'Sonarr'], ['radarr', 'Radarr']]) {
+  test(`${name}: Set up shows a preview, Add reports the test message, and Remove asks first`, async ({ page }) => {
+    const calls = await stubSetup(page)
+    await page.goto('/#/settings')
+    const block = setupBlock(page, name)
+    await expect(block).toContainText('Not set up.')
+    await block.getByRole('button', { name: `Set up in ${name}` }).click()
+    const preview = block.getByRole('region', { name: `Webhook to add in ${name}` })
+    await expect(preview).toContainText('Name: ArrView')
+    await expect(preview).toContainText(`${BASE}/api/webhooks/${service}`)
+    await expect(preview).toContainText('Method: POST')
+    await expect(preview).toContainText(service === 'sonarr' ? 'On Series Add' : 'On Movie Added')
+    await expect(preview).toContainText(`${name} sends ArrView a test message before saving.`)
+    await preview.getByRole('button', { name: 'Add' }).click()
+    await expect(block).toContainText(`ArrView received ${name}'s test message.`)
+    await expect(block).toContainText('Set up.')
+    await expect(preview).toHaveCount(0)
+    await block.getByRole('button', { name: `Remove from ${name}` }).click()
+    await expect(block).toContainText(`Remove the ArrView webhook from ${name}? Your other connections are not changed.`)
+    await block.getByRole('button', { name: 'Remove', exact: true }).click()
+    await expect(block).toContainText('Not set up.')
+    await expect(block.getByRole('button', { name: `Set up in ${name}` })).toBeVisible()
+    expect(calls.filter(call => call.endsWith(service))).toEqual([`GET ${service}`, `POST ${service}`, `GET ${service}`, `DELETE ${service}`, `GET ${service}`])
+  })
+}
+
+test('a set-up the app refuses shows its text, and the status stays Not set up', async ({ page }) => {
+  await stubSetup(page, { create: () => ({ status: 422, json: { error: 'Sonarr refused the webhook: Unable to send test message: [404:NotFound]', refused: true } }) })
+  await page.goto('/#/settings')
+  const block = setupBlock(page, 'Sonarr')
+  await expect(block).toContainText('Not set up.')
+  await block.getByRole('button', { name: 'Set up in Sonarr' }).click()
+  await block.getByRole('button', { name: 'Add' }).click()
+  await expect(block).toContainText('Sonarr refused the webhook: Unable to send test message: [404:NotFound]')
+  await expect(block).toContainText('Not set up.')
+  await expect(block.getByRole('button', { name: 'Set up in Sonarr' })).toBeEnabled()
+})
+
 for (const width of [305, 320, 390, 834, 1280]) {
   test(`the Webhooks card fits ${width}px with a long address, the longest list lines and every guide open, and Copy is a touch-sized button`, async ({ browser, request }) => {
     // Both lines at their longest: an event and a Test message for each service.

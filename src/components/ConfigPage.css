@@ -112,6 +112,16 @@
 .webhook-card .webhook-status { min-height: 1.5em; margin-top: -8px; }
 .webhook-activity-block { display: flex; flex-direction: column; gap: 6px; }
 .webhook-activity-block h3 { font-size: 14px; font-weight: 600; }
+.webhook-setup { display: flex; flex-direction: column; gap: 6px; }
+.webhook-setup h3 { font-size: 14px; font-weight: 600; }
+.webhook-setup p { overflow-wrap: anywhere; }
+.webhook-setup-live p + p { margin-top: 4px; }
+.webhook-setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.webhook-setup-preview, .webhook-setup-confirm {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; border: 1px solid var(--hair); border-radius: var(--radius-sm);
+}
+.webhook-card .webhook-setup-preview li + li { margin-top: 2px; }
 .webhook-card ul.webhook-activity { list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 4px; }
 .webhook-card ul.webhook-activity li + li { margin-top: 0; }
 .webhook-activity li { font-size: 13px; overflow-wrap: anywhere; }

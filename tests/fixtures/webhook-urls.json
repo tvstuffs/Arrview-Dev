@@ -1,0 +1,7 @@
+[
+  { "base": "http://arrview.example:7777", "sonarr": "http://arrview.example:7777/api/webhooks/sonarr", "radarr": "http://arrview.example:7777/api/webhooks/radarr" },
+  { "base": "http://[::1]:7777", "sonarr": "http://[::1]:7777/api/webhooks/sonarr", "radarr": "http://[::1]:7777/api/webhooks/radarr" },
+  { "base": "http://arrview.example/arrview", "sonarr": "http://arrview.example/arrview/api/webhooks/sonarr", "radarr": "http://arrview.example/arrview/api/webhooks/radarr" },
+  { "base": "https://arrview.example", "sonarr": "https://arrview.example/api/webhooks/sonarr", "radarr": "https://arrview.example/api/webhooks/radarr" },
+  { "base": "http://192.0.2.10:7777", "sonarr": "http://192.0.2.10:7777/api/webhooks/sonarr", "radarr": "http://192.0.2.10:7777/api/webhooks/radarr" }
+]

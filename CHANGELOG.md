@@ -1,5 +1,59 @@
 # ArrView server development changelog
 
+## Unreleased — Set up the webhook in Sonarr and Radarr from Settings
+
+- **The Webhooks card can create and remove ArrView's webhook in Sonarr and Radarr** (factory job 010, job A of two;
+  updating an existing connection is a later job). For each saved service the card shows a "Status in Sonarr" (or
+  Radarr) line, a **Set up in Sonarr** button that first shows a preview of exactly what is added (the name ArrView, the
+  URL, POST and the six triggers) with Add and Cancel, and a **Remove from Sonarr** button that asks first. Three new
+  routes do the work on the server with the stored address and key: `GET`, `POST` and `DELETE /api/webhook-setup/:service`
+  (`sonarr` or `radarr`). They are behind the login like any other route, and `POST` needs a JSON body.
+  - The webhook URL is always the saved ArrView address plus `/api/webhooks/<service>`, never anything from the request.
+    Set up is disabled while the address field has unsaved edits.
+  - The create uses the app's own Webhook template: method POST, the six triggers the guide lists on (where the app
+    offers them), and every other trigger off (grab, import complete, delete for upgrade, health, application update,
+    manual interaction). `forceSave` is never sent, so the app tests the address before it saves anything.
+  - A connection counts as ArrView's when it is a Webhook whose URL path ends in `/api/webhooks/<service>`, whatever it
+    is called, ignoring trailing slashes, letter case and a query (ArrView's receiver accepts all of these). The status
+    tells apart: set up, not set up, set up at a different address (shown without login details, query or fragment),
+    several of them, a connection already named ArrView, no saved address, the service not set up, unreachable, and a
+    rejected key.
+  - The browser gets only that state from the app's connection list: never ids, names, other connections, field values,
+    the app's address or its key. The app's error text is cleaned and cut to 300 characters; the stack trace a failed
+    create carries is never read or logged. The log gets `[Webhook setup] sonarr: created` or `removed`.
+  - Set up and remove for one service run one at a time, and the list is read again right before each create: the apps'
+    unique-name check is not atomic. A create may take up to about 100 seconds (the app's own limit when the address
+    never answers); ArrView waits up to 115 seconds, the card says why it is waiting after 3 seconds, and when the
+    outcome is unknown the server reads the list again before it answers.
+  - Remove deletes only the one connection recognised as ArrView's, by the id in the app's list, and reads the list again
+    afterwards, because the apps answer 200 even for an id they do not have.
+- **A successful set-up reports whether ArrView itself received the app's test message.** The apps count any answer
+  below 400 as a passed test, including a login page or a redirect, so a saved webhook is not proof of delivery. When
+  the test message did not arrive the card says so and what to check.
+- **The written guide no longer treats the app's green Test check as proof that ArrView received it.** The Test step
+  names "Test message received" under Last event received as the proof, and "Test passes but nothing updates" now
+  points at a login page, a redirect or another server at that address before the triggers. The guide's trigger labels
+  now come from one list in `src/webhooks.js`, which a test keeps equal to the server's `webhookTriggers` block.
+- **Checked against the real apps by the maintainer:** the API behaviour this is built on (status codes, bodies,
+  masking, timing, the non-atomic name check) was recorded on Sonarr 4.0.20.3014 and Radarr 6.4.4.10685. The factory
+  did not run the apps; its tests use fakes that behave as recorded.
+- **Not verified:** apps with their own login (Forms or Basic) on; apps under a URL base or behind a reverse proxy;
+  HTTPS targets, self-signed included, in either direction; ArrView with its login on, live; delivery of real events
+  after a set-up (only the Test message was exercised live); other app versions, especially older ones whose
+  `supportsOn*` flags may be false; a `302` that carries a `Location`; `forceSave` against a receiver that answers an
+  HTTP error (never sent here); the 3 s and 4 s failure timings, which depend on the network (only the 100 s limit is
+  the apps' own); concurrency beyond six parallel creates against a fast receiver; how the created connection looks in
+  the apps' own Settings, Connect pages; a reverse proxy in front of ArrView that cuts the request before the create
+  timeout (nginx defaults to 60 s); and the 115 s create timeout end to end through ArrView.
+- **Tests:** server 246/246, web (vitest) 504/504, e2e 163/163 in Microsoft Edge on macOS (1.9A9 had 221, 488 and
+  160). New: `tests/webhook-setup.test.js` (25 tests against in-process fakes of Sonarr and Radarr that behave as the
+  live apps did: every state, the exact create body, each create outcome, the timeout re-read, the one-at-a-time
+  queue for set-up and remove, remove with no saved address, the secret-leak sweep of answers and log lines, the login
+  and the JSON guard), `tests/fixtures/webhook-urls.json` (the URL table both sides use), `tests/web/webhook-triggers.test.js`
+  (the trigger list and the URL rule are the same on both sides), 14 card tests in `tests/web/webhook-settings.test.jsx`,
+  and set-up, remove and a refusal for both apps in `tests/e2e/webhooks.spec.cjs`. One guide assertion in
+  `tests/web/webhook-activity.test.jsx` quotes the new Test step.
+
 ## 1.9A9 (unreleased) — Login follow-ups
 
 - **Version 1.9A9: four follow-ups to the optional password login (1.9A5)**, built by factory job 009 from the maintainer's

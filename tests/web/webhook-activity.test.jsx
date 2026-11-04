@@ -146,7 +146,7 @@ test('the section sits after the URLs and before the guides', () => {
 test('the guides point at the section: the Test step, the missing-event check and the manual check', () => {
   card({ activity: ready(answer()) })
   const guide = name => screen.getByText(name).closest('details')
-  expect(guide('Set up the webhook in Sonarr')).toHaveTextContent('"Test message received" appears under Last event received above within a few seconds')
+  expect(guide('Set up the webhook in Sonarr')).toHaveTextContent('The proof that ArrView received it is "Test message received" under Last event received above, within a few seconds.')
   expect(guide('Set up the webhook in Radarr')).toHaveTextContent('ArrView changes no page for it, so this checks the address, not the triggers.')
   const help = guide('If it does not work')
   expect(help).toHaveTextContent('is listed under Last event received above and adds a line')

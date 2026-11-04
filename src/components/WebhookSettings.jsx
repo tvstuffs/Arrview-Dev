@@ -1,29 +1,163 @@
-import { useEffect, useRef, useState } from 'react'
-import { describeActivity, normalizeAddress, webhookUrl } from '../webhooks'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { WEBHOOK_TRIGGERS, describeActivity, normalizeAddress, readSetupStatus, webhookUrl } from '../webhooks'
+import { apiFetch } from '../api'
 import { copyText } from '../clipboard'
 import { isLocalHostname } from '../hostname'
 
-// Trigger names are the labels of current Sonarr and Radarr; the first two are On Download and On Upgrade in older
-// versions. Only triggers that change what ArrView shows are listed: health and update events carry no library
-// change, so ArrView would refresh for nothing.
+// The trigger labels (WEBHOOK_TRIGGERS) are those of current Sonarr and Radarr; the first two are On Download and
+// On Upgrade in older versions.
 const SERVICES = {
   sonarr: {
     name: 'Sonarr',
-    triggers: ['On File Import', 'On File Upgrade', 'On Rename', 'On Series Add', 'On Series Delete', 'On Episode File Delete'],
     sample: '{"eventType":"Download","series":{"title":"ArrView test"}}',
     logLine: '[Sonarr webhook] Download — series: ArrView test',
   },
   radarr: {
     name: 'Radarr',
-    triggers: ['On File Import', 'On File Upgrade', 'On Rename', 'On Movie Added', 'On Movie Delete', 'On Movie File Delete'],
     sample: '{"eventType":"Download","movie":{"title":"ArrView test"}}',
     logLine: '[Radarr webhook] Download — movie: ArrView test',
   },
 }
+const triggerLabels = service => WEBHOOK_TRIGGERS[service].map(trigger => trigger.label)
 const LOADING = { status: 'loading', data: null, receivedAt: 0 }
+// How long a set-up or remove runs before the card says why it can take long: the app tests the address first,
+// and gives up on an address that never answers only after about 100 seconds.
+export const WAIT_NOTICE_MS = 3000
+
+// The status line for one service, from GET /api/webhook-setup/:service. `status` is null while it loads and
+// 'unknown' when the answer was not one.
+function statusText(name, status) {
+  if (status === null) return `Checking ${name}…`
+  if (status === 'unknown') return 'Cannot check the webhook status.'
+  switch (status.state) {
+    case 'present': return 'Set up.'
+    case 'absent': return 'Not set up.'
+    case 'different-address': return `Set up, but at a different address: ${status.address || 'unknown'}.`
+      + (status.extra ? ' Its URL also carries login details or a query.' : '')
+      + ` Fix it in ${name} under Settings, Connect, or remove it here and set up again.`
+    case 'needs-address': return 'Save the ArrView address above first.'
+    case 'not-configured': return `Cannot check: ${name} is not set up in ArrView.`
+    case 'unreachable': return `Cannot check: ${name} could not be reached.`
+    case 'key-rejected': return `Cannot check: ${name} rejected the API key.`
+    case 'name-taken': return `Cannot set up: a connection named ArrView already exists in ${name}. Rename or remove it there.`
+    case 'multiple': return `Several ArrView webhooks exist in ${name}. Remove the extra ones there.`
+    default: return 'Cannot check the webhook status.'
+  }
+}
+
+// What the last set-up or remove said, under the status line.
+function outcomeText(name, outcome) {
+  if (outcome.kind === 'no-answer') return [`ArrView did not answer in time. ${name} may still be testing the address: the status above is re-checked.`]
+  if (outcome.kind === 'error') return [outcome.text]
+  const lines = [outcome.testReceived ? `ArrView received ${name}'s test message.`
+    : `${name} saved the webhook, but ArrView did not receive its test message. ${name} counts any answer below 400 as a pass, so a login page or a redirect at that address can pass its test. Check that the address reaches this ArrView, then check "Last event received" below.`]
+  if (outcome.skipped.length) lines.push(`This version of ${name} does not offer: ${outcome.skipped.join(', ')}.`)
+  return lines
+}
+
+// Whether ArrView's webhook is in Sonarr or Radarr, with Set up (a preview first) and Remove (a confirmation first).
+// The server does the work with the saved address and the stored key; this only ever gets a state back.
+function SetupStatus({ service, savedAddress, unsaved }) {
+  const { name } = SERVICES[service]
+  const [status, setStatus] = useState(null)
+  const [step, setStep] = useState(null)
+  const [pending, setPending] = useState(false)
+  const [waiting, setWaiting] = useState(false)
+  const [outcome, setOutcome] = useState(null)
+  const latest = useRef(0)
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+
+  const check = useCallback(async () => {
+    const mine = ++latest.current
+    let next = 'unknown'
+    try {
+      const r = await apiFetch(`/api/webhook-setup/${service}`, { cache: 'no-store' })
+      if (r.ok) next = readSetupStatus(await r.json()) || 'unknown'
+    } catch { /* stays unknown */ }
+    if (alive.current && mine === latest.current) setStatus(next)
+  }, [service])
+  // On mount, and again when a saved address changes what the server compares with.
+  useEffect(() => { check() }, [check, savedAddress])
+
+  async function run(method) {
+    setPending(true)
+    setOutcome(null)
+    const timer = setTimeout(() => { if (alive.current) setWaiting(true) }, WAIT_NOTICE_MS)
+    let next = null
+    try {
+      const r = method === 'POST'
+        ? await apiFetch(`/api/webhook-setup/${service}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        : await apiFetch(`/api/webhook-setup/${service}`, { method: 'DELETE' })
+      let body = null
+      try { body = await r.json() } catch { /* not JSON */ }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) next = { kind: 'no-answer' }
+      else if (!r.ok) next = { kind: 'error', text: typeof body.error === 'string' && body.error ? body.error : `${name} did not answer as expected.` }
+      else if (body.created === true) {
+        next = { kind: 'created', testReceived: body.testReceived === true,
+          skipped: Array.isArray(body.skipped) ? body.skipped.filter(label => typeof label === 'string') : [] }
+      }
+    } catch {
+      next = { kind: 'no-answer' }
+    }
+    clearTimeout(timer)
+    if (!alive.current) return
+    setWaiting(false)
+    setOutcome(next)
+    await check()
+    if (!alive.current) return
+    setStep(null)
+    setPending(false)
+  }
+
+  const state = status && status !== 'unknown' ? status.state : null
+  const canSetUp = state === 'absent'
+  const canRemove = state === 'present' || state === 'different-address'
+  const titleId = `webhook-setup-${service}-title`
+  const hintId = `webhook-setup-${service}-hint`
+  return <div className="webhook-setup" aria-labelledby={titleId} role="group">
+    <h3 id={titleId}>Status in {name}</h3>
+    <div aria-live="polite" className="webhook-setup-live">
+      <p className="text-sm">{statusText(name, status)}</p>
+      {outcome && outcomeText(name, outcome).map(text => <p key={text} className={`text-sm${outcome.kind === 'created' && outcome.testReceived ? '' : ' text-warning'}`}>{text}</p>)}
+      {waiting && <p className="text-sm text-muted">Waiting for {name} to test the address. If {name} cannot reach ArrView, this can take up to two minutes.</p>}
+    </div>
+    {canSetUp && step !== 'preview' && <div className="webhook-setup-actions">
+      <button type="button" className="btn btn-secondary btn-sm" disabled={pending || unsaved}
+        aria-describedby={unsaved ? hintId : undefined} onClick={() => { setOutcome(null); setStep('preview') }}>Set up in {name}</button>
+      {unsaved && <p id={hintId} className="text-sm text-muted">Save the address first: Set up uses the saved address.</p>}
+    </div>}
+    {step === 'preview' && <div role="region" aria-label={`Webhook to add in ${name}`} className="webhook-setup-preview">
+      <p className="text-sm">ArrView adds this connection in {name}:</p>
+      <ul className="text-sm">
+        <li>Name: ArrView</li>
+        <li>URL: <code>{status?.url || ''}</code></li>
+        <li>Method: POST</li>
+        <li>Triggers: {triggerLabels(service).join(', ')}</li>
+      </ul>
+      <p className="text-sm">{name} sends ArrView a test message before saving. If {name} cannot reach the address, nothing is saved.</p>
+      <div className="webhook-setup-actions">
+        <button type="button" className="btn btn-primary btn-sm" disabled={pending || unsaved} onClick={() => run('POST')}>Add</button>
+        <button type="button" className="btn btn-secondary btn-sm" disabled={pending} onClick={() => setStep(null)}>Cancel</button>
+      </div>
+    </div>}
+    {canRemove && step !== 'confirm' && <div className="webhook-setup-actions">
+      <button type="button" className="btn btn-secondary btn-sm" disabled={pending}
+        onClick={() => { setOutcome(null); setStep('confirm') }}>Remove from {name}</button>
+    </div>}
+    {step === 'confirm' && <div className="webhook-setup-confirm">
+      <p className="text-sm">Remove the ArrView webhook from {name}? Your other connections are not changed.</p>
+      <div className="webhook-setup-actions">
+        <button type="button" className="btn btn-danger btn-sm" disabled={pending} onClick={() => run('DELETE')}>Remove</button>
+        <button type="button" className="btn btn-secondary btn-sm" disabled={pending} onClick={() => setStep(null)}>Cancel</button>
+      </div>
+    </div>}
+  </div>
+}
 
 function SetupSteps({ service, url }) {
-  const { name, triggers } = SERVICES[service]
+  const { name } = SERVICES[service]
+  const triggers = triggerLabels(service)
   return <details>
     <summary>Set up the webhook in {name}</summary>
     <ol>
@@ -36,8 +170,9 @@ function SetupSteps({ service, url }) {
       </li>
       <li>Set <strong>Webhook URL</strong> to <code>{url}</code> and <strong>Method</strong> to POST. Leave Username, Password and Headers empty: ArrView does not use them.</li>
       <li>
-        Select <strong>Test</strong>. A green check means ArrView answered, and "Test message received" appears under Last event received
-        above within a few seconds. ArrView changes no page for it, so this checks the address, not the triggers.
+        Select <strong>Test</strong>. A green check only means that something at that address answered: a login page or a redirect also
+        passes. The proof that ArrView received it is "Test message received" under Last event received above, within a few seconds.
+        ArrView changes no page for it, so this checks the address, not the triggers.
       </li>
       <li>Select <strong>Save</strong>.</li>
     </ol>
@@ -58,7 +193,10 @@ function Troubleshooting({ services, url }) {
         certificate {names} does not trust, enter ArrView's plain http address above instead.
       </li>
       <li>
-        <strong>Test passes but nothing updates.</strong> ArrView changes no page for the test message, so check the triggers. Each real event
+        <strong>Test passes but nothing updates.</strong> First look under Last event received above. If "Test message received" did not
+        appear after the Test, the test reached something other than this ArrView, for example a login page or a redirect from a proxy in
+        front of it, or another server at that address. {names} counts any answer below 400 as a pass. Enter an address that reaches
+        ArrView directly. If the Test message is listed, check the triggers. Each real event
         is listed under Last event received above and adds a line such as <code>{logLine}</code> to ArrView's log (for Docker:{' '}
         <code>docker logs arrview</code>). If it stays at "No event" while things change in {names}, the events never arrive.
       </li>
@@ -95,9 +233,9 @@ function LastEvents({ services, activity, now }) {
 
 // Settings card for the webhooks that Sonarr and Radarr send to ArrView. `address` is the editable address
 // those two use to reach ArrView; empty means this page's own address. `sonarr` and `radarr` say which of the
-// two are set up, and the card shows nothing when neither is. `activity` is what they last delivered
-// (useWebhookActivity), and `now` the time the ages are counted to.
-export default function WebhookSettings({ address, onAddressChange, sonarr, radarr, activity = LOADING, now = Date.now(), location = window.location }) {
+// two are set up, and the card shows nothing when neither is. `savedAddress` is the address as saved, the one Set up
+// writes. `activity` is what they last delivered (useWebhookActivity), and `now` the time the ages are counted to.
+export default function WebhookSettings({ address, onAddressChange, savedAddress = '', sonarr, radarr, activity = LOADING, now = Date.now(), location = window.location }) {
   const [message, setMessage] = useState('')
   const timer = useRef(null)
   const fields = useRef({})
@@ -160,6 +298,9 @@ export default function WebhookSettings({ address, onAddressChange, sonarr, rada
       </div>
     })}
     <p role="status" className="text-sm text-muted webhook-status">{message}</p>
+
+    {services.map(service => <SetupStatus key={service} service={service} savedAddress={savedAddress}
+      unsaved={address.trim() !== savedAddress.trim()} />)}
 
     <LastEvents services={services} activity={activity} now={now} />
 
