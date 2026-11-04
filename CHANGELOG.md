@@ -1,5 +1,59 @@
 # ArrView server development changelog
 
+## 1.9A7 (unreleased) — Settings: the Test button shows its result; the NZBHydra row names Newznab indexers
+
+- **Version 1.9A7.** Two web changes on top of 1.9A6, from the maintainer's test of a standalone Newznab indexer on
+  2026-11-04. No server route, request or config change; the only server line that changed is the version.
+  `package.json` is unchanged. Each change is its own commit, so one can be reverted on its own.
+
+- **The Test button shows the result.** After a Test in Settings the button becomes a check (the test passed) or an X
+  (it failed) for four seconds, in the colours of the status dot, and then says Test again. The status text beside the
+  app (Connected, Test failed) and the error message under the fields are unchanged. The icons are the bundled Phosphor
+  check and x.
+  - While the result shows, pressing the button does nothing. Editing the address or the key makes it ready at once,
+    since the result is about the old value. A Test still running when the address or key is edited is dropped for the
+    same reason: it shows no check or X and does not change the status text.
+  - The button keeps its width while it shows the spinner, the check or the X. Before, it shrank by about 12 px while a
+    Test ran, and the key field beside it grew by the same amount.
+  - The check and the X are named "Test passed" and "Test failed" for screen readers, and a polite live region says
+    "Sonarr test passed" or "Sonarr test failed. <reason>" while the result shows. Before, a Test result was announced
+    nowhere.
+- **NZBHydra row.** A standalone Newznab indexer entered in the NZBHydra slot passed Test and returned NZB search
+  results (the maintainer's test), as expected: ArrView calls only the standard Newznab endpoints there. The
+  description now reads "Usenet search aggregator or Newznab indexer", and a note under the address says to use
+  NZBHydra's address or an indexer's address without /api. The row keeps its name, so the service banner, the search
+  sheets and every other label still say NZBHydra. ArrView still takes one address in this slot; NZBHydra is the way to
+  search several indexers.
+
+- **Tests:** server 211/211, web (vitest) 479/479 (475 at 1.9A6), e2e 159/159 in Microsoft Edge on macOS (CI repeats
+  them in real Chromium). New: the check and the X for four seconds and back to Test, a press during the result, the
+  spinner state, an edit ending the result and dropping a running Test, no timer left after leaving the page (fake
+  timers), the names and the live region, the NZBHydra wording, and an e2e test that measures the button and the key
+  field in every state at 1280 and 390 px. The existing "a Test result replaces the ping status" test now waits out the
+  four seconds between its two presses. Nine deliberate breakages of the component (no press guard, 3 s instead of 4 s,
+  timer kept after unmount, stale answer shown, edit not ending the result, answer after unmount, check and X swapped,
+  no name, no live region) and one of the CSS (the label taken out of the layout) each turned the matching test red.
+- **Not verified:** a real iPhone or iPad (Safari, Home Screen app, VoiceOver); Firefox and Safari on a Mac; what a
+  screen reader says for the live region (the markup is tested, the speech is not); a wrong-key Test against a real
+  Sonarr, Radarr, SABnzbd or NZBHydra (the unit and e2e tests answer `POST /api/test/*` themselves; the route itself is
+  covered by `tests/config-api.test.js`); the four seconds on a slow device.
+- **Human test plan:**
+  1. Settings, a saved app such as Sonarr: open its row and press Test. The button turns into a green check for about
+     four seconds, the text beside the app says Connected, and then the button says Test again. Pressing it during the
+     four seconds does nothing.
+  2. Put a wrong key in the row (or stop the app) and press Test: a red X for about four seconds, the text says Test
+     failed, and the reason shows under the fields.
+  3. After the X, correct the key: the button says Test as soon as you type, with no wait. Press it: a new Test runs.
+  4. With an app stopped, so a Test takes several seconds to fail: change the address while the spinner shows. The old
+     answer must not show: the button says Test and the text beside the app does not change.
+  5. Watch the key field beside the button through a Test: it must not widen or shift, also in the Home Screen app on a
+     phone.
+  6. With VoiceOver on an iPhone, or a screen reader on a desktop: after pressing Test, the result is spoken ("Sonarr
+     test passed", or "failed" with the reason). Report what you hear.
+  7. NZBHydra row: the description and the note under the address read as above. With a real indexer, Test and one NZB
+     search (done once by the maintainer on 2026-11-04).
+  8. Roll back to the 1.9A6 image: nothing to migrate; the old Test button comes back.
+
 ## 1.9A6 (unreleased) — Web fixes: Downloads history, season packs, show pages, movie artwork, Settings
 
 - **Version 1.9A6.** Seven web changes on top of 1.9A5, from the maintainer's review of the redesign. No server
