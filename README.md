@@ -132,6 +132,8 @@ docker run -d --name arrview \
 ```
 
 The container serves the dashboard on `http://localhost:7777` and stores saved settings in `/data/config.json`.
+ArrView needs a writable data folder, so mount a volume at `/data`: without one, settings and sign-in cannot be saved
+(ArrView does not create the folder, and says so in its log at start-up).
 
 > **iOS auto-discovery requires host networking.** The container advertises
 > itself over Bonjour/mDNS so the ArrView iOS app can find it on the network

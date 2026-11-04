@@ -583,6 +583,10 @@ const AUTH_DOCKER_TEXT = "The password is set by the Docker configuration and ca
 const AUTH_UNAVAILABLE_TEXT = 'The login is unavailable because its settings could not be read. See the ArrView log.';
 const AUTH_BROWSER_TEXT = 'Sign in with a browser to do this';
 const AUTH_SAVE_TEXT = 'Could not save the password';
+const AUTH_SAVE_FOLDER_TEXT = 'Could not save the password because ArrView cannot save to its data folder.';
+// A write that failed because the data folder is missing, not a folder, or not writable (not, say, a full disk).
+const DATA_FOLDER_CODES = new Set(['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM', 'EROFS']);
+const dataFolderError = err => Boolean(err && DATA_FOLDER_CODES.has(err.code));
 
 function authRoute(handler) {
   return (req, res) => Promise.resolve().then(() => handler(req, res)).catch(err => {
@@ -643,7 +647,7 @@ function manageBlocked(req, res) {
 
 // Writes the new state to auth.json first, then swaps it into memory. Returns false (after answering 500) on a write failure.
 function commitAuth(res, next) {
-  try { writeAuthFile(next); } catch (_) { res.status(500).json({ error: AUTH_SAVE_TEXT }); return false; }
+  try { writeAuthFile(next); } catch (e) { res.status(500).json({ error: dataFolderError(e) ? AUTH_SAVE_FOLDER_TEXT : AUTH_SAVE_TEXT }); return false; }
   adoptAuth(next, auth.dockerManaged);
   closeInvalidStreams();
   return true;
@@ -671,7 +675,7 @@ app.get('/api/auth/status', authRoute((req, res) => {
 // "Continue without a password" on the first-run screen: writes auth.json with no password, so the screen never returns.
 app.post('/api/auth/setup/skip', authRoute((req, res) => authQueued(() => {
   if (!setupPending()) return res.status(409).json({ error: 'Setup is already done' });
-  try { writeAuthFile({ record: null, sessions: [], keys: [] }); } catch (_) { return res.status(500).json({ error: AUTH_SAVE_TEXT }); }
+  try { writeAuthFile({ record: null, sessions: [], keys: [] }); } catch (e) { return res.status(500).json({ error: dataFolderError(e) ? AUTH_SAVE_FOLDER_TEXT : AUTH_SAVE_TEXT }); }
   return res.json({ success: true });
 })));
 
@@ -680,9 +684,10 @@ app.post('/api/auth/login', authRoute((req, res) => passwordCheckRoute(req, res,
   const entry = sessionEntry(token);
   const before = auth.sessions.slice();
   addSession(auth.sessions, entry);
-  try { writeAuthFile(auth); } catch (_) {
+  try { writeAuthFile(auth); } catch (e) {
     auth.sessions = before;
-    return res.status(500).json({ error: 'Could not sign in' });
+    authLog(`[auth] could not write auth.json (${(e && e.code) || 'error'}).`);
+    return res.status(500).json({ error: dataFolderError(e) ? 'Could not sign in because ArrView cannot save to its data folder. See the ArrView log.' : 'Could not sign in' });
   }
   closeInvalidStreams();
   setSessionCookie(req, res, token);
@@ -803,22 +808,24 @@ app.post('/api/auth/password/remove', authRoute(async (req, res) => {
   });
 }));
 
-app.post('/api/auth/logout-all', authRoute((req, res) => {
+app.post('/api/auth/logout-all', authRoute(async (req, res) => {
   if (manageBlocked(req, res)) return undefined;
-  return authQueued(() => {
-    if (!reauthorised(req)) return staleReply(res);
-    if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
-    // Like Sign out and key removal: access ends in memory at once (event streams included); the file follows.
-    auth.sessions = [];
-    auth.keys = [];
-    revocationPending = true;
-    closeInvalidStreams();
-    try { writeAuthFile(auth); } catch (_) {
-      return res.status(500).json({ error: 'Signed out everywhere here, but the change could not be saved, so it may come back after a restart. Try again; you will need to sign in once storage works.' });
-    }
-    clearSessionCookie(req, res);
-    return res.json({ success: true });
-  });
+  if (!reauthorised(req)) return staleReply(res);
+  if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
+  // Like Sign out: access ends in memory at once (event streams included); the file follows in the shared reserved
+  // write, so a full queue never refuses it.
+  auth.sessions = [];
+  auth.keys = [];
+  revocationPending = true;
+  closeInvalidStreams();
+  try {
+    await flushRevocation();
+  } catch (err) {
+    authLog(`[auth] could not write auth.json (${(err && err.code) || 'error'}).`);
+    return res.status(500).json({ error: 'Signed out everywhere here, but the change could not be saved, so it may come back after a restart. You will need to sign in once storage works.' });
+  }
+  clearSessionCookie(req, res);
+  return res.json({ success: true });
 }));
 
 // App keys: listed without their secrets; created, removed one at a time or all at once from a signed-in browser.
@@ -837,21 +844,22 @@ app.post('/api/auth/keys', authRoute((req, res) => {
     () => (reauthorised(req) ? createKey(res, name) : staleReply(res)));
 }));
 
-// Removal takes effect in memory first, so access ends at once (open event streams included); the file follows.
-function removeKeys(req, res, match) {
-  return authQueued(() => {
-    if (!reauthorised(req)) return staleReply(res);
-    if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
-    const kept = auth.keys.filter(k => !match(k));
-    const removed = auth.keys.length - kept.length;
-    // A retry after a failed write finds nothing to remove but still has to make the earlier removal durable.
-    if (match.single && !removed && !revocationPending) return res.status(404).json({ error: 'No such key' });
-    auth.keys = kept;
-    if (removed) revocationPending = true;
-    closeInvalidStreams();
-    try { writeAuthFile(auth); } catch (_) { return res.status(500).json({ error: 'The key was removed here, but the change could not be saved, so it may come back after a restart. Try again; if it keeps failing, use Sign out everywhere (you may need to sign in again).' }); }
-    return res.json({ success: true, removed });
-  });
+// Removal takes effect in memory first, so access ends at once (open event streams included); the file follows in the
+// shared reserved write, so a full queue never refuses it.
+async function removeKeys(req, res, match) {
+  if (!reauthorised(req)) return staleReply(res);
+  if (auth.mode !== 'on') return res.status(409).json({ error: 'No password is set' });
+  const kept = auth.keys.filter(k => !match(k));
+  const removed = auth.keys.length - kept.length;
+  // A retry after a failed write finds nothing to remove but still has to make the earlier removal durable.
+  if (match.single && !removed && !revocationPending) return res.status(404).json({ error: 'No such key' });
+  auth.keys = kept;
+  if (removed) revocationPending = true;
+  closeInvalidStreams();
+  if (revocationPending) {
+    try { await flushRevocation(); } catch (_) { return res.status(500).json({ error: 'The key was removed here, but the change could not be saved, so it may come back after a restart. Try again; if it keeps failing, use Sign out everywhere (you may need to sign in again).' }); }
+  }
+  return res.json({ success: true, removed });
 }
 
 app.post('/api/auth/keys/remove', authRoute((req, res) => {
@@ -1238,8 +1246,8 @@ app.post('/api/config', (req, res) => {
   if (result.error) return res.status(result.status).json({ error: result.error });
   try {
     saveConfig(result.config);
-  } catch (_) {
-    return res.status(500).json({ error: 'Could not save settings' });
+  } catch (e) {
+    return res.status(500).json({ error: dataFolderError(e) ? 'Could not save settings because ArrView cannot save to its data folder.' : 'Could not save settings' });
   }
   _sabPathCache = null; // reset so new URL is re-probed (only after a successful save)
   res.json({ success: true });
@@ -2198,7 +2206,7 @@ async function initDockerPassword(password, file) {
   const next = { record: await hashPassword(password, 'docker'), sessions: [], keys: [] };
   adoptAuth(next, true);
   try { writeAuthFile(next); } catch (e) {
-    authLog(`[auth] could not write auth.json (${(e && e.code) || 'error'}); the Docker password is in force but sessions will not survive a restart.`);
+    authLog(`[auth] could not write auth.json (${(e && e.code) || 'error'}); the Docker password is in force, but nobody can sign in until the data folder ${CONFIG_DIR} exists and is writable (mount a volume there, see the README).`);
   }
   if (replacing) authLog('[auth] the Docker password changed; everyone is signed out.');
   authLog('[auth] login is ON: password set by the Docker configuration.');
@@ -2250,6 +2258,16 @@ async function initAuth() {
     authLog(`[auth] start-up failed (${(e && e.code) || 'error'}); the login stays ON and no one can sign in.`);
   }
 }
+// ArrView never creates the data folder: one created here would live in the container's own storage, so a password set
+// in Settings would vanish when the container is recreated. Say so loudly instead.
+function checkDataFolder() {
+  let isFolder = false;
+  try { isFolder = fs.statSync(CONFIG_DIR).isDirectory(); } catch (_) {}
+  if (!isFolder) {
+    console.log(`[data] the data folder ${CONFIG_DIR} does not exist or is not a folder, so settings, passwords and sign-ins cannot be saved. Mount a volume at ${CONFIG_DIR} (see the README).`);
+  }
+}
+checkDataFolder();
 const authReady = initAuth();
 
 authReady.then(() => app.listen(PORT, () => {

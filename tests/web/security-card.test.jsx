@@ -19,9 +19,9 @@ function mount(status, handler) {
 afterEach(() => vi.unstubAllGlobals())
 const body = call => JSON.parse(call[1].body)
 const field = label => screen.getByLabelText(label)
-// The key form and the password forms each have a Current password field: pick the form first.
+// The key form's field has its own label; the password forms keep "Current password".
 const passwordFormField = label => within(document.querySelector('form:not(.key-create)')).getByLabelText(label)
-const keyPasswordField = () => within(document.querySelector('.key-create')).getByLabelText('Current password')
+const keyPasswordField = () => within(document.querySelector('.key-create')).getByLabelText('Current password to make a key')
 const makeKey = (password = 'my password!') => { fireEvent.change(keyPasswordField(), { target: { value: password } }); click(/Make a key/) }
 const click = name => fireEvent.click(screen.getByRole('button', { name }))
 const paths = () => fn.mock.calls.map(c => c[0])
@@ -110,6 +110,18 @@ test('on (Settings): change sends currentPassword, remove asks to confirm first,
   expect(fn.mock.calls[0][1].method).toBe('POST')
   // the server refuses a POST without a JSON content type, so even an empty one declares it
   expect(new Headers(fn.mock.calls[0][1].headers).get('Content-Type')).toBe('application/json')
+})
+
+test('keys: with the Change password form open, the two current-password fields have distinct labels', async () => {
+  await mountOn(ON)
+  click('Change password')
+  const keyField = within(document.querySelector('.key-create')).getByLabelText('Current password to make a key')
+  expect(keyField).toHaveAttribute('autocomplete', 'current-password')
+  expect(keyField).toHaveAttribute('type', 'password')
+  const plain = screen.getAllByLabelText('Current password', { exact: true })
+  expect(plain).toHaveLength(1)
+  expect(plain[0]).not.toBe(keyField)
+  expect(plain[0].closest('form')).toBe(document.querySelector('form:not(.key-create)'))
 })
 
 test('keys: the list shows name, created and last used and never a key; a new key is made with an optional name', async () => {

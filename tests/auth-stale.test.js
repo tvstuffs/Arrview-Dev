@@ -61,33 +61,67 @@ test('a request body that arrives after a password change is refused with 401 an
   assert.deepEqual(await keysOf(s, fresh), []);
 });
 
-test('queued key creation and logout-all behind a gated password change get 401 with no write', async (t) => {
+test('queued key creation behind a gated password change gets 401 with no write', async (t) => {
   const gate = gatedCrypto();
   const s = await startSeeded(t, { wrapCrypto: gate.wrap });
   const cookie = await loginCookie(s.base);
   const hit = gate.arm();
   const change = post(s, '/api/auth/password', { currentPassword: s.seeded.password, newPassword: 'changed password 1' }, { ...AJAX, Cookie: cookie });
   await hit;
-  const headers = { ...AJAX, Cookie: cookie };
   // It carries the password the change is setting, so the password check passes and the stale session is what refuses it.
-  const regen = post(s, '/api/auth/keys', { currentPassword: 'changed password 1' }, headers);
-  const all = post(s, '/api/auth/logout-all', {}, headers);
+  const regen = post(s, '/api/auth/keys', { currentPassword: 'changed password 1' }, { ...AJAX, Cookie: cookie });
   await pause(250);
   gate.release();
-  const [changed, regenerated, loggedOut] = await Promise.all([change, regen, all]);
+  const [changed, regenerated] = await Promise.all([change, regen]);
   assert.equal(changed.status, 200);
   const fresh = cookieHeader(setCookies(changed)[0]);
-  for (const r of [regenerated, loggedOut]) {
-    assert.equal(r.status, 401);
-    const text = await r.text();
-    assert.deepEqual(JSON.parse(text), { error: 'Authentication required', auth: true });
-    assert.equal(text.includes('accessKey'), false);
-    assert.equal(setCookies(r).length, 0);
-  }
+  assert.equal(regenerated.status, 401);
+  const text = await regenerated.text();
+  assert.deepEqual(JSON.parse(text), { error: 'Authentication required', auth: true });
+  assert.equal(text.includes('accessKey'), false);
+  assert.equal(setCookies(regenerated).length, 0);
   const stored = s.readAuth();
   assert.deepEqual(stored.keys, []);
   assert.equal(stored.sessions.length, 1);
   assert.equal((await fetch(s.base + '/api/config', { headers: { Cookie: fresh } })).status, 200);
+});
+
+test('Sign out everywhere from a session a finished password change ended gets 401, no cookie and no write', async (t) => {
+  const s = await startSeeded(t);
+  const cookie = await loginCookie(s.base);
+  const changed = await post(s, '/api/auth/password', { currentPassword: s.seeded.password, newPassword: 'changed password 1' }, { ...AJAX, Cookie: cookie });
+  assert.equal(changed.status, 200);
+  const fresh = cookieHeader(setCookies(changed)[0]);
+  const before = s.readAuthText();
+  const r = await post(s, '/api/auth/logout-all', {}, { ...AJAX, Cookie: cookie });
+  assert.equal(r.status, 401);
+  assert.deepEqual(await r.json(), { error: 'Authentication required', auth: true });
+  assert.equal(setCookies(r).length, 0);
+  assert.equal(s.readAuthText(), before);
+  assert.equal((await fetch(s.base + '/api/config', { headers: { Cookie: fresh } })).status, 200);
+});
+
+test('Sign out everywhere during a gated password change wins: it answers 200 and the held change gets 401', async (t) => {
+  const gate = gatedCrypto();
+  const s = await startSeeded(t, { wrapCrypto: gate.wrap });
+  const cookie = await loginCookie(s.base);
+  const hit = gate.arm();
+  const change = post(s, '/api/auth/password', { currentPassword: s.seeded.password, newPassword: 'changed password 1' }, { ...AJAX, Cookie: cookie });
+  await hit;
+  // It no longer waits behind the change: access ends at once and only its write queues (reserved).
+  const all = post(s, '/api/auth/logout-all', {}, { ...AJAX, Cookie: s.seeded.cookie });
+  await pause(250);
+  assert.equal((await fetch(s.base + '/api/config', { headers: { Cookie: cookie } })).status, 401);
+  gate.release();
+  const [changed, loggedOut] = await Promise.all([change, all]);
+  assert.equal(loggedOut.status, 200);
+  assert.equal(changed.status, 401);
+  assert.deepEqual(await changed.json(), { error: 'Authentication required', auth: true });
+  assert.equal(setCookies(changed).length, 0);
+  const stored = s.readAuth();
+  assert.equal(stored.password.hash, s.seeded.record.hash, 'the password must not change');
+  assert.deepEqual(stored.sessions, []);
+  assert.deepEqual(stored.keys, []);
 });
 
 // Opens /api/events and reports whether the server ended the stream.
