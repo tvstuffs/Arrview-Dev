@@ -1,5 +1,46 @@
 # ArrView server development changelog
 
+## 1.9A10 (unreleased) — Shows: a season's Search N Missing leaves out unmonitored episodes
+
+- **Version 1.9A10.** One web change on top of 1.9A9, from the maintainer's decision of 2026-11-04. No server route,
+  request or config change; the only server line that changed is the version. `package.json` is unchanged.
+
+- **A season's "Search N Missing" goes only for episodes that are not unmonitored.** On the show page (Modern) and in
+  the opened show card (Classic) the button counted every aired episode of the season without a file, monitored or
+  not, and searched for all of them, so a long-running show with old seasons the user never wanted offered hundreds
+  of searches. It now counts and searches only the aired episodes without a file that are not unmonitored (an
+  episode that carries no flag counts as monitored; Sonarr always sends it). A season where nothing is wanted has no
+  button, and the buttons of a show's seasons add up to the show's own "N missing" (1.9A8). An unmonitored episode
+  keeps its row, its "Missing" label and its own search. This replaces the 1.9A8 sentence that said the per-season
+  button was unchanged.
+- **The iOS app is not changed.** Its per-season "Search N missing" still counts every aired episode without a
+  file, monitored or not; it is to match this when iOS work resumes (Arrview-Common ROADMAP).
+
+- **Tests:** server 221/221, web (vitest) 492/492 (488 at 1.9A9), e2e 160/160 in Microsoft Edge on macOS (CI repeats
+  them in real Chromium). New: the helper (`wantedMissing`: unmonitored, unflagged, with a file, future and undated
+  episodes), the Modern show page (an unmonitored missing episode is left out of the count and of the ids posted and
+  keeps its row; no button when every missing episode is unmonitored) and the Classic card (the same count and ids).
+  The four new tests fail on the 1.9A9 code (checked by setting the source change aside).
+- **Checked against a real library (read only):** the helper run over the series and episodes of a real install,
+  fetched with GET requests only: before, the season buttons of most shows added up to many times the show's own
+  "N missing" (they matched for a few shows); after, they add up to exactly that number for every show, and the seasons
+  where nothing is wanted lose their button.
+- **Not verified:** a real iPhone or iPad; Firefox and Safari; a Sonarr that does not send the monitored flag (such a
+  Sonarr would be read as monitored, the old behaviour); the result of a real search; the iOS app (unchanged).
+  Still owed from 1.9A5 and 1.9A9 and needing a person or a device: Safari's Copy of an access key over plain HTTP, a
+  real reverse proxy with `ARRVIEW_TRUSTED_PROXIES`, a screen reader and a password manager on the two Current password
+  fields, Safari and Firefox on the login screens, and the iOS apps against a server with and without a password.
+- **Human test plan:**
+  1. Open a show whose old seasons are unmonitored and have no files: those seasons have no "Search N Missing"
+     button (before, they offered one with a large number).
+  2. Open a show with a few wanted missing episodes: the numbers on its season buttons add up to the "N missing"
+     under the title, in Modern and in Classic (open the card).
+  3. In a season that has one monitored and one unmonitored aired episode without a file: the button says 1; the
+     unmonitored episode still shows "Missing" and its own search button still works.
+  4. Press Search N Missing on a season with wanted episodes: Sonarr starts a search for that many (its queue or
+     history), no more.
+  5. Roll back to the 1.9A9 image: nothing to migrate; the old counts come back.
+
 ## 1.9A9 (unreleased) — Login follow-ups
 
 - **Version 1.9A9: four follow-ups to the optional password login (1.9A5)**, built by factory job 009 from the maintainer's
