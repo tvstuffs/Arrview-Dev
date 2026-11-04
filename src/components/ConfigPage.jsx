@@ -22,8 +22,9 @@ const SERVICES = [
     id: 'nzbhydra',
     name: 'NZBHydra',
     icon: 'magnifying-glass',
-    description: 'Usenet search aggregator',
+    description: 'Usenet search aggregator or Newznab indexer',
     placeholder: 'http://localhost:5076',
+    urlHint: 'Use NZBHydra’s address, or a Newznab indexer’s address without /api.',
   },
   {
     id: 'sonarr',
@@ -144,6 +145,7 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
             aria-describedby={envManaged ? noteId : undefined}
             onChange={e => handleEdit('url', e.target.value)}
           />
+          {service.urlHint && <p className="service-note text-sm text-muted">{service.urlHint}</p>}
         </div>
         <div className="service-field">
           <label htmlFor={`${service.id}-key`}>API Key</label>

@@ -5,7 +5,7 @@ A self-hosted dashboard to monitor and manage your media downloading stack.
 | Service | Purpose |
 |---------|---------|
 | **SABnzbd** | Usenet download queue — live progress, pause/resume |
-| **NZBHydra** | Usenet search aggregator — connection status |
+| **NZBHydra** | Usenet search aggregator or Newznab indexer — connection status |
 | **Sonarr** | TV show library — view all shows, trigger missing-episode searches |
 | **Radarr** | Movie library — view collection, download missing films |
 

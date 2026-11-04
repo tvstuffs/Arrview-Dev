@@ -69,6 +69,7 @@
 .service-panel[hidden] { display: none; }
 .service-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 12px; }
 .service-field label { margin: 0; font-size: 13px; color: var(--text-2); }
+.service-note { grid-column: 2; margin: -6px 0 0; }
 .service-panel .input-group .btn { flex: none; }
 /* The Test button keeps the width of its label while it shows a spinner, a check or an X, so the field beside it stays put.
    The label stays in the grid cell, covered, and the spinner or icon is centred over it. */
@@ -85,6 +86,7 @@
   .service-desc { display: none; }
   .service-panel { padding: 0 14px 16px; }
   .service-field { grid-template-columns: 1fr; gap: 6px; }
+  .service-note { grid-column: 1; margin: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .service-caret { transition: none; } }
 

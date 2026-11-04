@@ -382,3 +382,12 @@ test('the Services list sits between Layout and the Webhooks card', () => {
   const order = [...container.querySelectorAll('.layout-choice, .service-list, .webhook-card')].map(el => el.className.split(' ').find(name => name !== 'card'))
   expect(order).toEqual(['layout-choice', 'service-list', 'webhook-card'])
 })
+
+test('Services: the NZBHydra row says a Newznab indexer works and how to enter its address', () => {
+  stubFetch(() => reply({ version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  expect(row('NZBHydra')).toHaveAccessibleDescription(/Usenet search aggregator or Newznab indexer/)
+  const hint = screen.getByText('Use NZBHydra’s address, or a Newznab indexer’s address without /api.')
+  expect(document.getElementById('nzbhydra-panel')).toContainElement(hint)
+  expect(screen.getAllByText(/without \/api/)).toHaveLength(1)
+})
