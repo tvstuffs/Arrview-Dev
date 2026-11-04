@@ -5,7 +5,7 @@ import { LibraryProvider } from '../../src/components/modern/LibraryProvider'
 import ShowsPage from '../../src/components/modern/ShowsPage'
 import ShowPage from '../../src/components/modern/ShowPage'
 import ArtImage from '../../src/components/modern/ArtImage'
-import { reply, config, series, episodes, stubFetch, stubMedia, resetEnvironment } from './modern-helpers'
+import { reply, past, config, series, episodes, stubFetch, stubMedia, resetEnvironment } from './modern-helpers'
 
 let restoreMedia
 beforeEach(() => { resetEnvironment(); restoreMedia = stubMedia({ phone: false }); window.location.hash = '' })
@@ -245,6 +245,19 @@ test('season actions: Search N Missing posts the aired missing ids; the trash bu
   fireEvent.click(trash)
   expect(await screen.findByText('Delete Season 2 files?')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Delete and Unmonitor' })).toBeInTheDocument()
+})
+test('season actions: an unmonitored missing episode is left out of Search N Missing and of the ids it posts, and its row stays', async () => {
+  const unwanted = { id: 204, seasonNumber: 2, episodeNumber: 4, title: 'Not Wanted', hasFile: false, monitored: false, airDateUtc: past(10) }
+  const fetchMock = stubFetch({ '/api/sonarr/command': () => reply({ id: 8 }) }, { episodes: [...episodes, unwanted] }); detail('1', vi.fn())
+  expect(await screen.findByRole('heading', { level: 3, name: 'Not Wanted' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Search 2 Missing' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Search 1 Missing' }))
+  await waitFor(() => expect(posts(fetchMock)).toContainEqual({ url: '/api/sonarr/command', body: { name: 'EpisodeSearch', episodeIds: [202] } }))
+})
+test('season actions: no Search N Missing button when every missing episode is unmonitored', async () => {
+  stubFetch({}, { episodes: episodes.map(ep => ep.id === 202 ? { ...ep, monitored: false } : ep) }); detail()
+  expect(await screen.findByRole('heading', { level: 3, name: 'Gone Missing' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Search \d+ Missing/ })).toBeNull()
 })
 test('the season trash button is absent when nothing is downloaded', async () => {
   stubFetch({}, { episodes: episodes.map(ep => ({ ...ep, hasFile: false })) }); detail()

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mainSeasonCounts, isMovieMissing, getMovieStatus, MOVIE_STATUS, nextRelease, releaseLabel, movieFileLine, artUrl, episodeState, completenessTone } from '../../src/media'
+import { mainSeasonCounts, isMovieMissing, getMovieStatus, MOVIE_STATUS, nextRelease, releaseLabel, movieFileLine, artUrl, episodeState, wantedMissing, completenessTone } from '../../src/media'
 
 const NOW = Date.parse('2026-10-17T12:00:00Z')
 const TMDB = 'https://image.tmdb.org/t/p/original/abc.jpg'
@@ -65,6 +65,19 @@ test('episodeState: downloaded, missing (aired) and upcoming (future or undated)
   expect(episodeState({ hasFile: false, airDateUtc: '2020-01-01' }, NOW)).toBe('missing')
   expect(episodeState({ hasFile: false, airDateUtc: '2099-01-01' }, NOW)).toBe('upcoming')
   expect(episodeState({ hasFile: false }, NOW)).toBe('upcoming')
+})
+test('wantedMissing: aired, without a file and not unmonitored; an episode without the flag counts as monitored', () => {
+  const eps = [
+    { id: 1, hasFile: false, airDateUtc: '2020-01-01', monitored: true },
+    { id: 2, hasFile: false, airDateUtc: '2020-01-01', monitored: false },
+    { id: 3, hasFile: false, airDateUtc: '2020-01-01' },
+    { id: 4, hasFile: true, airDateUtc: '2020-01-01', monitored: true },
+    { id: 5, hasFile: false, airDateUtc: '2099-01-01', monitored: true },
+    { id: 6, hasFile: false, monitored: true },
+  ]
+  expect(wantedMissing(eps, NOW).map(ep => ep.id)).toEqual([1, 3])
+  expect(wantedMissing(eps.filter(ep => ep.monitored === false), NOW)).toEqual([])
+  expect(wantedMissing([], NOW)).toEqual([])
 })
 const season = (seasonNumber, total, onDisk, wanted) => ({ seasonNumber, statistics: { totalEpisodeCount: total, episodeFileCount: onDisk, episodeCount: wanted } })
 test('mainSeasonCounts: total, on disk, what Sonarr wants and what is missing; specials excluded; show-level fallback', () => {

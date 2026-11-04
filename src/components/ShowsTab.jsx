@@ -6,7 +6,7 @@ import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from './Medi
 import { useMediaActions } from '../hooks/useMediaActions'
 import { usePreference, textPreference, oneOf, idList } from '../hooks/usePreference'
 import { useServerEvents, useVisiblePolling } from '../hooks/lifecycle'
-import { mainSeasonCounts, completenessTone } from '../media'
+import { mainSeasonCounts, completenessTone, wantedMissing } from '../media'
 import { apiFetch } from '../api'
 import AddMediaModal from './AddMediaModal.jsx'
 import EpisodeSearchModal from './EpisodeSearchModal.jsx'
@@ -214,7 +214,8 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
             seasons.map(sn => {
               const eps = seasonMap[sn]
               const dlCount = eps.filter(e => e.hasFile).length
-              const missingCount = eps.filter(e => !e.hasFile && e.airDateUtc && new Date(e.airDateUtc) < new Date()).length
+              const searchable = wantedMissing(eps)
+              const missingCount = searchable.length
               const isSeasonOpen = expandedSeasons.includes(sn)
               return (
                 <div key={sn} className="season-block">
@@ -230,10 +231,7 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
                         className="btn btn-attn btn-xs"
                         onClick={e => {
                           e.stopPropagation()
-                          const ids = eps
-                            .filter(e => !e.hasFile && e.airDateUtc && new Date(e.airDateUtc) < new Date())
-                            .map(e => e.id)
-                          actions.searchSeason(sn, ids)
+                          actions.searchSeason(sn, searchable.map(ep => ep.id))
                         }}
                       >
                         Search {missingCount} Missing

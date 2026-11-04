@@ -12,7 +12,7 @@ import { useSeries } from './LibraryProvider.jsx'
 import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
 import { useMediaActions } from '../../hooks/useMediaActions'
 import { useVisiblePolling, useServerEvents } from '../../hooks/lifecycle'
-import { artUrl, completenessTone, episodeState, mainSeasonCounts } from '../../media'
+import { artUrl, completenessTone, episodeState, mainSeasonCounts, wantedMissing } from '../../media'
 
 const capitalise = text => text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
 const goToShows = () => { window.location.hash = '/shows' }
@@ -81,7 +81,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
   const season = seasonMap.has(selected) ? selected : seasons[0]
   const eps = (seasonMap.get(season) || []).sort((a, b) => b.episodeNumber - a.episodeNumber)
   const downloaded = eps.filter(ep => ep.hasFile).length
-  const missingIds = eps.filter(ep => episodeState(ep) === 'missing').map(ep => ep.id)
+  const missingIds = wantedMissing(eps).map(ep => ep.id)
 
   async function searchMissing() { setSearching(true); try { await actions.searchSeries(show) } finally { setSearching(false) } }
   async function removeSeries(deleteFiles) { await actions.removeSeries(show, deleteFiles); goToShows() }

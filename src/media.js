@@ -75,6 +75,14 @@ export function episodeState(ep, now = Date.now()) {
   return Number.isFinite(aired) && aired < now ? 'missing' : 'upcoming'
 }
 
+// The episodes a season's "Search N Missing" goes for: aired, without a file, and not unmonitored. An unmonitored
+// episode is one the user chose not to have, so a bulk search leaves it out; this is also why the buttons of a show's
+// seasons add up to the show's own "N missing", which counts what Sonarr wants. An episode without the flag counts as
+// monitored (Sonarr always sends it). One episode can still be searched by hand from its own row.
+export function wantedMissing(episodes, now = Date.now()) {
+  return episodes.filter(ep => episodeState(ep, now) === 'missing' && ep.monitored !== false)
+}
+
 const TMDB_ORIGINAL = 'https://image.tmdb.org/t/p/original/'
 const TMDB_WIDTH = { grid: 'w342', detail: 'w780', backdrop: 'w1280' }
 export const isHttpUrl = value => typeof value === 'string' && /^https?:\/\//i.test(value)
