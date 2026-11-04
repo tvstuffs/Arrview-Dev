@@ -11,6 +11,7 @@ test('README documents the variables and the app warning', () => {
   for (const needle of ['ARRVIEW_PASSWORD', 'ARRVIEW_PASSWORD_FILE', 'ARRVIEW_AUTH=off', 'ARRVIEW_TRUSTED_PROXIES', 'cannot sign in yet', '### Password login (optional)']) {
     assert.ok(readme.includes(needle), needle);
   }
+  assert.ok(readme.includes('ArrView needs a writable data folder, so mount a volume at `/data`'), 'the data folder sentence');
   assert.ok(!readme.includes('still has no login'));
   assert.ok(!readme.includes('still has no built-in'));
 });

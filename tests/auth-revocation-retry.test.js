@@ -169,7 +169,9 @@ for (const [label, retry] of [
     assert.equal(setCookies(failed).length, 0, 'a failed Sign out everywhere must not set a cookie');
     const text = (await failed.json()).error;
     assert.doesNotMatch(text, /save the password/i);
-    assert.match(text, /signed out everywhere.*could not be saved.*try again/i);
+    assert.equal(text, 'Signed out everywhere here, but the change could not be saved, so it may come back after a restart. You will need to sign in once storage works.');
+    assert.doesNotMatch(text, /try again/i, 'the calling browser is already signed out, so trying again only gets a 401');
+    assert.ok(s.logs.includes('[auth] could not write auth.json (ENOSPC).'), 'the failed write is logged');
     assert.equal(s.readAuth().sessions.length, 2, 'the file is unchanged after the failure');
     assert.equal(s.readAuth().keys.length, 2);
     for (const cookie of seeded.cookies) assert.equal(await status(s, { Cookie: cookie }), 401, 'every session is refused at once');

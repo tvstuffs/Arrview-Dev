@@ -1,5 +1,37 @@
 # ArrView server development changelog
 
+## Unreleased — Login follow-ups
+
+- **Four follow-ups to the optional password login (1.9A5).** Server, the Security card and tests. No route was added
+  or removed, no file format changed, and the version is unchanged (the maintainer sets it per build).
+
+- **Sign out everywhere, Remove key and Remove all keys work while the server is busy.** With 16 password checks
+  waiting they used to answer 503 "The server is busy", so someone sending checks from several addresses could block
+  them. They now work like Sign out: access ends in memory at once (open event streams included), and the change is
+  written by the one shared write that is never refused for a full queue. A Sign out everywhere made while a password
+  change is still running now wins: the change then answers 401 and the password stays as it was. Sign-in, Change and
+  Remove password and Make a key still answer 503 when the queue is full.
+
+- **The key form's field is labelled "Current password to make a key".** The key form and the Change or Remove
+  password form can be open at once; each had a field called "Current password". The other two keep that label.
+
+- **Sign out everywhere's save failure no longer says "Try again".** The browser is already signed out, so trying again
+  only got a 401. The message is now "Signed out everywhere here, but the change could not be saved, so it may come
+  back after a restart. You will need to sign in once storage works.", and the write error is logged
+  (`[auth] could not write auth.json (<code>).`).
+
+- **A missing or unwritable data folder is reported truthfully.** With no volume mounted at `/data` the image has no
+  data folder. The start-up log now says so in one `[data]` line (installs with the folder see nothing new), and with a
+  Docker password it no longer claims only that sessions will not survive a restart: it says nobody can sign in until
+  the data folder exists and is writable. A sign-in that cannot be saved because the folder is missing, not a folder or
+  not writable answers "Could not sign in because ArrView cannot save to its data folder. See the ArrView log." and logs
+  the write error; Settings Save, Set a password (first run, Change and Remove password) and Continue without a password
+  name the data folder too. Other write errors (a full disk, for example) keep their old messages. The README's Docker
+  section says the data folder is needed.
+  **ArrView deliberately does not create the data folder.** A folder it created would live in the container's own
+  storage, so a password set in Settings would vanish when the container is recreated, which turns the login off
+  without warning. A loud failure is safer: do not "fix" this by creating the folder.
+
 ## 1.9A8 (unreleased) — Shows: the episode bar and the missing count follow what Sonarr wants
 
 - **Version 1.9A8.** One web change on top of 1.9A7, from the maintainer's decisions of 2026-11-04 (the bar counts

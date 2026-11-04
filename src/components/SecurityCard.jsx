@@ -167,7 +167,7 @@ export default function SecurityCard() {
           <label htmlFor={`${idBase}-keyname`}>Key name (optional)</label>
           <input id={`${idBase}-keyname`} type="text" maxLength={KEY_NAME_MAX} placeholder="App key" autoComplete="off" value={keyName} onChange={e => setKeyName(e.target.value)} />
           <PasswordFields idBase={`${idBase}-key`} values={{ currentPassword: keyPassword }} onChange={(_, value) => setKeyPassword(value)}
-            fields={[['currentPassword', 'Current password', 'current-password']]} />
+            fields={[['currentPassword', 'Current password to make a key', 'current-password']]} />
           <button type="submit" className="btn btn-secondary" disabled={busy}><Icon name="plus" /> Make a key</button>
         </form>
         {fresh && <div className="key-fresh" role="group" aria-label="New key">
