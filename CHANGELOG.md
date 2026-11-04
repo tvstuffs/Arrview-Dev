@@ -32,6 +32,53 @@
   storage, so a password set in Settings would vanish when the container is recreated, which turns the login off
   without warning. A loud failure is safer: do not "fix" this by creating the folder.
 
+- **Tests:** server 221/221, web (vitest) 488/488, e2e 160/160 in Microsoft Edge on macOS (CI repeats them in real
+  Chromium); the job's own branch, before it was merged with 1.9A8, ran 221, 480 and 159. New: `tests/auth-queue-full.test.js` (with the password-check queue full, the three emergency routes
+  answer 200, the revoked sessions and keys are refused before the write finishes, open event streams end, the
+  revocation survives a restart, an app key still gets 403, and the other routes still get 503),
+  `tests/auth-data-folder.test.js` (the missing folder, the Docker line, the first-run screens, `ARRVIEW_AUTH=off`, a
+  file in place of the folder, an existing folder logging nothing), the ordering test in `tests/auth-stale.test.js`,
+  and the new label in the Security card tests and the e2e. Against the old code nine server tests and six web tests
+  failed. Four independent reviews (two by Anthropic models, two by OpenAI models, two of them risk reviews) passed with
+  nothing to fix.
+- **Checked in a container** (the image built from this commit, in Colima: a script with 113 checks and a browser run in
+  Microsoft Edge with 26, all passing). With no volume and a Docker password the log says once that the data folder is
+  missing and once that nobody can sign in, `/data` is never created, the right password answers 500 with the
+  data-folder text and no cookie, a wrong one the normal 401, and the sign-in screen shows both. With no volume and no
+  password, Set a password, Continue without a password and Settings Save each answer 500 with their data-folder
+  text, the login stays off, and the first-run screen shows them. `ARRVIEW_AUTH=off` without a folder logs the line
+  once. With a volume nothing new is logged and everything saves. A read-only volume (`EROFS`) and a folder owned by
+  another user (`EACCES`) give the Docker line, the sign-in text and the log line. Remove key, Remove all keys and Sign
+  out everywhere end access at once (an open event stream included; an app key still gets 403), leave no session or
+  key in `auth.json`, and nothing comes back after a restart. With a full data folder (`ENOSPC`) Sign out everywhere
+  answers the new text without "Try again" and logs the error, the file keeps its old sessions and keys until a later
+  write succeeds and drops them, and Remove key's retry still answers 500, not 404, until storage works. A password, a
+  session and a key made by the 1.9A8 image all work on this image and back again. The Change password form and the key
+  form open together in Edge show their two different labels.
+- **Not verified:** a real iPhone or iPad (nothing here touches the apps); Safari and Firefox; a screen reader and a
+  password manager on the two Current password fields (the labels were read in Edge only); a hand-made flood that
+  fills the password-check queue (the tests do it with a stubbed hash); `EPERM` as a write error (`EACCES`, `EROFS`,
+  `ENOENT` and `ENOSPC` were run, and `EPERM` is classified with them in the code); a disk that fails in some other
+  way. Still owed from 1.9A5 and needing a person or a device: Safari's Copy of an access key over plain HTTP, a real
+  reverse proxy with `ARRVIEW_TRUSTED_PROXIES`, and the iOS apps against a server with and without a password.
+- **Human test plan:**
+  1. Run this image in a throwaway container with its own empty data folder, not the one the apps use: the iOS and tvOS
+     apps cannot sign in yet, so turning the login on for the server they use would lock them out. On the first-run
+     screen choose Protect with a password; the Security card says protection is on.
+  2. Press Change password so its form opens, and look at the key form below it: the fields read "Current password"
+     and "Current password to make a key". With VoiceOver, each is announced by its own name, and your password manager
+     still offers to fill both. Make a key with the key form: it works as before.
+  3. With a second browser signed in and two keys made: Remove key, then Remove all keys, then Sign out everywhere.
+     Each succeeds. A removed key is refused at once (`curl -H "X-Api-Key: <key>" <server>/api/config` answers 401) and
+     the other browser goes to the sign-in screen at once.
+  4. Optional: run the image with nothing mounted at `/data` and a Docker password. The log shows the `[data]` line,
+     and the sign-in screen says "Could not sign in because ArrView cannot save to its data folder. See the ArrView
+     log." Run it again with a volume: no `[data]` line, and sign-in works.
+  5. Safari and Firefox: the sign-in screen and the Security card render as they do in Edge.
+  6. On the server you really use (the login off, as it is there today): recreate it on this image. Settings still
+     loads and Save works, `/api/health` says 1.9A9, and nothing else is different. Roll back to the 1.9A8 image if you
+     like: nothing to migrate, `auth.json` and `config.json` keep their shape.
+
 ## 1.9A8 (unreleased) — Shows: the episode bar and the missing count follow what Sonarr wants
 
 - **Version 1.9A8.** One web change on top of 1.9A7, from the maintainer's decisions of 2026-11-04 (the bar counts
