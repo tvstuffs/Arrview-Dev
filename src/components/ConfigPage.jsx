@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import './ConfigPage.css'
 import InstallHelp from './InstallHelp.jsx'
 import DiscoveryNotice from './DiscoveryNotice.jsx'
@@ -49,6 +49,10 @@ const isMasked = key => String(key || '').startsWith(MASK_PREFIX)
 const hasUsableKey = key => isMasked(key) || /[A-Za-z0-9]/.test(String(key || ''))
 const sendKey = key => (isMasked(key) ? key : String(key || '').trim())
 
+// How long the Test button shows the outcome of a Test (a check or an X) before it says Test again.
+const TEST_RESULT_MS = 4000
+const OUTCOME_ICON = { ok: 'check', bad: 'x' }
+
 // What a service row says about its connection: the last Test wins, then the background ping of a saved service.
 function connectionOf({ saved, ping, testResult }) {
   if (testResult) return testResult.success
@@ -66,13 +70,38 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
   const [open, setOpen] = useState(!saved)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
+  // 'ok' or 'bad' for TEST_RESULT_MS after a Test ends: the Test button shows a check or an X meanwhile.
+  const [outcome, setOutcome] = useState(null)
+  const outcomeTimer = useRef(null)
+  const mounted = useRef(false)
+  const edits = useRef(0)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; clearTimeout(outcomeTimer.current) }
+  }, [])
 
   async function handleTest() {
+    if (testing || outcome) return
+    const editsBefore = edits.current
     setTesting(true)
     setTestResult(null)
     const result = await onTest(service.id, values.url, values.apikey)
-    setTestResult(result)
+    if (!mounted.current) return
     setTesting(false)
+    // The address or key changed while the Test ran, so its answer is about the old one: drop it.
+    if (edits.current !== editsBefore) return
+    setTestResult(result)
+    setOutcome(result.success ? 'ok' : 'bad')
+    outcomeTimer.current = setTimeout(() => setOutcome(null), TEST_RESULT_MS)
+  }
+
+  // A shown outcome is about the old address or key, so an edit makes the button ready again at once.
+  function handleEdit(field, value) {
+    edits.current += 1
+    clearTimeout(outcomeTimer.current)
+    setOutcome(null)
+    onChange(service.id, field, value)
   }
 
   const hasCredentials = values.url && hasUsableKey(values.apikey)
@@ -80,6 +109,8 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
   const hintId = `${service.id}-key-hint`
   const panelId = `${service.id}-panel`
   const connection = connectionOf({ saved, ping, testResult })
+  const announcement = outcome === 'ok' ? `${service.name} test passed`
+    : outcome === 'bad' ? `${service.name} test failed${testResult?.error ? `. ${testResult.error}` : ''}` : ''
 
   return (
     <li className={`service-row${open ? ' is-open' : ''}`}>
@@ -111,7 +142,7 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
             value={values.url || ''}
             readOnly={envManaged}
             aria-describedby={envManaged ? noteId : undefined}
-            onChange={e => onChange(service.id, 'url', e.target.value)}
+            onChange={e => handleEdit('url', e.target.value)}
           />
         </div>
         <div className="service-field">
@@ -123,15 +154,19 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
               value={values.apikey || ''}
               readOnly={envManaged}
               aria-describedby={envManaged ? noteId : (keyHint ? hintId : undefined)}
-              onChange={e => onChange(service.id, 'apikey', e.target.value)}
+              onChange={e => handleEdit('apikey', e.target.value)}
             />
             <button
               type="button"
-              className="btn btn-secondary"
-              disabled={!hasCredentials || testing}
+              className={`btn btn-secondary service-test${outcome ? ` is-${outcome}` : ''}`}
+              disabled={!hasCredentials}
+              aria-disabled={testing || outcome ? 'true' : undefined}
+              aria-label={testing ? 'Testing' : outcome === 'ok' ? 'Test passed' : outcome === 'bad' ? 'Test failed' : undefined}
               onClick={handleTest}
             >
-              {testing ? <span className="spinner" style={{width:14,height:14}} /> : 'Test'}
+              <span className={testing || outcome ? 'service-test-label is-covered' : 'service-test-label'}>Test</span>
+              {testing && <span className="spinner" style={{width:14,height:14}} />}
+              {outcome && <Icon name={OUTCOME_ICON[outcome]} />}
             </button>
           </div>
         </div>
@@ -139,6 +174,8 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
         {keyHint && !envManaged && (
           <div id={hintId} className="text-sm text-muted">Re-enter the API key for the new address.</div>
         )}
+
+        <span className="visually-hidden" role="status">{announcement}</span>
 
         {testResult && !testResult.success && (
           <div className="error-banner" style={{fontSize: 12}}>

@@ -70,6 +70,15 @@
 .service-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 12px; }
 .service-field label { margin: 0; font-size: 13px; color: var(--text-2); }
 .service-panel .input-group .btn { flex: none; }
+/* The Test button keeps the width of its label while it shows a spinner, a check or an X, so the field beside it stays put.
+   The label stays in the grid cell, covered, and the spinner or icon is centred over it. */
+.btn.service-test { display: inline-grid; place-items: center; }
+.service-test > * { grid-area: 1 / 1; }
+.service-test .service-test-label.is-covered { visibility: hidden; }
+.service-test .icon { font-size: 20px; margin: -2px; } /* 20 px artwork on a 16 px line: the margin lets it overflow into the padding, so the button keeps its height */
+.service-test[aria-disabled="true"] { cursor: default; }
+.service-test.is-ok, .service-test.is-ok:hover:not(:disabled) { background: var(--ok-bg); color: var(--ok); border-color: rgba(126, 226, 160, .3); }
+.service-test.is-bad, .service-test.is-bad:hover:not(:disabled) { background: var(--danger-bg); color: var(--danger); border-color: rgba(255, 107, 107, .3); }
 @media (max-width: 620px) {
   .service-row-head { grid-template-columns: 36px minmax(0, 1fr) auto 16px; gap: 12px; padding: 12px 14px; }
   .service-icon { width: 36px; height: 36px; font-size: 18px; }

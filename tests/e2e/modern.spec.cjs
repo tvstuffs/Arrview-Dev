@@ -579,3 +579,54 @@ test('Add buttons open the existing modals (criterion 9)', async ({ page }) => {
   await page.getByRole('button', { name: 'Add Movie', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
 })
+test('Settings: the Test button keeps its size while it shows a spinner, a check or an X, and says Test again after four seconds', async ({ browser }) => {
+  const OK = 'rgb(126, 226, 160)', DANGER = 'rgb(255, 107, 107)'
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+    const page = await context.newPage()
+    await open(page, '/settings')
+    await page.getByRole('button', { name: 'Sonarr', exact: true }).click()
+    const button = page.locator('#sonarr-panel .service-test')
+    const field = page.locator('#sonarr-key')
+    await button.scrollIntoViewIfNeeded()
+    // Width and height of the button and of the key field beside it: the field moves if the button changes width.
+    const sizes = async () => { const [b, f] = [await button.boundingBox(), await field.boundingBox()]; return [b.width, b.height, f.width, f.height] }
+    const idle = await sizes()
+    const unchanged = async label => { const now = await sizes(); now.forEach((value, i) => expect(Math.abs(value - idle[i]), `${label} at ${width} px, measure ${i}`).toBeLessThan(0.6)) }
+
+    let release
+    const gate = new Promise(resolve => { release = resolve })
+    await page.route('**/api/test/sonarr', async route => { await gate; await route.fulfill({ json: { success: true, version: '4.0.20' } }) })
+    await button.click()
+    await expect(button).toHaveAttribute('aria-label', 'Testing')
+    await expect(button.locator('.spinner')).toBeVisible()
+    await unchanged('spinner')
+    release()
+    await expect(button).toHaveAttribute('aria-label', 'Test passed')
+    await expect(button.locator('svg.icon')).toBeVisible()
+    await expect(button.locator('.service-test-label')).toBeHidden()
+    await expect.poll(() => button.evaluate(el => getComputedStyle(el).color)).toBe(OK)
+    await expect(page.locator('#sonarr-status')).toHaveText('Connected · v4.0.20')
+    await unchanged('check')
+    if (width === 1280) {
+      await expect.poll(() => button.getAttribute('aria-label'), { timeout: 6000 }).toBeNull()
+      await expect(button.locator('.service-test-label')).toBeVisible()
+      await expect(button.locator('svg')).toHaveCount(0)
+      await unchanged('Test again')
+    }
+
+    // A wrong key: an X. Editing the key while the check still shows makes the button ready at once.
+    await page.unroute('**/api/test/sonarr')
+    await page.route('**/api/test/sonarr', route => route.fulfill({ status: 400, json: { error: 'HTTP 401: Unauthorized' } }))
+    await field.fill('typed-wrong-key')
+    await expect(button).not.toHaveAttribute('aria-disabled', 'true', { timeout: 500 })
+    await button.click()
+    await expect(button).toHaveAttribute('aria-label', 'Test failed')
+    await expect(button.locator('svg.icon')).toBeVisible()
+    await expect.poll(() => button.evaluate(el => getComputedStyle(el).color)).toBe(DANGER)
+    await expect(page.locator('#sonarr-status')).toHaveText('Test failed')
+    await expect(page.getByText('HTTP 401: Unauthorized', { exact: true })).toBeVisible()
+    await unchanged('X')
+    await context.close()
+  }
+})

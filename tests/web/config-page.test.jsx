@@ -1,11 +1,11 @@
 import React from 'react'
 import { test, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import ConfigPage from '../../src/components/ConfigPage'
 
 const MASKED = '••••xxxx'
 const reply = (data, ok = true, status = ok ? 200 : 400) => ({ ok, status, json: async () => data })
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers() })
 
 const baseConfig = (extra = {}) => ({
   sonarr: { url: 'http://sonarr.example.invalid:8989', apikey: MASKED },
@@ -228,18 +228,131 @@ test('Services: a row opens and closes; its fields keep their values', () => {
   expect(screen.getByLabelText('Server URL', { selector: '#sonarr-url' })).toHaveValue('http://other.example.invalid:8989')
 })
 
+// Fake timers for the Test button's four-second result; `press` clicks and lets the stubbed request settle.
+const fakeTimers = () => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+const advance = ms => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+const press = button => act(async () => { fireEvent.click(button); await vi.advanceTimersByTimeAsync(0) })
+const sonarrPanel = () => screen.getByRole('group', { name: 'Sonarr connection' })
+const sonarrTest = () => sonarrPanel().querySelector('.service-test')
+const sonarrLive = () => within(sonarrPanel()).getByRole('status').textContent
+const testPosts = fetch => fetch.mock.calls.filter(([url, options]) => url === '/api/test/sonarr' && options?.method === 'POST').length
+
 test('Services: a Test result replaces the ping status in the row', async () => {
+  fakeTimers()
   let ok = true
   stubFetch(url => url === '/api/test/sonarr' ? reply(ok ? { success: true, version: '4.0.20' } : { error: 'HTTP 401: Unauthorized' }, ok) : reply({ status: 'ok', version: '1' }))
   render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  await advance(0)
   fireEvent.click(row('Sonarr'))
-  const test = () => screen.getByLabelText('API Key', { selector: '#sonarr-key' }).closest('.input-group').querySelector('button')
-  fireEvent.click(test())
-  await waitFor(() => expect(statusOf('Sonarr')).toBe('Connected · v4.0.20'))
+  await press(sonarrTest())
+  expect(statusOf('Sonarr')).toBe('Connected · v4.0.20')
+  await advance(4000)
   ok = false
-  fireEvent.click(test())
-  await waitFor(() => expect(statusOf('Sonarr')).toBe('Test failed'))
+  await press(sonarrTest())
+  expect(statusOf('Sonarr')).toBe('Test failed')
   expect(screen.getByText('HTTP 401: Unauthorized')).toBeInTheDocument()
+})
+
+test('Services: the Test button shows a check or an X for four seconds, then says Test again', async () => {
+  fakeTimers()
+  let ok = true
+  const fetch = stubFetch(url => url === '/api/test/sonarr' ? reply(ok ? { success: true, version: '4.0.20' } : { error: 'HTTP 401: Unauthorized' }, ok) : reply({ status: 'ok', version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  await advance(0)
+  fireEvent.click(row('Sonarr'))
+  expect(sonarrTest()).toHaveAccessibleName('Test')
+  expect(sonarrTest()).not.toHaveAttribute('aria-disabled')
+  expect(sonarrTest().querySelector('svg')).toBeNull()
+
+  await press(sonarrTest())
+  expect(sonarrTest()).toHaveAccessibleName('Test passed')
+  expect(sonarrTest()).toHaveAttribute('aria-disabled', 'true')
+  expect(sonarrTest()).toHaveClass('is-ok')
+  expect(sonarrTest().querySelector('svg.icon path')).toHaveAttribute('d', expect.stringMatching(/^M229\.66,77\.66/))
+  expect(sonarrLive()).toBe('Sonarr test passed')
+  expect(statusOf('Sonarr')).toBe('Connected · v4.0.20')
+  await press(sonarrTest())
+  expect(testPosts(fetch)).toBe(1)
+  await advance(3900)
+  expect(sonarrTest()).toHaveAccessibleName('Test passed')
+  await advance(100)
+  expect(sonarrTest()).toHaveAccessibleName('Test')
+  expect(sonarrTest()).not.toHaveAttribute('aria-disabled')
+  expect(sonarrTest()).not.toHaveClass('is-ok')
+  expect(sonarrTest().querySelector('svg')).toBeNull()
+  expect(sonarrLive()).toBe('')
+  expect(statusOf('Sonarr')).toBe('Connected · v4.0.20')
+
+  ok = false
+  await press(sonarrTest())
+  expect(testPosts(fetch)).toBe(2)
+  expect(sonarrTest()).toHaveAccessibleName('Test failed')
+  expect(sonarrTest()).toHaveClass('is-bad')
+  expect(sonarrTest().querySelector('svg.icon path')).toHaveAttribute('d', expect.stringMatching(/^M205\.66,194\.34/))
+  expect(sonarrLive()).toBe('Sonarr test failed. HTTP 401: Unauthorized')
+  expect(statusOf('Sonarr')).toBe('Test failed')
+  expect(screen.getByText('HTTP 401: Unauthorized')).toBeInTheDocument()
+  await advance(4000)
+  expect(sonarrTest()).toHaveAccessibleName('Test')
+  expect(sonarrTest()).not.toHaveAttribute('aria-disabled')
+  expect(sonarrTest().querySelector('svg')).toBeNull()
+})
+
+test('Services: a spinner shows while a Test runs, and an edit ends a shown result at once or drops a Test still running', async () => {
+  fakeTimers()
+  let answer
+  const fetch = stubFetch(url => url === '/api/test/sonarr' ? new Promise(resolve => { answer = resolve }) : reply({ status: 'ok', version: '1' }))
+  render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  await advance(0)
+  fireEvent.click(row('Sonarr'))
+  const key = () => screen.getByLabelText('API Key', { selector: '#sonarr-key' })
+
+  await press(sonarrTest())
+  expect(sonarrTest()).toHaveAccessibleName('Testing')
+  expect(sonarrTest()).toHaveAttribute('aria-disabled', 'true')
+  expect(sonarrTest().querySelector('.spinner')).not.toBeNull()
+  await press(sonarrTest())
+  expect(testPosts(fetch)).toBe(1)
+  // The key is edited while the Test runs: its answer is about the old key, so nothing is shown for it.
+  fireEvent.change(key(), { target: { value: 'typed-key-1' } })
+  await act(async () => { answer(reply({ success: true, version: '4.0.20' })); await vi.advanceTimersByTimeAsync(0) })
+  expect(sonarrTest()).toHaveAccessibleName('Test')
+  expect(sonarrTest()).not.toHaveAttribute('aria-disabled')
+  expect(sonarrLive()).toBe('')
+  expect(statusOf('Sonarr')).toBe('Connected')
+
+  // A result is showing; editing the key makes the button ready at once.
+  await press(sonarrTest())
+  await act(async () => { answer(reply({ error: 'HTTP 401: Unauthorized' }, false, 401)); await vi.advanceTimersByTimeAsync(0) })
+  expect(sonarrTest()).toHaveAccessibleName('Test failed')
+  fireEvent.change(key(), { target: { value: 'typed-key-2' } })
+  expect(sonarrTest()).toHaveAccessibleName('Test')
+  expect(sonarrTest()).not.toHaveAttribute('aria-disabled')
+  expect(sonarrLive()).toBe('')
+  await press(sonarrTest())
+  expect(testPosts(fetch)).toBe(3)
+})
+
+test('Services: leaving the page while a result shows, or while a Test runs, leaves no timer behind', async () => {
+  fakeTimers()
+  let answer
+  stubFetch(url => url === '/api/test/sonarr' ? new Promise(resolve => { answer = resolve }) : reply({ status: 'ok', version: '1' }))
+  const first = render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  await advance(0)
+  fireEvent.click(row('Sonarr'))
+  await press(sonarrTest())
+  await act(async () => { answer(reply({ success: true })); await vi.advanceTimersByTimeAsync(0) })
+  expect(sonarrTest()).toHaveAccessibleName('Test passed')
+  first.unmount()
+  expect(vi.getTimerCount()).toBe(0)
+
+  const second = render(<ConfigPage initialConfig={baseConfig()} onSave={() => {}} />)
+  await advance(0)
+  fireEvent.click(row('Sonarr'))
+  await press(sonarrTest())
+  second.unmount()
+  await act(async () => { answer(reply({ success: true })); await vi.advanceTimersByTimeAsync(0) })
+  expect(vi.getTimerCount()).toBe(0)
 })
 
 test('Services: pings start once and do not restart when the parent passes a new, equal config on every render', async () => {
