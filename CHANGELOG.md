@@ -2,6 +2,10 @@
 
 ## 1.9A11 (unreleased) — Set up the webhook in Sonarr and Radarr from Settings
 
+- **Version 1.9A11.** One feature on top of 1.9A10, built by factory job 010 and merged on 2026-11-05: the Webhooks card
+  in Settings gains Set up and Remove buttons, and the server gains three routes. No existing route, request or config
+  key changes, no file format changes and `package.json` is unchanged.
+
 - **The Webhooks card can create and remove ArrView's webhook in Sonarr and Radarr** (factory job 010, job A of two;
   updating an existing connection is a later job). For each saved service the card shows a "Status in Sonarr" (or
   Radarr) line, a **Set up in Sonarr** button that first shows a preview of exactly what is added (the name ArrView, the
@@ -48,8 +52,8 @@
   the apps' own); concurrency beyond six parallel creates against a fast receiver; how the created connection looks in
   the apps' own Settings, Connect pages; a reverse proxy in front of ArrView that cuts the request before the create
   timeout (nginx defaults to 60 s); and the 115 s create timeout end to end through ArrView.
-- **Tests:** server 248/248, web (vitest) 504/504, e2e 163/163 in Microsoft Edge on macOS (1.9A9 had 221, 488 and
-  160). New: `tests/webhook-setup.test.js` (27 tests against in-process fakes of Sonarr and Radarr that behave as the
+- **Tests:** server 248/248, web (vitest) 508/508, e2e 163/163 in Microsoft Edge on macOS, on the merged result (1.9A10
+  had 221, 492 and 160; the job's branch before the merge ran 248, 504 and 163; CI repeats them in real Chromium). New: `tests/webhook-setup.test.js` (27 tests against in-process fakes of Sonarr and Radarr that behave as the
   live apps did: every state, the exact create body, each create outcome, the timeout re-read, the one-at-a-time
   queue for set-up and remove, a create the app saves after ArrView gave up (timed out or connection lost) with a
   second set-up already queued, remove with no saved address, the secret-leak sweep of answers and log lines, the login
@@ -57,6 +61,75 @@
   (the trigger list and the URL rule are the same on both sides), 14 card tests in `tests/web/webhook-settings.test.jsx`,
   and set-up, remove and a refusal for both apps in `tests/e2e/webhooks.spec.cjs`. One guide assertion in
   `tests/web/webhook-activity.test.jsx` quotes the new Test step.
+- **Checked on the merged result** (not by the factory, whose branch was built on 1.9A9): the branch alone (`bea8667`) in a
+  fresh export ran server 248/248, web 504/504 and e2e 163/163 in Edge. The merge with 1.9A10 ran server 248/248, web
+  508/508 and e2e 163/163, in a scratch export and again in the worktree this version was committed from. The merge
+  conflicted only in this file. The server change is one insertion after the Radarr receiver and removes no line. The
+  1,723 lines the job added were scanned for personal paths, private addresses, e-mail addresses, names and key-shaped
+  strings: only placeholder hosts (`*.example`, `fake.invalid`, loopback, `192.0.2.10`) and made-up test logins.
+  Nothing has run against a real Sonarr or Radarr yet; the human test plan below is the first real use.
+- **Human test plan** (on a real install after the upgrade; Sonarr and Radarr behave the same, so repeat per service;
+  start with an app that has no ArrView webhook yet):
+  1. Record the starting state. In each app (Settings, Connect) note every connection, especially any named ArrView with
+     its URL, method and triggers. Steps 8 to 10 change or remove it, and you restore it from these notes.
+  2. Open Settings, Webhooks in ArrView with a saved ArrView address the apps can reach. Each configured service shows
+     "Checking Sonarr…" and then a status within a second or two. No ArrView webhook in the app: "Not set up." with
+     **Set up in Sonarr**. A hand-made one at the same address: "Set up." with **Remove from Sonarr** and no Set up
+     button. One at a different address: "Set up, but at a different address: <address>." with Remove only; if its URL
+     carries login details or a query the text says so and the shown address has neither. (An "ArrView webhook" is any
+     Webhook connection whose URL path ends in `/api/webhooks/<service>`, whatever its name.)
+  3. In an app that reads "Not set up.", edit the address field without saving. Set up is disabled and the hint "Save the
+     address first: Set up uses the saved address." shows; after saving, Set up is enabled again.
+  4. Press **Set up in Sonarr**. The preview shows the name `ArrView`, the URL (saved address plus
+     `/api/webhooks/sonarr`), Method POST, the six trigger labels and a sentence that Sonarr sends a test message before
+     saving, with Add and Cancel. Cancel closes it and writes nothing (check in the app that no ArrView connection
+     appeared). Press Set up again, then Add. The buttons are disabled while it runs, and after 3 seconds a waiting text
+     appears. Then the status reads "Set up." with "ArrView received Sonarr's test message.", and Last event received
+     shows "Test message received" within about 5 seconds. In the app (Settings, Connect) the new connection is named
+     ArrView, has the previewed URL and method POST, with the six triggers on and nothing else on.
+  5. Cause a real event in the app (a grab, import, rename or delete, whichever is safe). Last event received updates
+     and the ArrView log gains a webhook line.
+  6. Put a removed connection back: press Set up again (step 4), or add it by hand in the app (Settings, Connect, +,
+     Webhook, name ArrView, the URL from the guide, POST, the same six triggers, Test, Save). Either way the card shows
+     "Set up.". Restore a hand-made connection that had other triggers, another name or extra headers by hand: Set up
+     recreates only the standard one.
+  7. With "Set up." showing, press **Remove from Sonarr**. The text "Remove the ArrView webhook from Sonarr? Your other
+     connections are not changed." shows with Remove and Cancel. Cancel changes nothing. Remove re-reads, and the status
+     becomes "Not set up."; the connection is gone in the app and every other connection is still there.
+  8. On an app that already has a hand-made ArrView webhook, confirm the card reads "Set up." and nothing was created.
+     Press Remove only if you can restore it by hand (step 6); only that one connection is deleted.
+  9. If you can, add a throwaway connection with the URL `http://host.example:7777/api/webhooks/sonarr?token=x`. It is
+     recognised ("Set up." if the host is your saved address, else a different address), the shown address has no query
+     or credentials, and Remove deletes only that connection.
+  10. Add a connection of another type (for example Discord) named `arrview` (any case) while no ArrView webhook exists:
+      "Cannot set up: a connection named ArrView already exists in Sonarr. Rename or remove it there." and no buttons.
+      With two ArrView-path webhooks present: "Several ArrView webhooks exist in Sonarr. Remove the extra ones there."
+      Delete your test connections afterwards.
+  11. Note the real address, then save one the app cannot reach, press Set up and Add. It takes seconds (up to about 100
+      seconds if the app's connect hangs; watch the waiting text), then an error shows in plain text, the status stays
+      "Not set up.", nothing is created in the app, and the error text shows no credentials and no stack trace. Restore
+      the real address.
+  12. Save a wrong Sonarr key in ArrView: "Cannot check: Sonarr rejected the API key." with no buttons. Stop Sonarr:
+      "Cannot check: Sonarr could not be reached." Remove a service from ArrView: "Cannot check: Sonarr is not set up in
+      ArrView." Restore everything.
+  13. An unconfirmed create is hard to cause on purpose. If you can, make a create outlast ArrView's 115 second wait (an
+      address where connections hang) and keep a second tab ready. The answer is a 504 or 502 with an error text, and the
+      card re-reads the status. For up to 120 seconds the card can still read "Not set up." with Set up showing; pressing it then
+      answers "Sonarr has not confirmed the last set-up and may still save it. Check the status again in two minutes
+      before trying again." and creates nothing. If the app saved late, the card turns to "Set up." on its next read;
+      otherwise Set up works again after two minutes. Afterwards the app must hold exactly one ArrView connection. The
+      120 seconds are unmeasured against real apps: do not trust that figure until you have seen it.
+  14. Open the guide steps and troubleshooting under the buttons. The Test step says a green check only means something
+      answered and names "Test message received" as the proof. "Test passes but nothing updates." starts with Last event
+      received and the login page or redirect hint before the triggers.
+  15. View the card at a narrow window and at 1280 px, with a long address and in every state: no overflow or overlap,
+      text-only buttons, and keyboard focus reaches every button.
+  16. Turn the ArrView login on and repeat steps 2, 4 and 7 signed in. They work. `GET /api/webhook-setup/sonarr`
+      without a credential answers 401. A cookie-authenticated POST or DELETE without `X-Requested-With: ArrView`
+      answers 403. The app's Test message still reaches `/api/webhooks/sonarr` (a public route), so "Test message
+      received" appears.
+  17. Roll back to the 1.9A10 image: nothing to migrate, because nothing new is stored. A webhook set up by 1.9A11 stays
+      in the app and keeps working, since the receivers are unchanged. The card goes back to the written guide only.
 
 ## 1.9A10 (unreleased) — Shows: a season's Search N Missing leaves out unmonitored episodes
 
