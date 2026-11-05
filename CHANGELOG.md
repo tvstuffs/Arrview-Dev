@@ -1,5 +1,73 @@
 # ArrView server development changelog
 
+## 1.9A12 (unreleased) — Docker: the image declares /data as a volume
+
+- **Version 1.9A12.** One image change on top of 1.9A11, from the maintainer's decision of 2026-11-05. The Dockerfile gains
+  one line, `VOLUME /data`. No server route, request, config key or file format changes, `package.json` is unchanged and
+  the only server line that changed is the version.
+
+- **A container started with nothing mounted at `/data` now has a data folder.** The image used to have no `/data` at all,
+  so a container created without a volume logged the 1.9A9 `[data]` line and could not save anything, and with a Docker
+  password (`ARRVIEW_PASSWORD`) nobody could sign in (each attempt logged `could not write auth.json (ENOENT)`). Docker
+  now creates an anonymous volume at `/data` for such a container: the `[data]` line does not appear, and settings, the
+  first-run choice, sign-in sessions and app keys save and survive a restart. A bind mount or a named volume at `/data`
+  replaces the anonymous volume exactly as before and no extra volume is created, so an existing deployment is
+  unchanged. This replaces the 1.9A9 description of a container with no volume.
+- **What the anonymous volume is and is not.** It belongs to the container it was made for. Removing the container and
+  creating a new one (an image update done as `docker rm` and `docker run`, for example) gives the new container a new,
+  empty volume: the settings are gone, the first-run screen returns, and a password that was set in Settings no longer
+  applies, so the login is off. The old volume stays behind under a 64-character hex name (`docker volume ls`) with its
+  files, and `docker volume prune` deletes it. `docker run --rm` removes the container's anonymous volume with it. To
+  keep data across updates, mount a folder or a named volume at `/data`. Tools differ in whether a recreate carries an
+  anonymous volume over (Docker's documentation says Compose `up` keeps it); this was not tried with Compose,
+  Portainer, Unraid or Watchtower.
+- **ArrView still does not create the folder itself** (the 1.9A9 rule stands): the server only reports. A `CONFIG_DIR` that
+  names something that is not a writable folder, with nothing mounted there, still logs the `[data]` line and fails
+  loudly. The README's sentence about the data folder is rewritten for the volume.
+- **A guard test** keeps the Dockerfile's `VOLUME` and its `CONFIG_DIR` the same folder, and the volume ahead of any step
+  that could write into it.
+
+- **Tests:** server 250/250 (248 at 1.9A11), web (vitest) 508/508, e2e 163/163 in Microsoft Edge on macOS (CI repeats them
+  in real Chromium). New: `tests/dockerfile.test.js` (two tests: the runtime stage's `VOLUME` is the `CONFIG_DIR` folder;
+  no later step writes into it). Both fail on the 1.9A11 Dockerfile, and the first also fails when the `VOLUME` line names
+  another folder (checked by setting the line aside). `tests/auth-docs.test.js` now checks the new README sentences in
+  place of the old one.
+- **Checked in a container** (the image built from this commit, in Colima: a script of 34 checks and another of 6, all
+  passing; the 1.9A9 image, which has no `VOLUME`, ran as the control):
+  - The control reproduces the failure: a Docker password and no volume logs the `[data]` line and the right password
+    answers 500. The same run on this image has no `[data]` line, a wrong password answers 401, the right one 200,
+    `auth.json` is written to `/data` and the session still works after a restart.
+  - With nothing set at all: one anonymous volume (a 64-character hex name) is the only mount, the first-run screen is
+    pending, Continue without a password and a Settings save answer 200, `/data` holds `auth.json` and `config.json`,
+    and after a restart the first-run screen does not return, the saved setting is still there and the volume is the same.
+  - Removing that container and running the same line again: a different anonymous volume, empty, the first-run screen
+    pending again, the setting gone, and the old volume left behind as a dangling volume that still holds its files.
+  - A bind mount (the only mount, no volume created, the files land in the host folder, the data survives remove and
+    run) and a named volume (same volume, data survives remove and run) behave as before. Data made by the 1.9A9 image
+    in a bind-mounted folder is read by this image unchanged, and the 1.9A9 image reads what this one saved.
+  - `docker run --rm` leaves no container and no volume behind.
+  - A `CONFIG_DIR` changed to a folder that does not exist, with nothing mounted there, still logs the `[data]` line.
+- **Not verified:** Docker Compose (`up`, `down`), Portainer, Unraid, Watchtower, Podman and Docker Desktop (the checks ran
+  on Docker Engine in a Linux VM), so which updater keeps an anonymous volume and which leaves it behind is unknown;
+  anything that warns the user that `/data` is an anonymous volume (nothing does: the README is the only place that
+  says so); a real image update on a NAS host.
+- **Human test plan** (on Docker; use a spare port and a throwaway container name, so the container you use keeps running):
+  1. Run the image the way that failed before, with a Docker password and nothing mounted at `/data`:
+     `docker run -d --name arrview-try -p 7790:7777 -e ARRVIEW_PASSWORD=<a-password-of-8-or-more-characters> ghcr.io/tvstuffs/arrview:dev`.
+     The log has no `[data]` line, the sign-in screen at `http://<host>:7790` accepts the password and Settings saves.
+     `docker inspect arrview-try` lists one volume mounted at `/data`, with a 64-character name.
+  2. `docker restart arrview-try`: you are still signed in and your settings are still there.
+  3. `docker rm -f arrview-try`, then run the same command again: the container starts empty (a password set in
+     Settings would be gone) and `docker volume ls` still lists the old volume. Remove each leftover with
+     `docker volume rm <name>`.
+  4. Run it again with a folder, `-v <folder>:/data`: the files appear in the folder and `docker volume ls` shows no new
+     volume.
+  5. Run it with `--rm` and stop it: `docker volume ls` shows no leftover.
+  6. The way you really update a container (Compose `up -d`, Portainer's recreate, Watchtower): after an update of a
+     container that has no volume mounted, are your settings still there? Report the tool and the result; it decides
+     whether the README needs a warning for that tool.
+  7. Roll back to the 1.9A11 image with nothing mounted at `/data`: the `[data]` line comes back (the old behaviour).
+
 ## 1.9A11 (unreleased) — Set up the webhook in Sonarr and Radarr from Settings
 
 - **Version 1.9A11.** One feature on top of 1.9A10, built by factory job 010 and merged on 2026-11-05: the Webhooks card

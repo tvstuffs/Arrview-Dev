@@ -132,8 +132,13 @@ docker run -d --name arrview \
 ```
 
 The container serves the dashboard on `http://localhost:7777` and stores saved settings in `/data/config.json`.
-ArrView needs a writable data folder, so mount a volume at `/data`: without one, settings and sign-in cannot be saved
-(ArrView does not create the folder, and says so in its log at start-up).
+The image declares `/data` as a volume. If you mount nothing there, Docker creates an anonymous volume for the
+container, so settings and sign-in save and survive a restart. That volume belongs to the container it was made for:
+when you remove the container and create a new one (an image update, for example), the new container starts empty
+and the old volume stays behind under a long hex name (`docker volume ls`; `docker volume prune` deletes it). To keep
+your data across updates, mount a folder or a named volume at `/data`, as in the command above or with
+`-v arrview-data:/data`. ArrView itself never creates the data folder: if `CONFIG_DIR` points at something that is
+not a writable folder (a changed `CONFIG_DIR` with nothing mounted there, say), it says so in its log at start-up.
 
 > **iOS auto-discovery requires host networking.** The container advertises
 > itself over Bonjour/mDNS so the ArrView iOS app can find it on the network
