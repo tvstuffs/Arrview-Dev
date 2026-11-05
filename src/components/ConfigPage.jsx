@@ -352,7 +352,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
           </ul>
         </section>
 
-        <WebhookSettings address={webhookAddress} onAddressChange={setWebhookAddress}
+        <WebhookSettings address={webhookAddress} onAddressChange={setWebhookAddress} savedAddress={savedAddress}
           sonarr={savedService('sonarr')} radarr={savedService('radarr')} activity={webhookActivity} />
 
         <InstallHelp />

@@ -2166,6 +2166,298 @@ app.post('/api/webhooks/radarr', (req, res) => {
   });
 });
 
+// ── Webhook setup (Settings → Webhooks: Set up in / Remove from Sonarr or Radarr) ──
+// The server does all of it with the stored address and key; the browser gets a state and nothing else from the
+// app's connection list, which holds every connection the user has with whatever is in it (usernames, header values
+// and URL queries read back in clear; only passwords are masked). Ours is recognised by its URL, whatever it is
+// called. Set up and remove for one service run one at a time: the apps' unique-name check is not atomic.
+// Not under /api/webhooks/, so the JSON content-type guard and the login gate apply as to any other route.
+const WEBHOOK_APPS = {
+  sonarr: { name: 'Sonarr', connection: () => sonarrHeaders() },
+  radarr: { name: 'Radarr', connection: () => radarrHeaders() },
+};
+const WEBHOOK_NAME = 'ArrView';
+const WEBHOOK_READ_TIMEOUT_MS = 15000;
+// The apps' own limit for their test is 100 s, and they finish a create even when the caller gives up.
+const WEBHOOK_CREATE_TIMEOUT_MS = 115000;
+// After a create whose outcome is unknown the app may still save it, so no other create is sent for this long after
+// ArrView gave up on it, unless the list shows ours before then. It covers the app's 100 s limit with a margin.
+const WEBHOOK_UNRESOLVED_MS = 120000;
+const webhookUnresolvedUntil = { sonarr: 0, radarr: 0 };
+
+// The triggers ArrView sets on, per service, in the order the guide lists them. src/webhooks.js holds a copy for
+// the guide and the preview, and a test checks the two are the same. Every other trigger stays off.
+// webhookTriggers:begin
+const WEBHOOK_TRIGGERS = {
+  sonarr: [
+    { field: 'onDownload', label: 'On File Import' },
+    { field: 'onUpgrade', label: 'On File Upgrade' },
+    { field: 'onRename', label: 'On Rename' },
+    { field: 'onSeriesAdd', label: 'On Series Add' },
+    { field: 'onSeriesDelete', label: 'On Series Delete' },
+    { field: 'onEpisodeFileDelete', label: 'On Episode File Delete' },
+  ],
+  radarr: [
+    { field: 'onDownload', label: 'On File Import' },
+    { field: 'onUpgrade', label: 'On File Upgrade' },
+    { field: 'onRename', label: 'On Rename' },
+    { field: 'onMovieAdded', label: 'On Movie Added' },
+    { field: 'onMovieDelete', label: 'On Movie Delete' },
+    { field: 'onMovieFileDelete', label: 'On Movie File Delete' },
+  ],
+};
+// webhookTriggers:end
+
+// The one URL ArrView writes into the app: the saved ArrView address plus the receiver's path, nothing from the
+// request. Null when no address is saved.
+function webhookTargetUrl(service) {
+  const saved = loadConfig().webhooks?.baseUrl;
+  const base = typeof saved === 'string' && saved ? normalizeWebhookBase(saved) : null;
+  return base ? `${base}/api/webhooks/${service}` : null;
+}
+
+const parseUrl = value => { try { return typeof value === 'string' ? new NodeURL(value) : null; } catch (_) { return null; } };
+const plainPath = url => url.pathname.replace(/\/+$/, '').toLowerCase();
+const urlFieldOf = entry => (Array.isArray(entry.fields) ? entry.fields.find(f => f && f.name === 'url') : null)?.value;
+
+// Ours: a Webhook whose URL path ends in the receiver's path. ArrView's receiver accepts trailing slashes, any
+// letter case and a query, and the apps store the URL as typed, so a working hand-made one counts too.
+function isOurWebhook(entry, service) {
+  if (!entry || typeof entry !== 'object' || entry.implementation !== 'Webhook') return false;
+  const url = parseUrl(urlFieldOf(entry));
+  return Boolean(url) && plainPath(url).endsWith(`/api/webhooks/${service}`);
+}
+
+// The list as the app answers it, or which way reading it failed. A 200 that is not a JSON array (a login page) is
+// as good as no answer.
+async function readWebhookList({ baseUrl, headers }) {
+  try {
+    const r = await axios.get(`${baseUrl}/api/v3/notification`, { headers, timeout: WEBHOOK_READ_TIMEOUT_MS, maxRedirects: 0 });
+    return Array.isArray(r.data) ? { list: r.data } : { failed: 'unreachable' };
+  } catch (e) {
+    const status = e.response?.status;
+    return { failed: status === 401 || status === 403 ? 'key-rejected' : 'unreachable' };
+  }
+}
+
+// The one classification GET, POST and DELETE share. `ours` is for the server only and never sent. With no target
+// (DELETE without a saved address) one of ours cannot be compared, and gives needs-address, as GET says then.
+function classifyWebhooks(read, service, target) {
+  if (read.failed) return { state: read.failed, ours: [] };
+  const ours = read.list.filter(entry => isOurWebhook(entry, service));
+  if (ours.length > 1) return { state: 'multiple', ours };
+  if (ours.length === 1) {
+    if (!target) return { state: 'needs-address', ours };
+    const found = new NodeURL(urlFieldOf(ours[0]));
+    const wanted = new NodeURL(target);
+    if (found.protocol === wanted.protocol && found.hostname === wanted.hostname && found.port === wanted.port &&
+        plainPath(found) === plainPath(wanted)) return { state: 'present', ours };
+    // Only scheme, host, port and path are shown: a query, login details or a fragment may hold a secret.
+    const extra = Boolean(found.username || found.password || found.search || found.hash);
+    return { state: 'different-address', ours, address: `${found.protocol}//${found.host}${found.pathname}`, extra };
+  }
+  const taken = read.list.some(entry => entry && typeof entry.name === 'string' && entry.name.toLowerCase() === WEBHOOK_NAME.toLowerCase());
+  return { state: taken ? 'name-taken' : 'absent', ours };
+}
+
+// The address of a different-address state, for an answer.
+const shownAddress = c => (c.state === 'different-address' ? { address: c.address, ...(c.extra ? { extra: true } : {}) } : {});
+
+// Why a set-up cannot go ahead in this state (null when it can, or when it is already done).
+function webhookRefusal(state, name) {
+  switch (state) {
+    case 'not-configured': return { status: 503, error: `${name} not configured` };
+    case 'needs-address': return { status: 409, error: 'Save the ArrView address first' };
+    case 'key-rejected': return { status: 502, error: `${name} rejected the API key` };
+    case 'unreachable': return { status: 502, error: `${name} could not be reached` };
+    case 'multiple': return { status: 409, error: `Several ArrView webhooks exist in ${name}. Remove the extra ones in ${name}.` };
+    case 'name-taken': return { status: 409, error: `A connection named ArrView already exists in ${name}. Rename or remove it in ${name}.` };
+    case 'different-address': return { status: 409, error: `The ArrView webhook in ${name} points at another address. Fix it in ${name}, or remove it here and set up again.` };
+    default: return null;
+  }
+}
+
+// The app's own text, safe to show: one line, no login details in a URL, at most 300 characters.
+function cleanAppText(text) {
+  const line = String(text).replace(/\s+/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/gi, '$1').trim();
+  return line.length > 300 ? `${line.slice(0, 300)}…` : line;
+}
+
+// The list read and classified. Ours in the list settles an unknown create: whatever it was, it is now there.
+async function readAndClassify(conn, service, url) {
+  const c = classifyWebhooks(await readWebhookList(conn), service, url);
+  if (c.ours.length) webhookUnresolvedUntil[service] = 0;
+  return c;
+}
+
+const webhookTail = { sonarr: Promise.resolve(), radarr: Promise.resolve() };
+function webhookQueued(service, fn) {
+  const run = webhookTail[service].then(fn);
+  webhookTail[service] = run.catch(() => {});
+  return run;
+}
+
+// Every route answers through this: an unknown service is a 404, and an unexpected error says nothing about why.
+function webhookRoute(handler, queued) {
+  return async (req, res) => {
+    const { service } = req.params;
+    if (!Object.prototype.hasOwnProperty.call(WEBHOOK_APPS, service)) return res.status(404).json({ error: 'Unknown service' });
+    const run = async () => {
+      // Work queued behind another call starts later: credentials removed meanwhile no longer count.
+      if (!reauthorised(req)) return { status: 401, body: { error: 'Authentication required', auth: true } };
+      return handler(service, WEBHOOK_APPS[service]);
+    };
+    try {
+      const { status, body } = await (queued ? webhookQueued(service, run) : run());
+      res.status(status).json(body);
+    } catch (_) {
+      res.status(500).json({ error: 'Webhook setup failed' });
+    }
+  };
+}
+
+const connectionOf = arr => { try { return arr.connection(); } catch (_) { return null; } };
+
+app.get('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
+  const url = webhookTargetUrl(service);
+  const conn = connectionOf(arr);
+  if (!conn) return { status: 200, body: { service, state: 'not-configured', url } };
+  if (!url) return { status: 200, body: { service, state: 'needs-address', url } };
+  const c = await readAndClassify(conn, service, url);
+  return { status: 200, body: { service, state: c.state, url, ...shownAddress(c) } };
+}, false));
+
+// What the app answered to the create, as an answer for the browser. Only errorMessage (400) or message (500) is
+// taken from a failure, never the 500's description (a stack trace) and never the error object itself.
+async function webhookCreateOutcome(service, arr, conn, url, send, sentAt) {
+  const created = () => {
+    const seen = webhookSeen[service].test;
+    return { state: 'present', created: true, skipped: send.skipped, testReceived: Boolean(seen && seen.at >= sentAt) };
+  };
+  let timedOut = false;
+  try {
+    const r = await axios.post(`${conn.baseUrl}/api/v3/notification`, send.body,
+      { headers: conn.headers, timeout: WEBHOOK_CREATE_TIMEOUT_MS, maxRedirects: 0 });
+    const data = r.data;
+    if (data && typeof data === 'object' && !Array.isArray(data) && typeof data.id === 'number' && Number.isFinite(data.id)) {
+      console.log(`[Webhook setup] ${service}: created`);
+      return { status: 201, body: created() };
+    }
+  } catch (e) {
+    const status = e.response?.status;
+    const data = e.response?.data;
+    if (status === 401 || status === 403) return { status: 502, body: { error: `${arr.name} rejected the API key`, state: 'key-rejected' } };
+    if (status === 400 && Array.isArray(data)) {
+      const text = data.map(item => (item && typeof item.errorMessage === 'string' ? item.errorMessage : '')).filter(Boolean).join(' ');
+      return { status: 422, body: { error: `${arr.name} refused the webhook: ${cleanAppText(text)}`, refused: true } };
+    }
+    if (status === 500 && data && typeof data === 'object' && !Array.isArray(data) && typeof data.message === 'string') {
+      return { status: 422, body: { error: `${arr.name} could not reach ArrView: ${cleanAppText(data.message)}`, refused: true } };
+    }
+    timedOut = !e.response && (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT');
+  }
+  // The outcome is unknown: the app may have saved it anyway, so the list says what happened.
+  const c = await readAndClassify(conn, service, url);
+  if (c.state === 'present') {
+    console.log(`[Webhook setup] ${service}: created`);
+    return { status: 201, body: created() };
+  }
+  // Not there yet is not the same as not saved: the app may still be testing it.
+  if (!c.ours.length) webhookUnresolvedUntil[service] = Date.now() + WEBHOOK_UNRESOLVED_MS;
+  const status = timedOut ? 504 : 502;
+  if (c.state === 'absent') {
+    return { status, body: { error: `${arr.name} did not confirm the webhook, and it is not in ${arr.name}'s list yet. ${arr.name} may still be testing the address: check the status again in two minutes before trying again.`, state: 'absent' } };
+  }
+  return { status, body: { error: `${arr.name} did not confirm the webhook. Check the status before trying again.`, state: c.state } };
+}
+
+// The create body: the app's own Webhook template with our name, URL, POST, the supported triggers on and every
+// other trigger off. Null when the template is not one ArrView recognises.
+function webhookCreateBody(service, template, url) {
+  if (!template || typeof template !== 'object' || !Array.isArray(template.fields)) return null;
+  if (!template.fields.some(f => f && f.name === 'url') || !template.fields.some(f => f && f.name === 'method')) return null;
+  const supports = field => template[`supports${field.charAt(0).toUpperCase()}${field.slice(1)}`] === true;
+  const triggers = WEBHOOK_TRIGGERS[service];
+  if (!triggers.some(t => supports(t.field))) return null;
+  const body = {};
+  for (const [key, value] of Object.entries(template)) {
+    if (key === 'id') continue;
+    body[key] = /^on[A-Z]/.test(key) && typeof value === 'boolean' ? false : value;
+  }
+  for (const t of triggers) body[t.field] = supports(t.field);
+  body.name = WEBHOOK_NAME;
+  body.tags = [];
+  body.fields = template.fields.map(f => (f && f.name === 'url' ? { ...f, value: url } : f && f.name === 'method' ? { ...f, value: 1 } : f));
+  return { body, skipped: triggers.filter(t => !supports(t.field)).map(t => t.label) };
+}
+
+const webhookStateAnswer = (c, name) => {
+  if (c.state === 'present') return { status: 200, body: { state: 'present', created: false } };
+  const refusal = webhookRefusal(c.state, name);
+  return { status: refusal.status, body: { error: refusal.error, state: c.state, ...shownAddress(c) } };
+};
+
+app.post('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
+  const conn = connectionOf(arr);
+  if (!conn) return webhookStateAnswer({ state: 'not-configured' }, arr.name);
+  const url = webhookTargetUrl(service);
+  if (!url) return webhookStateAnswer({ state: 'needs-address' }, arr.name);
+  let c = await readAndClassify(conn, service, url);
+  if (c.state !== 'absent') return webhookStateAnswer(c, arr.name);
+  if (Date.now() < webhookUnresolvedUntil[service]) {
+    return { status: 409, body: { error: `${arr.name} has not confirmed the last set-up and may still save it. Check the status again in two minutes before trying again.`, state: 'absent', pending: true } };
+  }
+
+  let template = null;
+  try {
+    const r = await axios.get(`${conn.baseUrl}/api/v3/notification/schema`, { headers: conn.headers, timeout: WEBHOOK_READ_TIMEOUT_MS, maxRedirects: 0 });
+    if (Array.isArray(r.data)) {
+      const webhooks = r.data.filter(entry => entry && entry.implementation === 'Webhook');
+      if (webhooks.length === 1) template = webhooks[0];
+    }
+  } catch (e) {
+    const status = e.response?.status;
+    return webhookStateAnswer({ state: status === 401 || status === 403 ? 'key-rejected' : 'unreachable' }, arr.name);
+  }
+  const send = webhookCreateBody(service, template, url);
+  if (!send) return { status: 502, body: { error: `${arr.name} offered no Webhook connection to create` } };
+
+  // Read again right before the create: the app does not stop two creates of the same name.
+  c = await readAndClassify(conn, service, url);
+  if (c.state !== 'absent') return webhookStateAnswer(c, arr.name);
+  return webhookCreateOutcome(service, arr, conn, url, send, Date.now());
+}, true));
+
+app.delete('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
+  const conn = connectionOf(arr);
+  if (!conn) return webhookStateAnswer({ state: 'not-configured' }, arr.name);
+  const url = webhookTargetUrl(service);
+  const c = await readAndClassify(conn, service, url);
+  if (c.state === 'unreachable' || c.state === 'key-rejected') return webhookStateAnswer(c, arr.name);
+  if (c.state === 'absent' || c.state === 'name-taken') return { status: 404, body: { state: c.state, error: `There is no ArrView webhook in ${arr.name}` } };
+  if (c.state === 'multiple') return webhookStateAnswer(c, arr.name);
+
+  // Exactly one of ours. Its id comes from the app's list, never from the request.
+  const id = c.ours[0].id;
+  if (!Number.isInteger(id) || id <= 0) return { status: 502, body: { error: `${arr.name} listed the ArrView webhook without a usable id`, state: c.state } };
+  try {
+    await axios.delete(`${conn.baseUrl}/api/v3/notification/${id}`, { headers: conn.headers, timeout: WEBHOOK_READ_TIMEOUT_MS, maxRedirects: 0 });
+  } catch (e) {
+    const status = e.response?.status;
+    const failed = status === 401 || status === 403 ? 'key-rejected' : 'unreachable';
+    return { status: 502, body: { error: webhookRefusal(failed, arr.name).error, state: c.state } };
+  }
+  // The apps answer 200 even for an id they do not have, so the list says whether it went.
+  const after = classifyWebhooks(await readWebhookList(conn), service, url);
+  if (after.state === 'unreachable' || after.state === 'key-rejected') {
+    return { status: 502, body: { error: `${arr.name} answered, but the result could not be checked. Check the status.`, state: after.state } };
+  }
+  if (after.ours.length) return { status: 502, body: { error: `${arr.name} answered, but the ArrView webhook is still there`, state: after.state } };
+  console.log(`[Webhook setup] ${service}: removed`);
+  return { status: 200, body: { state: after.state, removed: true } };
+}, true));
+
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 
 app.get('*', (req, res) => {
