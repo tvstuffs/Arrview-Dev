@@ -16,6 +16,11 @@ ENV NODE_ENV=production
 ENV PORT=7777
 ENV CONFIG_DIR=/data
 
+# The data folder. When nothing is mounted at /data, Docker creates an anonymous volume here, so the folder always
+# exists and settings and sign-in save. That volume belongs to the container it was made for: mount a folder or a
+# named volume at /data to keep your data when you recreate the container (see the README).
+VOLUME /data
+
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
