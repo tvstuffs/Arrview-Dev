@@ -35,6 +35,8 @@ services:
       # ARRVIEW_PASSWORD_FILE: /run/secrets/arrview_password    # bind-mount ./secrets/arrview_password
       # ARRVIEW_AUTH: "off"                                     # recovery switch: turns the login off
       # ARRVIEW_TRUSTED_PROXIES: 192.0.2.10, 198.51.100.0/24    # reverse proxies whose X-Forwarded-* is believed
+      # ADVERTISE_HOST: arrview                                 # host name to advertise; ".local" is added
+      # ADVERTISE_IP: <host-address>                            # one IPv4 address of this host to advertise
     volumes:
       - ./data:/data
       # For *_API_KEY_FILE secrets (keep ./secrets out of git):

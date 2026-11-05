@@ -155,6 +155,31 @@ ArrView needs a writable data folder, so mount a volume at `/data`: without one,
 > - If you can't use host networking, the app still works — just choose
 >   **Connect Directly** in setup and enter `http://<host>:7777` manually.
 
+> **Optional: choose the host name and address that are advertised.** Two
+> environment variables set what the Bonjour/mDNS advertisement says. ArrView
+> reads them once, at start-up. Pass them with `-e` on `docker run`, or in the
+> `environment:` block of `docker-compose.yml` (commented examples are there).
+> - `ADVERTISE_HOST` is the host name to advertise. ArrView adds `.local` to it
+>   and does not double a `.local` you already typed, so `arrview` and
+>   `arrview.local` both advertise `arrview.local`. If it is not set, ArrView
+>   uses the container's host name as Node.js reports it (`os.hostname()`): the
+>   container ID in a bridged container, the Docker host's own name under host
+>   networking, or the name set with `hostname:` in Compose (`--hostname` in
+>   `docker run`). The Compose file in this repository sets `hostname: arrview`.
+> - `ADVERTISE_IP` is the single IPv4 address to advertise, for example
+>   `<host-address>`. If it is not set, ArrView uses the first non-internal IPv4
+>   address it finds on an interface whose name does not start with `docker`,
+>   `br-`, `veth`, `virbr`, `cni`, `flannel`, `tailscale`, `zt`, `wg` or `lo`
+>   (letter case is ignored). Set it when that is not the address the iOS app
+>   should use. Use an address of this host. ArrView does not check the value.
+>   An address that is not one of the host's own has not been tested (as of
+>   1.9A11); the multicast join is expected to fail, without a message in the
+>   log.
+> - To see what was chosen, read the start-up log line that begins
+>   `Bonjour: advertising`. It names the host name and address in use
+>   (`all interfaces` stands in for the address when no interface qualified).
+>   It reports the choice, not whether the announcement reached the network.
+
 ### Webhooks: instant updates (optional)
 
 Sonarr and Radarr can tell ArrView the moment something changes, so the web
