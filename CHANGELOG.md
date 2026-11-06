@@ -1,10 +1,12 @@
 # ArrView server development changelog
 
-## 1.9A12 (unreleased) — Docker: the image declares /data as a volume
+## 1.9A12 (unreleased) — Docker: the image declares /data as a volume; the password screens no longer scroll sideways
 
-- **Version 1.9A12.** One image change on top of 1.9A11, from the maintainer's decision of 2026-11-05. The Dockerfile gains
-  one line, `VOLUME /data`. No server route, request, config key or file format changes, `package.json` is unchanged and
-  the only server line that changed is the version.
+- **Version 1.9A12.** Two changes on top of 1.9A11. The Dockerfile gains one line, `VOLUME /data` (the maintainer's
+  decision of 2026-11-05), and one style rule in the web app is fixed so that the Sign in screen, the first-run password
+  form and the password forms in Settings stop scrolling sideways (found by the maintainer on 2026-11-06). No server
+  route, request, config key or file format changes, `package.json` is unchanged and the only server line that changed is
+  the version.
 
 - **A container started with nothing mounted at `/data` now has a data folder.** The image used to have no `/data` at all,
   so a container created without a volume logged the 1.9A9 `[data]` line and could not save anything, and with a Docker
@@ -27,11 +29,25 @@
 - **A guard test** keeps the Dockerfile's `VOLUME` and its `CONFIG_DIR` the same folder, and the volume ahead of any step
   that could write into it.
 
-- **Tests:** server 250/250 (248 at 1.9A11), web (vitest) 508/508, e2e 163/163 in Microsoft Edge on macOS (CI repeats them
-  in real Chromium). New: `tests/dockerfile.test.js` (two tests: the runtime stage's `VOLUME` is the `CONFIG_DIR` folder;
-  no later step writes into it). Both fail on the 1.9A11 Dockerfile, and the first also fails when the `VOLUME` line names
-  another folder (checked by setting the line aside). `tests/auth-docs.test.js` now checks the new README sentences in
-  place of the old one.
+- **The Sign in screen, the first-run password form and the Settings password forms no longer scroll sideways.** Each
+  carries a hidden text field holding the fixed username `ArrView`, so that a password manager has a username to pair with
+  the password (added with the login in 1.9A5). The `.visually-hidden` class that should keep it a 1 px dot lost to two
+  global rules, the text-field rule in `index.css` (`width: 100%`, padding and a border) and the 44 px touch-target
+  minimum in `responsive.css`. So the field was as wide as the window and started at the card's left edge: the page was
+  827 px wider than a 2002 px window (41 % wider, which is what the horizontal scroll bar showed), 546 px wider at 1440 px,
+  338 px at 1024 px and 28 px on a phone. The field is clipped to nothing, so only the scroll bar gave it away. The class now
+  carries `!important` on every property and sets the minimum size to 0, which is how this utility is normally written.
+  Nothing else changes: the three screens render the same apart from the scroll bar (see the pixel comparison below).
+
+- **Tests:** server 250/250 (248 at 1.9A11), web (vitest) 508/508, e2e 167/167 in Microsoft Edge on macOS (163 at 1.9A11;
+  CI repeats them in real Chromium). New: `tests/dockerfile.test.js` (two tests: the runtime stage's `VOLUME` is the
+  `CONFIG_DIR` folder; no later step writes into it). Both fail on the 1.9A11 Dockerfile, and the first also fails when the
+  `VOLUME` line names another folder (checked by setting the line aside). `tests/auth-docs.test.js` now checks the new
+  README sentences in place of the old one. Also new: four tests in `tests/e2e/auth.spec.cjs` for the sideways scroll (the
+  first-run password form in both layouts, and Sign in plus Settings' Change password form in both layouts, each at 1280 px
+  and 390 px wide): the hidden username field is at most 2 px wide and the page does not scroll sideways. All four fail on
+  the 1.9A11 style rule (the field measured 1280 px, the whole window). The shared `openSettings` helper in that file now
+  uses the header gear ("Open settings") below 640 px, as `mobile.spec.cjs` does.
 - **Checked in a container** (the image built from this commit, in Colima: a script of 34 checks and another of 6, all
   passing; the 1.9A9 image, which has no `VOLUME`, ran as the control):
   - The control reproduces the failure: a Docker password and no volume logs the `[data]` line and the right password
@@ -47,10 +63,21 @@
     in a bind-mounted folder is read by this image unchanged, and the 1.9A9 image reads what this one saved.
   - `docker run --rm` leaves no container and no volume behind.
   - A `CONFIG_DIR` changed to a folder that does not exist, with nothing mounted there, still logs the `[data]` line.
+- **Checked in a browser** (Microsoft Edge driven by Playwright, a built copy of this commit served by `server.js`: once with
+  a Docker password for Sign in, once with an empty data folder for the first-run form and Settings' Set a password form;
+  windows 2002, 1440, 1024, 768, 390 and 320 px wide):
+  - Before the change all 18 renders scrolled sideways: the hidden field was exactly as wide as the window, and the Sign in
+    screen was 827, 546, 338, 210, 28 and 28 px too wide at the six widths. After it, none does (0 px on all 18) and the
+    hidden field is 1 px wide on all 18, on the phone widths too.
+  - A before/after comparison of six screenshots (the three screens at 2002 px and 390 px) differs in 65 to 265 pixels each,
+    out of 0.3 to 2.4 million, by at most 12 levels of 255 (almost all by 1), at antialiased edges of the card corner and
+    the logo. The same build rendered twice differs in 0 to 20 pixels (around the password field), so that is the floor.
 - **Not verified:** Docker Compose (`up`, `down`), Portainer, Unraid, Watchtower, Podman and Docker Desktop (the checks ran
   on Docker Engine in a Linux VM), so which updater keeps an anonymous volume and which leaves it behind is unknown;
   anything that warns the user that `/data` is an anonymous volume (nothing does: the README is the only place that
-  says so); a real image update on a NAS host.
+  says so); a real image update on a NAS host. For the sideways scroll: Safari, Firefox and a real phone (only Edge and
+  Chromium were used), and a password manager's offer to fill and save with the hidden field now 1 px wide (it was already
+  clipped to nothing, but none was tried).
 - **Human test plan** (on Docker; use a spare port and a throwaway container name, so the container you use keeps running):
   1. Run the image the way that failed before, with a Docker password and nothing mounted at `/data`:
      `docker run -d --name arrview-try -p 7790:7777 -e ARRVIEW_PASSWORD=<a-password-of-8-or-more-characters> ghcr.io/tvstuffs/arrview:dev`.
@@ -67,6 +94,11 @@
      container that has no volume mounted, are your settings still there? Report the tool and the result; it decides
      whether the README needs a warning for that tool.
   7. Roll back to the 1.9A11 image with nothing mounted at `/data`: the `[data]` line comes back (the old behaviour).
+  8. Open the Sign in screen of a container that has a password (item 1's container works) in a desktop browser: there is no
+     horizontal scroll bar at the bottom of the window, at full width and with the window narrowed, and the card is centred.
+     Do the same for the first-run screen after Protect with a password (a container with an empty data folder) and for
+     Settings, Security, Set a password or Change password.
+  9. With a password manager: it still offers to fill the Sign in screen and to save a new password, as before.
 
 ## 1.9A11 (unreleased) — Set up the webhook in Sonarr and Radarr from Settings
 

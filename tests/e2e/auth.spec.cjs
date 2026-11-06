@@ -24,7 +24,8 @@ async function ensureOff() {
 async function openSettings(page, layout) {
   if (layout === 'modern') { await page.goto('/#/settings'); return }
   await page.goto('/')
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  // below 640 px Settings is the header gear
+  await page.getByRole('button', { name: page.viewportSize().width < 640 ? 'Open settings' : 'Settings', exact: true }).click()
 }
 const openTab = (page, layout, name) => (layout === 'modern'
   ? nav(page).getByRole('link', { name, exact: true }).click()
@@ -33,6 +34,19 @@ const signInHeading = page => page.getByRole('heading', { name: 'Sign in' })
 async function signIn(page, password = PASSWORD) {
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign In' }).click()
+}
+// The text field that only serves password managers must stay a 1 px dot: as wide as the window it pushed the Sign in screen,
+// the first-run screen and the password forms in Settings up to 800 px to the right, so each scrolled sideways.
+const VIEWPORTS = [{ width: 1280, height: 800 }, { width: 390, height: 844 }]
+async function expectNoSidewaysScroll(page) {
+  const { overflow, hidden } = await page.evaluate(() => {
+    const doc = document.documentElement
+    const field = document.querySelector('input.visually-hidden')
+    return { overflow: doc.scrollWidth - doc.clientWidth, hidden: field ? Math.round(field.getBoundingClientRect().width) : null }
+  })
+  expect(hidden, 'the hidden username field is on this screen').not.toBeNull()
+  expect(hidden).toBeLessThanOrEqual(2)
+  expect(overflow).toBe(0)
 }
 // The app's own preferences, without the open-tab key (which the app rewrites every time a tab is clicked).
 const prefs = page => page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([k]) => k.startsWith('arrview') && !k.endsWith('.tab'))))
@@ -77,6 +91,19 @@ for (const layout of ['modern', 'classic']) {
         await context.close()
       })
     }
+
+    test('the password form does not scroll sideways, on a desktop and a phone', async ({ browser }) => {
+      for (const viewport of VIEWPORTS) {
+        const context = await freshContext(browser, layout, { viewport })
+        const page = await context.newPage()
+        await page.route('**/api/auth/status', route => route.fulfill({ json: { required: false, signedIn: false, source: 'none', authDisabledByDocker: false, setupPending: true, passwordMinLength: 8, passwordMaxLength: 256 } }))
+        await page.goto('/')
+        await page.getByRole('button', { name: 'Protect with a password' }).click()
+        await expect(page.getByLabel('New password', { exact: true })).toBeVisible()
+        await expectNoSidewaysScroll(page)
+        await context.close()
+      }
+    })
   })
 }
 
@@ -99,6 +126,23 @@ for (const layout of ['modern', 'classic']) {
       await expect(signInHeading(page)).toHaveCount(0)
       await expect(nav(page)).toBeVisible()
       await context.close()
+    })
+
+    test('Sign in and the password form in Settings do not scroll sideways, on a desktop and a phone', async ({ browser }) => {
+      for (const viewport of VIEWPORTS) {
+        const context = await freshContext(browser, layout, { viewport })
+        const page = await context.newPage()
+        await page.goto('/')
+        await expect(signInHeading(page)).toBeVisible()
+        await expectNoSidewaysScroll(page)
+        await signIn(page)
+        await expect(signInHeading(page)).toHaveCount(0)
+        await openSettings(page, layout)
+        await card(page).getByRole('button', { name: 'Change password' }).click()
+        await expect(card(page).getByLabel('Current password', { exact: true })).toBeVisible()
+        await expectNoSidewaysScroll(page)
+        await context.close()
+      }
     })
 
     test('a fresh browser sees Sign in first, asks for nothing else, and gets live events after signing in', async ({ browser, request }) => {
