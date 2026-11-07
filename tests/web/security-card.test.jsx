@@ -112,6 +112,100 @@ test('on (Settings): change sends currentPassword, remove asks to confirm first,
   expect(new Headers(fn.mock.calls[0][1].headers).get('Content-Type')).toBe('application/json')
 })
 
+// A browser can fill a password (autofill, a password manager) without telling the page: the field shows it, but no input event
+// has reached React until the next click, so the page's copy of it is still empty. Submitting must use what the field holds.
+// (Type the other fields first: rendering writes the page's copy back into every field, which would undo the silent fill.)
+const fillSilently = (input, value) => Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value)
+const FILLED = 'filled by the browser'
+
+test('Make a key sends the password the field holds when the browser filled it without telling the page', async () => {
+  await mountOn(ON, () => reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'Cron job', created: 1 }))
+  fireEvent.change(field('Key name (optional)'), { target: { value: 'Cron job' } })
+  fillSilently(keyPasswordField(), FILLED)
+  click(/Make a key/)
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(await screen.findByLabelText('New key for Cron job')).toHaveValue(KEY)
+  expect(fn.mock.calls[0][0]).toBe('/api/auth/keys')
+  expect(body(fn.mock.calls[0])).toEqual({ name: 'Cron job', currentPassword: FILLED })
+  // cleared after the attempt, as for a typed password
+  expect(keyPasswordField()).toHaveValue('')
+})
+
+test('Change password sends the current password the field holds when the browser filled it without telling the page', async () => {
+  await mountOn(ON)
+  click('Change password')
+  fireEvent.change(field('New password'), { target: { value: 'new password!' } })
+  fireEvent.change(field('Confirm new password'), { target: { value: 'new password!' } })
+  fillSilently(passwordFormField('Current password'), FILLED)
+  click('Change password')
+  expect(screen.queryByRole('alert')).toBeNull()
+  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+  expect(body(fn.mock.calls[0])).toEqual({ currentPassword: FILLED, newPassword: 'new password!' })
+})
+
+test('Remove password sends the password the field holds when the browser filled it without telling the page', async () => {
+  await mountOn(ON)
+  click('Remove password')
+  fillSilently(passwordFormField('Current password'), FILLED)
+  click('Remove password')
+  expect(screen.queryByRole('alert')).toBeNull()
+  // the confirmation still comes first
+  expect(fn).not.toHaveBeenCalled()
+  const sheet = await screen.findByRole('dialog')
+  fireEvent.click(within(sheet).getByRole('button', { name: 'Remove password' }))
+  await waitFor(() => expect(paths()).toContain('/api/auth/password/remove'))
+  expect(body(fn.mock.calls[0])).toEqual({ currentPassword: FILLED })
+})
+
+// New-password fields are the ones a browser is least likely to fill behind the page's back (a manager offers a generated
+// password and tells the page), but Set and Change read the whole form in one place, so these two are covered too.
+test('Set a password sends the passwords the fields hold when the browser filled them without telling the page', async () => {
+  mount(base)
+  click(/Set a password/)
+  fillSilently(field('New password'), FILLED)
+  fillSilently(field('Confirm new password'), FILLED)
+  click('Save password')
+  expect(screen.queryByRole('alert')).toBeNull()
+  await waitFor(() => expect(refresh).toHaveBeenCalled())
+  expect(body(fn.mock.calls[0])).toEqual({ newPassword: FILLED })
+})
+
+test('a refusal leaves a silently filled field showing its password, as it does for a typed one', () => {
+  mount(base)
+  click(/Set a password/)
+  fillSilently(field('New password'), FILLED)
+  fillSilently(field('Confirm new password'), 'another one entirely')
+  click('Save password')
+  expect(screen.getByRole('alert')).toHaveTextContent('don’t match')
+  expect(field('New password')).toHaveValue(FILLED)
+  expect(field('Confirm new password')).toHaveValue('another one entirely')
+  expect(fn).not.toHaveBeenCalled()
+})
+
+// What the forms say when nothing at all was entered must not change with the fix (the page's copy of an untouched field is unset).
+test('with nothing entered the Set form still says the length rule', () => {
+  mount(base)
+  click(/Set a password/)
+  click('Save password')
+  expect(screen.getByRole('alert')).toHaveTextContent('Password must be 8 to 256 characters')
+  expect(fn).not.toHaveBeenCalled()
+})
+
+test('with no current password entered the Change and Remove forms still ask for it, and Remove opens no confirmation', async () => {
+  await mountOn(ON)
+  click('Change password')
+  fireEvent.change(field('New password'), { target: { value: 'new password!' } })
+  fireEvent.change(field('Confirm new password'), { target: { value: 'new password!' } })
+  click('Change password')
+  expect(screen.getByRole('alert')).toHaveTextContent('Enter your current password')
+  click('Cancel')
+  click('Remove password')
+  click('Remove password')
+  expect(screen.getByRole('alert')).toHaveTextContent('Enter your current password')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(fn).not.toHaveBeenCalled()
+})
+
 test('keys: with the Change password form open, the two current-password fields have distinct labels', async () => {
   await mountOn(ON)
   click('Change password')

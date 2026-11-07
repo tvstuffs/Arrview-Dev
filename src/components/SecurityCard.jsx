@@ -6,6 +6,7 @@ import { apiFetch } from '../api'
 import { useAuth } from '../AuthContext'
 import { copyText } from '../clipboard'
 import { validatePassword, passwordError } from '../passwordRules'
+import { filledPasswords } from '../filledPasswords'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
@@ -74,22 +75,37 @@ export default function SecurityCard() {
     try { await action(); return true } catch (e) { setError(e.message); return false } finally { setBusy(false) }
   }
 
+  // Each password form sends what its fields hold, not the page's copy of them: a browser can fill a password (autofill, a
+  // password manager) without telling the page. The fields are read first, before any state change, and the copy then follows
+  // them, so a refusal below leaves the fields showing what they showed.
   async function savePassword(event) {
     event.preventDefault()
-    const checked = validatePassword(values.newPassword, 'settings')
+    const typed = { ...values, ...filledPasswords(event.currentTarget) }
+    setValues(typed)
+    const checked = validatePassword(typed.newPassword, 'settings')
     if (!checked.ok) return setError(passwordError(checked))
-    if (values.newPassword !== values.confirmPassword) return setError('The two passwords don’t match')
-    if (form === 'change' && !values.currentPassword) return setError('Enter your current password')
-    const body = form === 'change' ? { currentPassword: values.currentPassword, newPassword: values.newPassword } : { newPassword: values.newPassword }
+    if (typed.newPassword !== typed.confirmPassword) return setError('The two passwords don’t match')
+    if (form === 'change' && !typed.currentPassword) return setError('Enter your current password')
+    const body = form === 'change' ? { currentPassword: typed.currentPassword, newPassword: typed.newPassword } : { newPassword: typed.newPassword }
     if (await run(() => call('/api/auth/password', { body }))) { close(); await refresh() }
+  }
+
+  // The confirmation sends the password from the copy, so the copy has to hold what the field held when the form was submitted.
+  function askToRemove(event) {
+    event.preventDefault()
+    const typed = { ...values, ...filledPasswords(event.currentTarget) }
+    setValues(typed)
+    if (!typed.currentPassword) return setError('Enter your current password')
+    setError(''); setConfirm('remove')
   }
 
   async function createKey(event) {
     event.preventDefault()
+    const currentPassword = filledPasswords(event.currentTarget).currentPassword || keyPassword
+    setKeyPassword(currentPassword)
     if (keyName.trim().length > KEY_NAME_MAX) return setError(`The name can be at most ${KEY_NAME_MAX} characters`)
-    if (!keyPassword) return setError('Enter your current password')
+    if (!currentPassword) return setError('Enter your current password')
     setCopied('')
-    const currentPassword = keyPassword
     setKeyPassword('') // cleared after every attempt, right or wrong
     if (await run(async () => {
       const made = await call('/api/auth/keys', { body: { name: keyName.trim(), currentPassword } })
@@ -130,7 +146,7 @@ export default function SecurityCard() {
           </div>
         </form>
       ) : form === 'remove' ? (
-        <form onSubmit={e => { e.preventDefault(); if (!values.currentPassword) return setError('Enter your current password'); setError(''); setConfirm('remove') }}>
+        <form onSubmit={askToRemove}>
           <PasswordFields idBase={idBase} values={values} onChange={change} fields={[['currentPassword', 'Current password', 'current-password']]} />
           <div className="security-actions">
             <button type="submit" className="btn btn-danger" disabled={busy}>Remove password</button>

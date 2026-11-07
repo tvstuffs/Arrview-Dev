@@ -35,6 +35,9 @@ async function signIn(page, password = PASSWORD) {
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign In' }).click()
 }
+// What a browser's autofill can do before the first click: the field shows the value, the page has not heard of it (no input event).
+// Type any other field first: a re-render writes the page's copy back into every field, which would undo the silent fill.
+const fillSilently = (field, value) => field.evaluate((el, text) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, text) }, value)
 // The text field that only serves password managers must stay a 1 px dot: as wide as the window it pushed the Sign in screen,
 // the first-run screen and the password forms in Settings up to 800 px to the right, so each scrolled sideways.
 const VIEWPORTS = [{ width: 1280, height: 800 }, { width: 390, height: 844 }]
@@ -162,6 +165,84 @@ for (const layout of ['modern', 'classic']) {
         await page.keyboard.press('Enter')
         await expect(nav(page)).toBeVisible()
         await expect(signInHeading(page)).toHaveCount(0)
+        await context.close()
+      }
+    })
+
+    // The password forms in Settings read their fields the way Sign in did, so each gets the same two cases: typed, and filled silently.
+    test('Enter in the key form makes a key after typing, and also when the browser filled the password without telling the page', async ({ browser }) => {
+      for (const filled of [false, true]) {
+        const context = await freshContext(browser, layout)
+        const page = await context.newPage()
+        await page.goto('/')
+        await signIn(page)
+        await expect(nav(page)).toBeVisible()
+        await openSettings(page, layout)
+        const name = filled ? 'E2E filled key' : 'E2E typed key'
+        const how = filled ? 'the password was filled in without telling the page' : 'the password was typed'
+        await card(page).getByLabel('Key name (optional)').fill(name)
+        const password = card(page).getByLabel('Current password to make a key')
+        await password.focus()
+        if (filled) await fillSilently(password, PASSWORD)
+        else await page.keyboard.type(PASSWORD)
+        await page.keyboard.press('Enter')
+        await expect(card(page).getByLabel(`New key for ${name}`), how).toBeVisible()
+        await expect(password).toHaveValue('')
+        // a key left behind would be listed in every later test
+        await card(page).getByRole('button', { name: `Remove key ${name}` }).click()
+        await page.getByRole('button', { name: 'Remove key', exact: true }).click()
+        await expect(card(page).getByText(name, { exact: true })).toHaveCount(0)
+        await context.close()
+      }
+    })
+
+    test('Enter in the Change password form changes it after typing, and also when the browser filled the current password without telling the page', async ({ browser }) => {
+      for (const filled of [false, true]) {
+        const context = await freshContext(browser, layout)
+        const page = await context.newPage()
+        await page.goto('/')
+        await signIn(page)
+        await expect(nav(page)).toBeVisible()
+        await openSettings(page, layout)
+        await card(page).getByRole('button', { name: 'Change password' }).click()
+        // the new password is the current one again, so the tests that follow can still sign in
+        await card(page).getByLabel('New password', { exact: true }).fill(PASSWORD)
+        await card(page).getByLabel('Confirm new password').fill(PASSWORD)
+        const current = card(page).getByLabel('Current password', { exact: true })
+        await current.focus()
+        if (filled) await fillSilently(current, PASSWORD)
+        else await page.keyboard.type(PASSWORD)
+        await page.keyboard.press('Enter')
+        // the form closes once the server has accepted the change; a refusal would leave it open with an alert
+        const how = filled ? 'the current password was filled in without telling the page' : 'the current password was typed'
+        await expect(card(page).getByLabel('New password', { exact: true }), how).toHaveCount(0)
+        await expect(card(page).getByRole('alert'), how).toHaveCount(0)
+        await context.close()
+      }
+    })
+
+    test('Enter in the Remove password form asks to confirm after typing, and also when the browser filled the password without telling the page', async ({ browser }) => {
+      for (const filled of [false, true]) {
+        const context = await freshContext(browser, layout)
+        const page = await context.newPage()
+        // the removal itself is answered here, so the password stays on for the tests that follow
+        const posted = []
+        await page.route('**/api/auth/password/remove', route => { posted.push(route.request().postDataJSON()); route.fulfill({ json: { success: true } }) })
+        await page.goto('/')
+        await signIn(page)
+        await expect(nav(page)).toBeVisible()
+        await openSettings(page, layout)
+        await card(page).getByRole('button', { name: 'Remove password' }).click()
+        const current = card(page).getByLabel('Current password', { exact: true })
+        await current.focus()
+        if (filled) await fillSilently(current, PASSWORD)
+        else await page.keyboard.type(PASSWORD)
+        await page.keyboard.press('Enter')
+        const how = filled ? 'the password was filled in without telling the page' : 'the password was typed'
+        await expect(page.getByRole('dialog'), how).toBeVisible()
+        await page.getByRole('dialog').getByRole('button', { name: 'Remove password' }).click()
+        await expect.poll(() => posted).toEqual([{ currentPassword: PASSWORD }])
+        await expect(page.getByRole('dialog')).toHaveCount(0)
         await context.close()
       }
     })
