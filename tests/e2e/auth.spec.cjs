@@ -95,6 +95,36 @@ for (const layout of ['modern', 'classic']) {
       })
     }
 
+    test('Enter saves the password after typing, and also when the browser filled both fields without telling the page', async ({ browser }) => {
+      for (const filled of [false, true]) {
+        const context = await freshContext(browser, layout)
+        const page = await context.newPage()
+        let pending = true
+        const posted = []
+        await page.route('**/api/auth/status', route => route.fulfill({ json: { required: false, signedIn: false, source: 'none', authDisabledByDocker: false, setupPending: pending, passwordMinLength: 8, passwordMaxLength: 256 } }))
+        await page.route('**/api/auth/password', route => { posted.push(route.request().postDataJSON()); pending = false; route.fulfill({ json: { success: true } }) })
+        await page.goto('/')
+        await page.getByRole('button', { name: 'Protect with a password' }).click()
+        const first = page.getByLabel('New password', { exact: true })
+        // the first field has focus on arrival, so the password can be typed straight away
+        await expect(first).toBeFocused()
+        if (filled) {
+          await fillSilently(first, PASSWORD)
+          await fillSilently(page.getByLabel('Confirm new password'), PASSWORD)
+        } else {
+          await page.keyboard.type(PASSWORD)
+          await page.keyboard.press('Tab')
+          await page.keyboard.type(PASSWORD)
+        }
+        await page.keyboard.press('Enter')
+        const how = filled ? 'both passwords were filled in without telling the page' : 'both passwords were typed'
+        await expect.poll(() => posted, { message: how }).toEqual([{ newPassword: PASSWORD }])
+        await expect(page.getByRole('heading', { name: 'Protect ArrView?' })).toHaveCount(0)
+        await expect(nav(page)).toBeVisible()
+        await context.close()
+      }
+    })
+
     test('the password form does not scroll sideways, on a desktop and a phone', async ({ browser }) => {
       for (const viewport of VIEWPORTS) {
         const context = await freshContext(browser, layout, { viewport })

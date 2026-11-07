@@ -3,6 +3,7 @@ import './Security.css'
 import Icon from './Icon.jsx'
 import { apiFetch } from '../api'
 import { validatePassword, passwordError } from '../passwordRules'
+import { filledPasswords } from '../filledPasswords'
 
 const NETWORK_ERROR = 'Can’t reach your ArrView server. Check your connection and try again.'
 
@@ -28,12 +29,17 @@ export default function Setup({ onDone }) {
     setPending(false)
   }
 
+  // Send what the fields hold, not the page's copy of them: a browser can fill a password (autofill, a password manager)
+  // without telling the page. The fields are read first, before any state change, and the copy then follows them, so a
+  // refusal below leaves the fields showing what they showed.
   function save(event) {
     event.preventDefault()
-    const checked = validatePassword(values.newPassword, 'settings')
+    const typed = { ...values, ...filledPasswords(event.currentTarget) }
+    setValues(typed)
+    const checked = validatePassword(typed.newPassword, 'settings')
     if (!checked.ok) return setError(passwordError(checked))
-    if (values.newPassword !== values.confirmPassword) return setError('The two passwords don’t match')
-    return send('/api/auth/password', { newPassword: values.newPassword })
+    if (typed.newPassword !== typed.confirmPassword) return setError('The two passwords don’t match')
+    return send('/api/auth/password', { newPassword: typed.newPassword })
   }
 
   const set = key => e => setValues(v => ({ ...v, [key]: e.target.value }))

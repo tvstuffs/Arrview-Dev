@@ -109,6 +109,60 @@ test('setup: set a password checks the rules first, posts the password and loads
   expect(bodies).toEqual([{ newPassword: 'a good password' }])
 })
 
+// A browser can fill a password (autofill, a password manager) without telling the page: the field shows it, but no input event
+// has reached React until the next click, so the page's copy of it is still empty. Saving must use what the fields hold.
+const fillSilently = (input, value) => Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value)
+
+// A new install; the array collects what is posted to set the password.
+function stubFreshInstall() {
+  let pending = true
+  const bodies = []
+  vi.stubGlobal('fetch', vi.fn(async (url, options) => {
+    calls.push(url)
+    if (url === '/api/auth/status') return reply(200, pending ? { required: false, signedIn: false, source: 'none', setupPending: true } : { required: true, signedIn: true, source: 'settings', setupPending: false })
+    if (url === '/api/auth/password') { bodies.push(JSON.parse(options.body)); pending = false; return reply(200, { success: true }) }
+    if (url === '/api/config') return reply(200, CONFIG)
+    return reply(401, { error: 'Authentication required', auth: true })
+  }))
+  return bodies
+}
+
+test('setup: passwords the browser filled in without telling the page are still posted', async () => {
+  const bodies = stubFreshInstall()
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: /Protect with a password/ }))
+  // new-password fields are the ones a browser is least likely to fill behind the page's back, but the form reads both in one place
+  fillSilently(screen.getByLabelText('New password'), 'filled by the browser')
+  fillSilently(screen.getByLabelText('Confirm new password'), 'filled by the browser')
+  fireEvent.click(screen.getByRole('button', { name: 'Save password' }))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(await screen.findByRole('button', { name: 'Load data' })).toBeVisible()
+  expect(bodies).toEqual([{ newPassword: 'filled by the browser' }])
+})
+
+test('setup: a refusal leaves silently filled fields showing their passwords, as it does for typed ones', async () => {
+  const bodies = stubFreshInstall()
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: /Protect with a password/ }))
+  fillSilently(screen.getByLabelText('New password'), 'filled by the browser')
+  fillSilently(screen.getByLabelText('Confirm new password'), 'another one entirely')
+  fireEvent.click(screen.getByRole('button', { name: 'Save password' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('don’t match')
+  expect(screen.getByLabelText('New password')).toHaveValue('filled by the browser')
+  expect(screen.getByLabelText('Confirm new password')).toHaveValue('another one entirely')
+  expect(bodies).toEqual([])
+})
+
+// What the form says when nothing at all was entered must not change with the fix (the page's copy of an untouched field is unset).
+test('setup: with nothing entered the form still says the length rule', async () => {
+  const bodies = stubFreshInstall()
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: /Protect with a password/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save password' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('Password must be 8 to 256 characters')
+  expect(bodies).toEqual([])
+})
+
 test('a 401 mid-session swaps to Sign in with the notice; signing in returns without touching localStorage', async () => {
   signedIn = true
   localStorage.setItem('arrview.layout', 'classic')
