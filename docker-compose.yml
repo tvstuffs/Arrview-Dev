@@ -38,6 +38,15 @@ services:
       # ADVERTISE_HOST: arrview                                 # host name to advertise; ".local" is added
       # ADVERTISE_IP: <host-address>                            # one IPv4 address of this host to advertise
     volumes:
+      # ArrView keeps everything it saves (config.json and auth.json) in /data. You choose where that lives:
+      #   - a folder on your disk: the line below, ./data next to this file; or
+      #   - a named Docker volume: use `- arrview-volume:/data` instead of the line below, and add a top-level
+      #       volumes:
+      #         arrview-volume:
+      #     at the end of this file; or
+      #   - nothing, a disposable volume: delete the line below. The image declares /data as a volume, so Docker
+      #     creates one for the container. It belongs to that one container, so a container created later starts empty.
+      # See "Where ArrView keeps its data" in the README.
       - ./data:/data
       # For *_API_KEY_FILE secrets (keep ./secrets out of git):
       # - ./secrets/radarr_api_key:/run/secrets/radarr_api_key:ro

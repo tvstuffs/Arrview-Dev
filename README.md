@@ -131,14 +131,9 @@ docker run -d --name arrview \
   ghcr.io/tvstuffs/arrview:latest
 ```
 
-The container serves the dashboard on `http://localhost:7777` and stores saved settings in `/data/config.json`.
-The image declares `/data` as a volume. If you mount nothing there, Docker creates an anonymous volume for the
-container, so settings and sign-in save and survive a restart. That volume belongs to the container it was made for:
-when you remove the container and create a new one (an image update, for example), the new container starts empty
-and the old volume stays behind under a long hex name (`docker volume ls`; `docker volume prune` deletes it). To keep
-your data across updates, mount a folder or a named volume at `/data`, as in the command above or with
-`-v arrview-data:/data`. ArrView itself never creates the data folder: if `CONFIG_DIR` points at something that is
-not a writable folder (a changed `CONFIG_DIR` with nothing mounted there, say), it says so in its log at start-up.
+The container serves the dashboard on `http://localhost:7777`. The `-v` line keeps ArrView's data in the folder
+`arrview-data` next to where you ran the command. [Where ArrView keeps its data](#where-arrview-keeps-its-data) below
+explains what is stored there and the other choices (a named volume, or nothing at all).
 
 > **iOS auto-discovery requires host networking.** The container advertises
 > itself over Bonjour/mDNS so the ArrView iOS app can find it on the network
@@ -184,6 +179,45 @@ not a writable folder (a changed `CONFIG_DIR` with nothing mounted there, say), 
 >   `Bonjour: advertising`. It names the host name and address in use
 >   (`all interfaces` stands in for the address when no interface qualified).
 >   It reports the choice, not whether the announcement reached the network.
+
+### Where ArrView keeps its data
+
+ArrView saves everything in one folder: `/data` inside the container (the `CONFIG_DIR` variable, which the image sets).
+Outside Docker (`npm start`) it is the folder that holds `server.js`, unless you set `CONFIG_DIR`. The folder holds two
+files, and no media:
+
+- `config.json`: the service addresses and API keys you saved in Settings, and a few other settings such as the ArrView
+  address used for webhooks. The keys are stored as plain text (ArrView creates the file with mode `0600`), so keep the
+  folder to yourself. Services you set with `ARRVIEW_*` variables are never written to it.
+- `auth.json`: the password login. It holds a hash of the password (if one is set) and hashes of the sign-in
+  sessions and app keys, never the secrets themselves (see [Password login](#password-login-optional)).
+
+You choose where that folder lives when you create the container:
+
+- **A folder on your disk.** Add `-v "$PWD/arrview-data:/data"` to `docker run` (in Compose, `- ./data:/data`). The data
+  sits in that folder on the host. It survives removing and recreating the container and image updates, and you back
+  it up by copying the folder.
+- **A named Docker volume.** Add `-v arrview-volume:/data`. Docker keeps the data in a volume it manages
+  (`docker volume ls`), and it also survives removing and recreating the container. Docker tells a name from a path by
+  the slash: `arrview-volume` is a volume, `./data` and `/srv/arrview` are folders.
+- **Nothing: a disposable volume.** Leave `-v` out. ArrView works straight away: the image declares `/data` as a volume,
+  so Docker creates an anonymous one for the container. That volume belongs to that one container. When you remove the
+  container and create a new one (an image update with `docker rm` and `docker run`, or Recreate in Portainer, for
+  example), the new container starts empty: the first-run screen again, no saved services, and a password you set in
+  Settings is gone, so the login is off. The old volume stays behind under a long hex name (`docker volume ls`;
+  `docker volume prune` deletes it).
+
+A disposable volume is fine for trying ArrView out. For an install you keep, use a folder or a named volume. If your
+services and password come from `ARRVIEW_*` variables, a new container started with the same variables has them again;
+what a disposable volume loses is the sign-in sessions, any app keys you made, and anything saved in Settings that is
+not a variable.
+
+To see where a running container keeps its data, run `docker inspect arrview` and read `Mounts`; for a Docker-managed
+volume, `docker volume inspect <name>` prints the folder Docker keeps it in. Mount the whole folder, not `config.json`
+alone (see [Configure services from Docker](#configure-services-from-docker-optional)).
+
+ArrView itself never creates the data folder: if `CONFIG_DIR` points at something that is not a writable folder (a
+changed `CONFIG_DIR` with nothing mounted there, say), it says so in its log at start-up.
 
 ### Webhooks: instant updates (optional)
 
@@ -545,7 +579,7 @@ docker run -d --name arrview \
   arrview
 ```
 
-The container serves the dashboard on `http://localhost:7777` and stores saved service settings in `/data/config.json`, which survives container restarts when the `./data` volume is mounted.
+The container serves the dashboard on `http://localhost:7777` and keeps its data in `/data`, which this command maps to the folder `./data` (see [Where ArrView keeps its data](#where-arrview-keeps-its-data)).
 
 ## Calendar API (1.06 development)
 
