@@ -1,5 +1,50 @@
 # ArrView server development changelog
 
+## 1.9A13 (unreleased) — Sign in: Enter sends the password the field holds; the README says where the data is stored
+
+- **Version 1.9A13.** One web-app fix and one documentation change on top of 1.9A12. No server route, request, config key
+  or file format changes, `package.json` is unchanged and the only server line that changed is the version.
+
+- **Pressing Enter on the Sign in screen now sends the password the field holds.** The screen kept its own copy of the
+  password and sent that. A browser can fill a password field (autofill, a password manager) without telling the page:
+  the field shows the dots, but the page's copy stays empty until the next click. Enter then sent an empty password (the
+  server answered 400, "Password is required"), and only after a click off the field and back into it did Enter work.
+  `SignIn.jsx` now reads the field itself when the form is submitted, before any state change. Typing a password and
+  pressing Enter at once already worked in a clean Edge (checked three ways: typed at human speed, typed without delay,
+  filled); the failing case is a value the page was never told about.
+- **Documentation: the README says where the data is stored and how to choose.** A new section, "Where ArrView keeps its
+  data": the folder is `/data` in the container (`CONFIG_DIR`; outside Docker, the folder that holds `server.js`); what
+  `config.json` and `auth.json` hold (the service API keys in `config.json` are stored as plain text, which the README had
+  not said); and the three ways to run it: a folder on your disk, a named volume, or nothing, a disposable volume that
+  belongs to one container, so a container created later starts empty. The app itself says nothing about it (a decision of
+  the maintainer: the documentation is the place). `docker-compose.yml` offers the same three as comments; its parsed
+  content is unchanged. The data-folder paragraph under "Run the published image" moved into the new section, and the
+  named-volume example is now `arrview-volume`, so it cannot be mistaken for the folder `arrview-data`.
+
+- **Tests:** server 251/251 (250 at 1.9A12), web (vitest) 509/509 (508), e2e 169/169 in Microsoft Edge on macOS (167;
+  CI repeats them in real Chromium). New: a web test and one e2e test per layout for the Sign in screen (Enter after typing
+  signs in at once, and a password the page was never told about is still sent; the web test and the second half of the
+  e2e test fail on the 1.9A12 screen), and a docs test that the README names the section, the two files and the three
+  choices and that the compose file offers the same three (it fails on the old README and compose file).
+- **Checked in a browser** (Microsoft Edge driven by Playwright against a local server with a password; five scenarios:
+  typed at human speed then Enter, typed without delay then Enter, filled then Enter, typed then a click off the field and
+  back then Enter, and a value set without an input event then Enter): on 1.9A12 four sign in and the last sends an
+  empty password (400); on this version all five sign in. The compose file parses to the same structure before and after,
+  and every link in the new README section points at a heading that exists.
+- **Not verified:** a real password manager or autofill (none can be driven here), so the cause is reproduced with a value
+  set without an input event, which is what autofill can do before the first click, and not shown to be what happened in
+  the maintainer's browser; Safari and Firefox. The other password forms (Settings: Set, Change and Remove password, Make
+  a key; the first-run form) keep their password in the page's own state as before and were not changed. The README's
+  statement that a recreate in Portainer gives the new container an empty volume was observed with Portainer 2.45.2.
+- **Human test plan:**
+  1. Open the Sign in page, type the password and press Enter at once, without clicking anywhere: you are signed in.
+  2. If your browser has the password saved and fills it in when the page opens: press Enter without typing or clicking:
+     you are signed in.
+  3. In a private (InPrivate) window with no saved password, type it and press Enter: you are signed in.
+  4. A wrong password still says "Incorrect password", clears the field and leaves the cursor in it.
+  5. On GitHub, read "Where ArrView keeps its data" in the README: it names `/data`, the two files and the three choices,
+     and its links work.
+
 ## 1.9A12 (unreleased) — Docker: the image declares /data as a volume; the password screens no longer scroll sideways
 
 - **Version 1.9A12.** Two changes on top of 1.9A11. The Dockerfile gains one line, `VOLUME /data` (the maintainer's
