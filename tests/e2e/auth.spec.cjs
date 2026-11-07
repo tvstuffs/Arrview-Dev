@@ -145,6 +145,27 @@ for (const layout of ['modern', 'classic']) {
       }
     })
 
+    test('Enter signs in at once after typing, and also when the browser filled the password without telling the page', async ({ browser }) => {
+      for (const filled of [false, true]) {
+        const context = await freshContext(browser, layout)
+        const page = await context.newPage()
+        await page.goto('/')
+        await expect(signInHeading(page)).toBeVisible()
+        // the field has focus on arrival, so the password can be typed straight away
+        await expect(page.getByLabel('Password')).toBeFocused()
+        if (filled) {
+          // what a browser's autofill can do before the first click: the field shows the value, the page has not heard of it
+          await page.getByLabel('Password').evaluate((el, value) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, value) }, PASSWORD)
+        } else {
+          await page.keyboard.type(PASSWORD)
+        }
+        await page.keyboard.press('Enter')
+        await expect(nav(page)).toBeVisible()
+        await expect(signInHeading(page)).toHaveCount(0)
+        await context.close()
+      }
+    })
+
     test('a fresh browser sees Sign in first, asks for nothing else, and gets live events after signing in', async ({ browser, request }) => {
       const context = await freshContext(browser, layout)
       const page = await context.newPage()

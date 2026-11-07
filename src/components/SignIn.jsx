@@ -17,11 +17,15 @@ export default function SignIn({ onSignedIn, expired = false }) {
   async function submit(event) {
     event.preventDefault()
     if (pending || blocked) return
+    // Send what the field holds, not the component's copy of it: a browser can fill a password (autofill, a password
+    // manager) without telling the page, and then the state stays empty until the next click, so Enter would send nothing.
+    // Read the field before any state change, because rendering writes the state back into it.
+    const typed = input.current ? input.current.value : password
     setPending(true); setError('')
     let failure = ''
     try {
       const response = await apiFetch('/api/auth/login', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: typed }),
       })
       const body = await response.json().catch(() => ({}))
       if (response.ok) { onSignedIn(); return }

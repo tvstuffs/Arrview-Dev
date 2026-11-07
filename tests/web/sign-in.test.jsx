@@ -44,6 +44,24 @@ test('submitting posts the password, shows the pending label and calls onSignedI
   await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1))
 })
 
+// A browser can fill a password (autofill, a password manager) without telling the page: the field shows it, but no input event
+// has reached React until the next click, so the component's state is still empty. Enter must send what the field holds.
+const fillSilently = value => {
+  const field = screen.getByLabelText('Password')
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, value)
+}
+
+test('a password the browser filled in without telling the page is still sent', async () => {
+  const fn = vi.fn(async () => reply(200, { success: true }))
+  vi.stubGlobal('fetch', fn)
+  const onSignedIn = vi.fn()
+  render(<SignIn onSignedIn={onSignedIn} />)
+  fillSilently('filled by the browser')
+  submit()
+  await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1))
+  expect(JSON.parse(fn.mock.calls[0][1].body)).toEqual({ password: 'filled by the browser' })
+})
+
 test('a wrong password shows the server text, clears and refocuses the field', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => reply(401, { error: 'Incorrect password' })))
   render(<SignIn onSignedIn={() => {}} />)
