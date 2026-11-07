@@ -1,5 +1,67 @@
 # ArrView server development changelog
 
+## 1.9A14 (unreleased) — The Settings password forms and the first-run form send the passwords their fields hold
+
+- **Version 1.9A14.** One web-app fix on top of 1.9A13. No server route, request, config key or file format changes,
+  `package.json` is unchanged and the only server line that changed is the version.
+
+- **The password forms in Settings and the first-run form now send what their fields hold.** 1.9A13 fixed Sign in, which
+  kept its own copy of the password and sent that: a browser can fill a password field (autofill, a password manager)
+  without telling the page, and then the field shows the dots while the page's copy stays empty until the next click.
+  Every other password form kept its fields the same way and refused to go on in the same situation, in words that
+  contradicted the screen: Change password, Remove password and Make a key said "Enter your current password", and Set a
+  password and the first-run "Protect with a password" said "Password must be 8 to 256 characters", each next to a field
+  that showed a password. (They refuse in the page, so unlike Sign in no empty password reached the server.) Each form now
+  reads its password fields when it is submitted, before any state change (the new `src/filledPasswords.js`), and the
+  page's copy then follows the fields, so a refusal leaves them showing what they showed, as it does for typed text, and
+  Remove's confirmation sends the password the field held. With nothing entered the words are the same as before, the key
+  form's field is still cleared after every attempt, and Sign in is unchanged.
+- **Which fields really need it.** The three current-password fields (Change password, Remove password, "Current password
+  to make a key") are the real case: they are the same kind of field as Sign in's (`autocomplete="current-password"`, next
+  to the hidden `ArrView` username), which is where a browser puts a saved password. The key form's field is the likeliest
+  of the three, because it is on the Settings page whenever the login is on, so a browser can fill it as the page opens,
+  as on Sign in; the Change and Remove fields appear only after a click, which may already have told the page. The
+  new-password fields (Set, the two in Change, the two in the first-run form) are the least likely: a saved password is not
+  filled into a `new-password` field, and a manager's "suggest a password" fills it on request. They are covered anyway,
+  because Set and Change share one handler and the first-run form reads its two fields in one place, and the tests show
+  the same refusal on 1.9A13. That ranking is a reading of the code and of what the attribute is for, not something seen
+  in a browser.
+- **Not part of this change:** the API Key inputs in Settings, Services (`type="password"`, also read from the page's own
+  copy). They sit in no form, so Enter submits nothing there; Test and Save are buttons that read the copy when clicked.
+
+- **Tests:** server 251/251 (unchanged), web (vitest) 519/519 (509 at 1.9A13), e2e 177/177 in Microsoft Edge on macOS (169;
+  CI repeats them in real Chromium). New: ten web tests, seven of which fail on the 1.9A13 forms (five that a silently
+  filled password is sent: Make a key, Change, Remove, Set and the first-run form; two that a refusal leaves a silently
+  filled field showing its password: Set and the first-run form) and three that pass on both and pin the words for a form
+  with nothing entered; and eight e2e tests, one per form (key form, Change, Remove, first-run) and layout, each typed
+  with the keyboard and then filled without an input event: the filled half fails on 1.9A13, the typed half passes on both.
+- **Checked in a browser** (Microsoft Edge driven by Playwright against the test server with a password; per form, two
+  cases: typed then Enter, and a value set without an input event then Enter): on 1.9A13 the typed cases pass and the
+  filled ones do not (no key is made, the Change form stays open, Remove opens no confirmation, the first-run form posts
+  nothing); on this version all of them pass. The refusal words quoted above were read in the web tests, not in Edge. The
+  Remove request and the first-run request are answered by the test, so the removal and the first-run save never reach
+  the server; the Change test uses the current password as the new one, so the password stays what it was.
+- **Not verified:** a real password manager or autofill (none can be driven here), so the cause is reproduced with a value
+  set without an input event, which is what a browser's autofill can do before the first click, and not shown in a real
+  manager. Whether a browser hands such a value to the page at the moment of Enter, which this fix relies on as 1.9A13's
+  does, is the part only a real one can show. Safari and Firefox. The new-password fields in a browser (above).
+- **Human test plan:**
+  1. Reload Settings. If your browser fills your saved password into "Current password to make a key", press Enter in that
+     field without typing anything else: a key is made and shown once (remove it afterwards). If it does not fill it, type
+     the password and press Enter: the same.
+  2. Click "Change password", let the browser fill (or type) "Current password", type the same password as the new one
+     twice and press Enter: the form closes and you stay signed in. (A different new password works the same way and ends
+     every other session and every app key.)
+  3. Click "Remove password", let the browser fill (or type) "Current password" and press Enter: "Remove the password?"
+     appears. Choose Cancel: the password stays.
+  4. On a new install (a data folder with no `config.json` and no `auth.json`), "Protect with a password": fill both
+     fields (typed, or your browser's suggested password) and press Enter: you land in the app, signed in.
+  5. With nothing typed, Save password (Settings and first-run) and Change password still say "Password must be 8 to 256
+     characters", and Remove password and Make a key still say "Enter your current password" (Remove opens no
+     confirmation). Change password with a new password typed twice and no current one says "Enter your current password".
+  6. Type two different passwords in Set a password (or the first-run form) and press Save: the message says they don't
+     match and both fields keep what you typed.
+
 ## 1.9A13 (unreleased) — Sign in: Enter sends the password the field holds; the README says where the data is stored
 
 - **Version 1.9A13.** One web-app fix and one documentation change on top of 1.9A12. No server route, request, config key
