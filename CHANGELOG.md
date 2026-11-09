@@ -1,5 +1,70 @@
 # ArrView server development changelog
 
+## 1.9A15 (unreleased) — Enter submits the password forms from the page's own key handler
+
+- **Version 1.9A15.** One web-app fix on top of 1.9A14. No server route, request, config key or file format changes,
+  `package.json` is unchanged and the only server line that changed is the version.
+
+- **Pressing Enter in a password field now submits its form from the page's own key handler, in every password form.** A real
+  Edge on Windows delivered the Enter key to the Sign in page (keydown and keyup arrived) but never ran the form's own
+  submission for it: no `change`, click or `submit` event followed, no request was sent and the page showed nothing, so typing
+  the password and pressing Enter did nothing until the field was left and entered again (then Enter worked). It was found
+  with test pages that show an on-page log of keys, focus, validation and submit events and of the length of the login request
+  (never the characters typed): the unchanged page, and the same page without the hidden `ArrView` username field, did nothing
+  on Enter, while a copy that handled Enter itself signed in at once. So the cause is neither the page's own state (1.9A13 and
+  1.9A14 fixed a different case, a value the browser fills without telling the page) nor the hidden username field. What takes
+  the key in that browser (an extension, the browser's own password UI, something else) is not known.
+  Two things leave exactly that log: the browser skipping its key-press step, and something cancelling the keydown (after
+  which the browser never reaches that step). The log from that Edge cannot tell them apart, so the fix covers both.
+- **The fix.** New `src/submitOnEnter.js`, used as the `onKeyDown` of all five forms: Sign in, the first-run form, Set or
+  Change password, Remove password and Make a key. On Enter in a text or password field of a form it cancels the key and
+  submits the form itself (`form.requestSubmit()`, or a `submit` event where that method is missing). A key that something
+  else already cancelled is submitted too: nothing in these forms handles Enter itself, and a cancelled keydown is one of the
+  two ways the browser's own submission is lost. It keeps the browser's own rules: a button, a checkbox or a text area keeps
+  its own Enter, nothing happens while an input method is composing, and nothing is submitted while the form's default button
+  is disabled (a request is already running), so a second Enter cannot send a second request. A browser that does run its
+  own submission cannot submit twice, because the key is cancelled.
+- **Sign in no longer uses the browser's own validation** (`noValidate`; the field stays `required` for screen readers). With
+  an empty field the browser blocked Enter and the button without a word on the page; now both say "Enter your password" and
+  keep the cursor in the field.
+
+- **Tests:** server 251/251 (unchanged), web (vitest) 540/540 (519 at 1.9A14), e2e 177/177 in Microsoft Edge on macOS
+  (177; CI repeats them in real Chromium). New: 21 web tests (6 for the handler itself: Enter in a text or password field
+  submits the form and cancels the key; other keys, a text area, a checkbox and buttons are left alone; nothing is submitted
+  while the default button is disabled; a composition is left alone; a key that something already cancelled still submits;
+  and the fallback where `requestSubmit` is missing. 7 for Sign in, 6 for the Security card, 2 for the first-run form).
+  12 of the 15 outside the handler's own file fail on the 1.9A14 source, and the handler's own file cannot load there (jsdom
+  does not run implicit submission either). The five e2e Enter tests of 1.9A14 (Sign in, the key form, Change, Remove, the
+  first-run form) each run two more times, and both reproduce the log of that Edge (keydown and keyup, then no change, click
+  or submit): the key is typed but the browser drops Enter's own submission (the key's `keypress` default is cancelled before
+  the page), and the key is typed but something cancels its keydown before the page sees it (a capture listener on the
+  window). Each of those two runs fails on the 1.9A14 source in all ten test runs (five tests, two layouts) and passes on
+  this version. The cancelled run, and the two web tests that name a cancelled key, also fail on a handler that stands down
+  for a key that is already cancelled (measured on the first-run form).
+- **Checked in a browser** (Microsoft Edge driven by Playwright, test pages built from this tree with the on-page log, one
+  with a Docker password and one a new install): every form typed with the keyboard and Enter pressed, once while the browser
+  drops Enter's own submission and once while something cancels the key: Sign in, Make a key (both pages), the first-run
+  form, Change password and Remove password (which opens its confirmation); all six pass each way. The unchanged 1.9A14 test
+  page with the key cancelled stays on Sign in and sends no request, where this version signs in. On the real Edge that
+  showed the problem, a copy of the Sign in page with a simpler key handler signed in at once where the unchanged page did
+  not.
+- **Not verified:** what takes the key in that browser (the emulations reproduce the symptom, not the cause); this exact
+  version on that browser (the copy that signed in there handled Enter on the Sign in form only, with fewer rules, and the
+  other four forms have not been tried there; the human test plan is the first run); a real password manager; Safari and
+  Firefox.
+- **Human test plan:**
+  1. Open the Sign in page, type the password and press Enter at once, without clicking anywhere: you are signed in.
+  2. With the field empty, press Enter, then click Sign In: both say "Enter your password" and the cursor stays in the field.
+     A wrong password still says "Incorrect password", clears the field and leaves the cursor in it.
+  3. In Settings, Security, click into "Current password to make a key", type the password and press Enter: a key is shown once
+     (remove it afterwards).
+  4. Click "Change password", type the current password, then the new one twice, and press Enter in the last field: the form
+     closes and you stay signed in.
+  5. Click "Remove password", type the password and press Enter: "Remove the password?" opens. Choose Cancel: the password stays.
+  6. On a new install (a data folder with neither `config.json` nor `auth.json`), choose "Protect with a password", type both
+     fields and press Enter: you land in the app, signed in.
+  7. Tab to a button such as Cancel or Back and press Enter: it does what its label says and the form is not submitted.
+
 ## 1.9A14 (unreleased) — The Settings password forms and the first-run form send the passwords their fields hold
 
 - **Version 1.9A14.** One web-app fix on top of 1.9A13. No server route, request, config key or file format changes,
