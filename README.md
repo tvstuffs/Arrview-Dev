@@ -39,6 +39,10 @@ On first launch you'll be taken to the **Configuration page**. Enter the server 
 
 Settings are saved to `config.json` (gitignored). You can re-open them any time from **Settings**: the gear in the header on phones, or the navigation on wider screens.
 
+**Addresses and ports.** An `http://` address is taken to be a local one, so it must name its port: `http://<docker-host-address>:8080` for SABnzbd, `:8989` for Sonarr, `:7878` for Radarr and `:5076` for NZBHydra, or whatever port you mapped. When the port is missing the page says so under the field, and neither Test nor Save goes ahead until it is there. An `https://` address needs no port when the host name already leads to the app, as with a reverse proxy that routes by name; a port you do type is used as written. ArrView adds no port to what you type in Settings. An address that was saved before this rule keeps working and keeps saving; the rule applies when you enter or change one.
+
+SABnzbd's **Test** says Connected only when SABnzbd itself answers with its version. If something else answers at the address (a web page, another app), it says so and suggests checking the address and port.
+
 ---
 
 ## Finding your API keys
@@ -342,6 +346,9 @@ Rules:
   rejected everywhere, including Settings). A base path such as `/sonarr` is fine.
 - The default port is added only to an override that has neither a scheme nor
   an explicit port (for example `ARRVIEW_SONARR_URL=<docker-host-address>`).
+  The Settings rule that an `http://` address must name its port is for what
+  you type there; these variables keep adding each app's default port as
+  described here.
 - Mount the whole data directory (`./data:/data`), not `config.json` as a
   single-file bind mount: saves write a temporary file and rename it over
   `config.json`, which fails on a single-file mount.

@@ -6,6 +6,7 @@ import WebhookSettings from './WebhookSettings.jsx'
 import SecurityCard from './SecurityCard.jsx'
 import Icon from './Icon.jsx'
 import { normalizeAddress } from '../webhooks'
+import { addressProblem } from '../serviceUrl'
 import { useWebhookActivity } from '../hooks/useWebhookActivity'
 import { useServiceStatus } from '../hooks/useServiceStatus'
 import { apiFetch } from '../api'
@@ -67,8 +68,11 @@ function connectionOf({ saved, ping, testResult }) {
 
 // One row of the Services list: name, description and connection status; it opens to the address and key fields.
 // A saved service starts closed, one that is not set up starts open. Closed fields stay in the page (hidden).
-function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged = false, keyHint = false }) {
+// `problem` is what the address rule says about the address in the field (an http:// address must name its port); it is shown once the
+// field has been left, or on a Test or a Save, so it does not appear while the address is still being typed.
+function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged = false, keyHint = false, problem = null, showProblem = false }) {
   const [open, setOpen] = useState(!saved)
+  const [touched, setTouched] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
   // 'ok' or 'bad' for TEST_RESULT_MS after a Test ends: the Test button shows a check or an X meanwhile.
@@ -84,6 +88,7 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
 
   async function handleTest() {
     if (testing || outcome) return
+    if (problem) { setTouched(true); return }
     const editsBefore = edits.current
     setTesting(true)
     setTestResult(null)
@@ -108,6 +113,8 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
   const hasCredentials = values.url && hasUsableKey(values.apikey)
   const noteId = `${service.id}-env-note`
   const hintId = `${service.id}-key-hint`
+  const problemId = `${service.id}-url-problem`
+  const problemShown = Boolean(problem) && (touched || showProblem)
   const panelId = `${service.id}-panel`
   const connection = connectionOf({ saved, ping, testResult })
   const announcement = outcome === 'ok' ? `${service.name} test passed`
@@ -142,10 +149,13 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
             placeholder={service.placeholder}
             value={values.url || ''}
             readOnly={envManaged}
-            aria-describedby={envManaged ? noteId : undefined}
+            aria-invalid={problemShown ? 'true' : undefined}
+            aria-describedby={envManaged ? noteId : (problemShown ? problemId : undefined)}
             onChange={e => handleEdit('url', e.target.value)}
+            onBlur={() => setTouched(true)}
           />
           {service.urlHint && <p className="service-note text-sm text-muted">{service.urlHint}</p>}
+          {problemShown && <p id={problemId} className="service-note text-sm text-danger" role="alert">{problem}</p>}
         </div>
         <div className="service-field">
           <label htmlFor={`${service.id}-key`}>API Key</label>
@@ -162,7 +172,7 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
               type="button"
               className={`btn btn-secondary service-test${outcome ? ` is-${outcome}` : ''}`}
               disabled={!hasCredentials}
-              aria-disabled={testing || outcome ? 'true' : undefined}
+              aria-disabled={testing || outcome || problem ? 'true' : undefined}
               aria-label={testing ? 'Testing' : outcome === 'ok' ? 'Test passed' : outcome === 'bad' ? 'Test failed' : undefined}
               onClick={handleTest}
             >
@@ -197,6 +207,11 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
     radarr:   { url: '', apikey: '', ...initialConfig.radarr   },
   }))
   const envManaged = initialConfig.envManaged || {}
+  // What the address rule says about each address in the page: an http:// address must name its port, an https:// address needs none.
+  // An address that is already saved is left alone, so settings saved before the rule keep saving.
+  const addressProblems = Object.fromEntries(SERVICES.map(s =>
+    [s.id, envManaged[s.id] ? null : addressProblem(config[s.id].url, s.id, initialConfig[s.id]?.url)]))
+  const [showProblems, setShowProblems] = useState(false)
   // ArrView's own address as Sonarr and Radarr reach it; empty means this page's address.
   const savedAddress = initialConfig.webhooks?.baseUrl || ''
   const [webhookAddress, setWebhookAddress] = useState(savedAddress)
@@ -267,6 +282,12 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
     }
     if (SERVICES.some(s => !envManaged[s.id] && keyRequired[s.id] && config[s.id].url.trim() && !config[s.id].apikey)) {
       setError('Re-enter the API key for the new address.')
+      return
+    }
+    const refused = SERVICES.find(s => addressProblems[s.id] && hasUsableKey(config[s.id].apikey))
+    if (refused) {
+      setShowProblems(true)
+      setError(`${refused.name}: ${addressProblems[refused.id]}`)
       return
     }
     // Sent only when it changed, so saving anything else behaves exactly as it did before webhooks had an address.
@@ -347,6 +368,8 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
                 onTest={handleTest}
                 envManaged={Boolean(envManaged[service.id])}
                 keyHint={Boolean(keyHints[service.id])}
+                problem={addressProblems[service.id]}
+                showProblem={showProblems}
               />
             ))}
           </ul>

@@ -44,7 +44,7 @@ test('masked key with a changed or invalid URL is refused (criteria 11, 11b)', a
   const s = await startServer(t, { config: services(up.port) });
   const before = s.readConfigText();
   const body = await s.getConfig();
-  const r = await s.json('POST', '/api/config', { ...body, sonarr: { ...body.sonarr, url: 'http://elsewhere.invalid' } });
+  const r = await s.json('POST', '/api/config', { ...body, sonarr: { ...body.sonarr, url: 'http://elsewhere.invalid:8989' } });
   assert.equal(r.status, 400);
   assert.match((await r.json()).error, /re-entered/);
   for (const url of ['https://example.invalid/sonarr?token=x', 'https://example.invalid/sonarr#frag']) {
@@ -134,7 +134,7 @@ test('POST /api/config rejects invalid bodies untouched (criterion 15)', async t
   const up = await startUpstream(); t.after(up.close);
   const s = await startServer(t, { config: services(up.port) });
   const before = s.readConfigText();
-  const good = { url: 'http://example.invalid', apikey: 'plain-key' };
+  const good = { url: 'http://example.invalid:8989', apikey: 'plain-key' };
   const bodies = [
     [], { bogus: good }, { sonarr: { ...good, extra: 1 } }, { radarr: { ...good, sabPath: '/api' } },
     { sonarr: { ...good, url: 42 } }, { sonarr: { ...good, url: 'ftp://example.invalid' } },
@@ -150,9 +150,9 @@ test('POST /api/config rejects invalid bodies untouched (criterion 15)', async t
     assert.equal(s.readConfigText(), before);
   }
   // Invalid sabPath is dropped rather than stored.
-  const ok = await s.json('POST', '/api/config', { sabnzbd: { url: 'http://example.invalid', apikey: 'k', sabPath: '/evil' }, envManaged: { sonarr: true } });
+  const ok = await s.json('POST', '/api/config', { sabnzbd: { url: 'http://example.invalid:8080', apikey: 'k', sabPath: '/evil' }, envManaged: { sonarr: true } });
   assert.equal(ok.status, 200);
-  assert.deepEqual(s.readConfig(), { sabnzbd: { url: 'http://example.invalid', apikey: 'k' } });
+  assert.deepEqual(s.readConfig(), { sabnzbd: { url: 'http://example.invalid:8080', apikey: 'k' } });
 });
 
 const failingFs = flag => real => ({
@@ -197,7 +197,7 @@ test('_sabPathCache survives failed saves and resets after success (criterion 16
   const body = await s.getConfig();
 
   assert.equal((await s.json('POST', '/api/config', ['bad'])).status, 400);
-  assert.equal((await s.json('POST', '/api/config', { ...body, sabnzbd: { ...body.sabnzbd, url: 'http://elsewhere.invalid' } })).status, 400);
+  assert.equal((await s.json('POST', '/api/config', { ...body, sabnzbd: { ...body.sabnzbd, url: 'http://elsewhere.invalid:8080' } })).status, 400);
   assert.equal((await s.json('POST', '/api/config', { ...body, sonarr: { ...body.sonarr, url: 'http://elsewhere.invalid' } })).status, 409);
   for (const mode of ['rename', 'write']) {
     flag[mode] = true;
@@ -306,19 +306,19 @@ test('no key without an alphanumeric character is saved; keys are stored trimmed
   const before = s.readConfigText();
   for (const svc of ['sonarr', 'radarr', 'sabnzbd', 'nzbhydra']) {
     for (const apikey of NO_ALNUM) {
-      const r = await s.json('POST', '/api/config', { [svc]: { url: 'http://example.invalid', apikey } });
+      const r = await s.json('POST', '/api/config', { [svc]: { url: 'http://example.invalid:8080', apikey } });
       assert.equal(r.status, 400, `${svc} ${JSON.stringify(apikey)}`);
       assert.match((await r.json()).error, /letter or number/);
       assert.equal(s.readConfigText(), before);
     }
   }
   // Non-matching placeholder keeps the re-enter error, not the alphanumeric one.
-  let r = await s.json('POST', '/api/config', { sonarr: { url: 'http://example.invalid', apikey: '••••' } });
+  let r = await s.json('POST', '/api/config', { sonarr: { url: 'http://example.invalid:8989', apikey: '••••' } });
   assert.equal(r.status, 400);
   assert.doesNotMatch((await r.json()).error, /letter or number/);
   assert.equal(s.readConfigText(), before);
   // Trim and store trimmed.
-  r = await s.json('POST', '/api/config', { sonarr: { url: 'http://example.invalid', apikey: '  real-key-1  ' } });
+  r = await s.json('POST', '/api/config', { sonarr: { url: 'http://example.invalid:8989', apikey: '  real-key-1  ' } });
   assert.equal(r.status, 200);
   assert.equal(s.readConfig().sonarr.apikey, 'real-key-1');
   assert.equal((await s.getConfig()).sonarr.apikey, '••••ey-1');

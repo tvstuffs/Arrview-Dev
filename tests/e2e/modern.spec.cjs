@@ -630,6 +630,63 @@ test('Settings: the Test button keeps its size while it shows a spinner, a check
     await context.close()
   }
 })
+test('Settings: an http address must name its port and an https address needs none, for SABnzbd and the others', async ({ browser }) => {
+  const PORT_NOTE = 'Add the port, for example http://192.0.2.10:8080. An https:// address needs none.'
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+    const page = await context.newPage()
+    const sent = []
+    page.on('request', request => { if (request.method() === 'POST') sent.push(new URL(request.url()).pathname) })
+    await open(page, '/settings')
+    await page.getByRole('button', { name: 'SABnzbd', exact: true }).click()
+    const url = page.locator('#sabnzbd-url'), key = page.locator('#sabnzbd-key'), note = page.locator('#sabnzbd-url-problem')
+    const test = page.locator('#sabnzbd-panel .service-test')
+
+    // A new address, typed: nothing is said while it is typed, the message comes when the field is left.
+    await url.fill('http://192.0.2.10')
+    await expect(note).toHaveCount(0)
+    await key.fill('typed-key-1')
+    await expect(note).toHaveText(PORT_NOTE)
+    await expect(note).toHaveAttribute('role', 'alert')
+    await expect(url).toHaveAttribute('aria-invalid', 'true')
+    expect(await fits(page), `the message fits the page at ${width} px`).toBe(true)
+    // Test and Save say why and send nothing.
+    await expect(test).toHaveAttribute('aria-disabled', 'true')
+    await test.click({ force: true })   // a person can click it: Playwright would refuse an aria-disabled button
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByText(`SABnzbd: ${PORT_NOTE}`, { exact: true })).toBeVisible()
+    expect(sent, 'nothing was sent while the address had no port').toEqual([])
+
+    // With the port the message goes and the address is tested exactly as typed.
+    let tested = null
+    await page.route('**/api/test/sabnzbd', async route => { tested = route.request().postDataJSON(); await route.fulfill({ json: { success: true, version: '5.1.3' } }) })
+    await url.fill('http://192.0.2.10:8080')
+    await expect(note).toHaveCount(0)
+    await test.click()
+    await expect(page.locator('#sabnzbd-status')).toHaveText('Connected · v5.1.3')
+    expect(tested).toEqual({ url: 'http://192.0.2.10:8080', apikey: 'typed-key-1' })
+
+    // An https address has no port to name, and none is added.
+    await url.fill('https://sab.example.invalid')
+    await key.focus()
+    await expect(note).toHaveCount(0)
+    await test.click()
+    await expect.poll(() => tested.url).toBe('https://sab.example.invalid')
+
+    // The other apps follow the same rule, each with its own usual port in the suggestion.
+    for (const [id, name, port] of [['sonarr', 'Sonarr', 8989], ['radarr', 'Radarr', 7878], ['nzbhydra', 'NZBHydra', 5076]]) {
+      await page.getByRole('button', { name, exact: true }).click()
+      await page.locator(`#${id}-url`).fill('nas.example.invalid')
+      await page.locator(`#${id}-key`).focus()
+      await expect(page.locator(`#${id}-url-problem`)).toHaveText(`Add the port, for example http://nas.example.invalid:${port}. An https:// address needs none.`)
+      await page.locator(`#${id}-url`).fill('https://nas.example.invalid')
+      await page.locator(`#${id}-key`).focus()
+      await expect(page.locator(`#${id}-url-problem`)).toHaveCount(0)
+    }
+    expect(await fits(page), `the page fits at ${width} px`).toBe(true)
+    await context.close()
+  }
+})
 test('Shows: the bar, the caption and the missing count follow what Sonarr wants, in Modern and in Classic', async ({ page, request }) => {
   const OK = 'rgb(126, 226, 160)', DANGER = 'rgb(255, 107, 107)'
   const base = (await (await request.get('/api/sonarr/series')).json())[0]

@@ -391,3 +391,104 @@ test('Services: the NZBHydra row says a Newznab indexer works and how to enter i
   expect(document.getElementById('nzbhydra-panel')).toContainElement(hint)
   expect(screen.getAllByText(/without \/api/)).toHaveLength(1)
 })
+
+// The address rule of Settings → Services: an http:// address names its port, an https:// address needs none. Nothing is added to what
+// is typed. The table both the page and the server are tested against is tests/fixtures/service-urls.json.
+const urlField = id => screen.getByLabelText('Server URL', { selector: `#${id}-url` })
+const keyField = id => screen.getByLabelText('API Key', { selector: `#${id}-key` })
+const testButton = id => keyField(id).closest('.input-group').querySelector('button')
+const portNote = (host, port) => `Add the port, for example http://${host}:${port}. An https:// address needs none.`
+const noServices = { envManaged: { sonarr: false, radarr: false, sabnzbd: false, nzbhydra: false } }
+const posts = (fetch, url) => fetch.mock.calls.filter(([u, o]) => u === url && o?.method === 'POST')
+const okAnswers = url => url.startsWith('/api/test/') ? reply({ success: true, version: '5.1.3' }) : url === '/api/config' ? reply({ success: true }) : reply({ version: '1' })
+
+test('an http address without a port: the message comes when the field is left, Test explains instead of testing, and Save is blocked until the port is there', async () => {
+  const fetch = stubFetch(okAnswers)
+  render(<ConfigPage initialConfig={noServices} onSave={() => {}} />)
+  const note = portNote('192.0.2.10', 8080)
+  fireEvent.change(keyField('sabnzbd'), { target: { value: 'real-key-1' } })
+  fireEvent.change(urlField('sabnzbd'), { target: { value: 'http://192.0.2.10' } })
+  // while the address is still being typed, nothing is said
+  expect(screen.queryByText(note)).toBeNull()
+  expect(urlField('sabnzbd')).not.toHaveAttribute('aria-invalid')
+  fireEvent.blur(urlField('sabnzbd'))
+  expect(await screen.findByText(note)).toBeInTheDocument()
+  expect(urlField('sabnzbd')).toHaveAttribute('aria-invalid', 'true')
+  expect(urlField('sabnzbd')).toHaveAttribute('aria-describedby', 'sabnzbd-url-problem')
+  // Test asks the server nothing
+  fireEvent.click(testButton('sabnzbd'))
+  expect(testButton('sabnzbd')).toHaveAttribute('aria-disabled', 'true')
+  expect(posts(fetch, '/api/test/sabnzbd')).toHaveLength(0)
+  // Save sends nothing and names the service
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(await screen.findByText(`SABnzbd: ${note}`)).toBeInTheDocument()
+  expect(posts(fetch, '/api/config')).toHaveLength(0)
+  // with the port the message goes, and Test and Save work
+  fireEvent.change(urlField('sabnzbd'), { target: { value: 'http://192.0.2.10:8080' } })
+  expect(screen.queryByText(note)).toBeNull()
+  expect(urlField('sabnzbd')).not.toHaveAttribute('aria-invalid')
+  fireEvent.click(testButton('sabnzbd'))
+  await waitFor(() => expect(posts(fetch, '/api/test/sabnzbd')).toHaveLength(1))
+  expect(posted(fetch, '/api/test/sabnzbd')).toEqual({ url: 'http://192.0.2.10:8080', apikey: 'real-key-1' })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(posts(fetch, '/api/config')).toHaveLength(1))
+  expect(posted(fetch, '/api/config').sabnzbd).toEqual({ url: 'http://192.0.2.10:8080', apikey: 'real-key-1' })
+})
+
+test('Save shows the message of an address whose field was never left', async () => {
+  const fetch = stubFetch(okAnswers)
+  render(<ConfigPage initialConfig={noServices} onSave={() => {}} />)
+  fireEvent.change(keyField('radarr'), { target: { value: 'real-key-2' } })
+  fireEvent.change(urlField('radarr'), { target: { value: 'nas.example.invalid' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const note = portNote('nas.example.invalid', 7878)
+  expect((await screen.findAllByText(new RegExp(note.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).length).toBe(2)   // under the field and in the Save message
+  expect(posts(fetch, '/api/config')).toHaveLength(0)
+})
+
+test('every service follows the rule, and the suggestion carries that app\'s usual port', () => {
+  stubFetch(okAnswers)
+  render(<ConfigPage initialConfig={noServices} onSave={() => {}} />)
+  for (const [id, port] of [['sabnzbd', 8080], ['nzbhydra', 5076], ['sonarr', 8989], ['radarr', 7878]]) {
+    const url = urlField(id)
+    fireEvent.change(url, { target: { value: 'nas.example.invalid' } })
+    fireEvent.blur(url)
+    expect(screen.getByText(portNote('nas.example.invalid', port))).toBeInTheDocument()
+    fireEvent.change(url, { target: { value: 'https://nas.example.invalid' } })
+    expect(screen.queryByText(/Add the port/)).toBeNull()
+    fireEvent.change(url, { target: { value: 'https://nas.example.invalid:9898' } })
+    expect(screen.queryByText(/Add the port|The port must be/)).toBeNull()
+    fireEvent.change(url, { target: { value: 'http://nas.example.invalid:0' } })
+    expect(screen.getByText('The port must be a number from 1 to 65535.')).toBeInTheDocument()
+    fireEvent.change(url, { target: { value: '' } })
+    expect(screen.queryByText(/Add the port|The port must be/)).toBeNull()
+  }
+})
+
+test('an address saved before the rule is left alone, Test and Save work with it, and a changed one must follow the rule', async () => {
+  const fetch = stubFetch(okAnswers)
+  render(<ConfigPage initialConfig={{ ...noServices, sonarr: { url: 'http://nas.example.invalid', apikey: MASKED } }} onSave={() => {}} />)
+  fireEvent.blur(urlField('sonarr'))
+  expect(screen.queryByText(/Add the port/)).toBeNull()
+  fireEvent.click(testButton('sonarr'))
+  await waitFor(() => expect(posts(fetch, '/api/test/sonarr')).toHaveLength(1))
+  expect(posted(fetch, '/api/test/sonarr')).toEqual({ url: 'http://nas.example.invalid', apikey: MASKED })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(posts(fetch, '/api/config')).toHaveLength(1))
+  expect(posted(fetch, '/api/config').sonarr).toEqual({ url: 'http://nas.example.invalid', apikey: MASKED })
+  // the same address written differently is still the saved one; another host is a new address
+  fireEvent.change(urlField('sonarr'), { target: { value: 'HTTP://nas.example.invalid/' } })
+  expect(screen.queryByText(/Add the port/)).toBeNull()
+  fireEvent.change(urlField('sonarr'), { target: { value: 'http://nas2.example.invalid' } })
+  fireEvent.blur(urlField('sonarr'))
+  expect(screen.getByText(portNote('nas2.example.invalid', 8989))).toBeInTheDocument()
+})
+
+test('a service set by the Docker configuration never shows the message, whatever its address', () => {
+  stubFetch(okAnswers)
+  render(<ConfigPage initialConfig={{ ...noServices, envManaged: { sonarr: true, radarr: false, sabnzbd: false, nzbhydra: false },
+    sonarr: { url: 'http://sonarr.example.invalid', apikey: MASKED } }} onSave={() => {}} />)
+  fireEvent.blur(urlField('sonarr'))
+  expect(screen.queryByText(/Add the port/)).toBeNull()
+  expect(urlField('sonarr')).toHaveAttribute('readonly')
+})

@@ -973,6 +973,31 @@ function normalizeServiceUrl(raw, defaultPort) {
   return s;
 }
 
+const SERVICE_LABELS = { sabnzbd: 'SABnzbd', nzbhydra: 'NZBHydra', sonarr: 'Sonarr', radarr: 'Radarr' };
+const PORT_RANGE_TEXT = 'The port must be a number from 1 to 65535.';
+
+// The rule for a service address typed in Settings, and tested with its Test button: an http:// address is taken to be a local one,
+// so it must name its port; an https:// address is taken to be a public host name that leads to the app by name (a reverse proxy),
+// so its port is optional and is used when given. ArrView adds no default port to such an address: each app's usual port is only
+// suggested in the sentence. (The Docker variables ARRVIEW_HOST and ARRVIEW_<SVC>_URL are not part of this rule: they do add the
+// default port, as documented.) src/serviceUrl.js is the browser's copy; tests/fixtures/service-urls.json is the table both are tested against.
+// Takes an address already cleaned by normalizeServiceUrl; returns the sentence to show, or null when the address is fine. The port is
+// read from the text, not from URL.port, which is empty for :80 on http and :443 on https even when it was typed.
+function serviceUrlProblem(url, svc) {
+  const rest = url.slice(url.indexOf('://') + 3);
+  const slash = rest.indexOf('/');
+  const authority = slash === -1 ? rest : rest.slice(0, slash);
+  const tail = slash === -1 ? '' : rest.slice(slash);
+  const match = authority.match(/^(\[[^\]]*\]|[^:]*)(?::(\d*))?$/);
+  if (!match) return null;
+  if (match[2]) {
+    const port = Number(match[2]);
+    return port >= 1 && port <= 65535 ? null : PORT_RANGE_TEXT;
+  }
+  if (url.startsWith('https://')) return null;
+  return `Add the port, for example http://${match[1]}:${DEFAULT_PORTS[svc]}${tail}. An https:// address needs none.`;
+}
+
 // ArrView's own address as Sonarr and Radarr reach it, kept in config.webhooks.baseUrl so Settings can show
 // the webhook URLs to paste into them. Same rules as a service address, plus: no whitespace anywhere and a plain
 // host name or IP address (browsers and Node disagree about what a URL parser lets through, and the browser
@@ -1195,16 +1220,17 @@ function buildConfigToSave(body) {
     if (env) {
       const same = typeof entry.url === 'string' && normalizeServiceUrl(entry.url) === env.url &&
         typeof entry.apikey === 'string' && (entry.apikey.trim() === env.apikey || entry.apikey.trim() === mask(env.apikey));
-      if (!same) {
-        const label = { sabnzbd: 'SABnzbd', nzbhydra: 'NZBHydra', sonarr: 'Sonarr', radarr: 'Radarr' }[svc];
-        return { status: 409, error: `${label} is set by the Docker configuration and can't be changed here` };
-      }
+      if (!same) return { status: 409, error: `${SERVICE_LABELS[svc]} is set by the Docker configuration and can't be changed here` };
       if (stored[svc] !== undefined) out[svc] = stored[svc];
       continue;
     }
     if (typeof entry.url !== 'string' || !entry.url.trim()) return bad(`${svc} url must be a non-empty string`);
     const url = normalizeServiceUrl(entry.url);
     if (!url) return bad(`${svc} url must be an http(s) URL without credentials, query or fragment`);
+    // An address that is already saved keeps saving as it is, so settings saved before this rule are not locked out; the rule is for a
+    // new or changed address.
+    const problem = serviceUrlProblem(url, svc);
+    if (problem && normalizeServiceUrl(stored[svc]?.url) !== url) return bad(`${SERVICE_LABELS[svc]}: ${problem}`);
     if (typeof entry.apikey !== 'string' || !entry.apikey) return bad(`${svc} apikey must be a non-empty string`);
     let apikey = entry.apikey;
     if (apikey.startsWith(MASK_PREFIX)) {
@@ -1258,7 +1284,15 @@ app.post('/api/config', (req, res) => {
 
 const SAB_PATHS = ['/sabnzbd/api', '/api'];
 
-async function detectSabPath(baseUrl, apikey) {
+// A real SABnzbd answers mode=version with a version string. Anything else that answers 200 is not SABnzbd: a login page, the page a
+// web server on port 80 redirects to, another app's JSON. Accepting those made the Test say Connected for an address where the
+// Downloads page then could not read a queue.
+const isSabVersion = data => isPlainObject(data) && typeof data.version === 'string' && data.version.trim() !== '' && data.status !== false;
+
+// Looks for SABnzbd at both paths. Returns { path, version } when found; otherwise { path: null, other } where `other` says that
+// something answered 200 but not like SABnzbd (so the address is reachable and wrong), as opposed to nothing answering.
+async function probeSab(baseUrl, apikey) {
+  let other = false;
   for (const p of SAB_PATHS) {
     try {
       const r = await axios.get(`${baseUrl}${p}`, {
@@ -1266,10 +1300,15 @@ async function detectSabPath(baseUrl, apikey) {
         timeout: 8000,
         validateStatus: s => s === 200,
       });
-      if (r.data && (r.data.version || r.data.status !== false)) return p;
+      if (isSabVersion(r.data)) return { path: p, version: r.data.version };
+      other = true;
     } catch (_) {}
   }
-  return null;
+  return { path: null, other };
+}
+
+async function detectSabPath(baseUrl, apikey) {
+  return (await probeSab(baseUrl, apikey)).path;
 }
 
 // ── Test connections ──────────────────────────────────────────────────────────
@@ -1282,6 +1321,10 @@ app.post('/api/test/:service', async (req, res) => {
   }
   const url = normalizeServiceUrl(body.url);
   if (!url) return res.status(400).json({ error: 'Invalid URL: use an http(s) address without credentials, query or fragment' });
+  // The same rule as saving: a new address must follow it, and nothing is asked of the service when it does not; an address that is
+  // already saved is tested as it is.
+  const problem = SERVICE_IDS.includes(service) ? serviceUrlProblem(url, service) : null;
+  if (problem && normalizeServiceUrl(loadConfig()[service]?.url) !== url) return res.status(400).json({ error: problem });
   let apikey = body.apikey;
   if (apikey.startsWith(MASK_PREFIX)) {
     apikey = SERVICE_IDS.includes(service) ? resolveMaskedKey(service, apikey, url) : null;
@@ -1294,14 +1337,13 @@ app.post('/api/test/:service', async (req, res) => {
 
   try {
     if (service === 'sabnzbd') {
-      const detectedPath = await detectSabPath(url, apikey);
-      if (!detectedPath) return res.status(503).json({ error: 'Could not reach SABnzbd — check URL and API key' });
-      // Fetch version for display
-      const r = await axios.get(`${url}${detectedPath}`, {
-        params: { mode: 'version', output: 'json', apikey },
-        timeout: 8000,
-      });
-      return res.json({ success: true, version: r.data.version, sabPath: detectedPath });
+      const found = await probeSab(url, apikey);
+      if (!found.path) {
+        return res.status(503).json({ error: found.other
+          ? 'That address answered, but not like SABnzbd — check the address and port'
+          : 'Could not reach SABnzbd — check URL and API key' });
+      }
+      return res.json({ success: true, version: found.version, sabPath: found.path });
     }
 
     if (service === 'sonarr') {

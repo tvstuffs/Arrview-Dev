@@ -1,0 +1,31 @@
+{
+  "note": "One table for the address rule of Settings -> Services, read by tests/service-url.test.js (the server) and tests/web/service-url.test.js (the browser's copy of the rule). An http:// address must name its port; an https:// address needs none. 'stored' is the address the server keeps; 'problem' is the sentence both sides show; 'invalid' means the server refuses it with its general message and the browser's rule has nothing to add.",
+  "cases": [
+    { "service": "sonarr", "input": "http://192.0.2.10:8989", "stored": "http://192.0.2.10:8989" },
+    { "service": "sonarr", "input": "192.0.2.10:8989", "stored": "http://192.0.2.10:8989" },
+    { "service": "radarr", "input": "HTTP://nas.example.invalid:7878/", "stored": "http://nas.example.invalid:7878" },
+    { "service": "sabnzbd", "input": "http://192.0.2.10:8080", "stored": "http://192.0.2.10:8080" },
+    { "service": "sabnzbd", "input": "http://nas.example.invalid:8080/sabnzbd", "stored": "http://nas.example.invalid:8080/sabnzbd" },
+    { "service": "sabnzbd", "input": "https://sab.example.invalid", "stored": "https://sab.example.invalid" },
+    { "service": "nzbhydra", "input": "https://hydra.example.invalid/", "stored": "https://hydra.example.invalid" },
+    { "service": "sonarr", "input": "https://nas.example.invalid:9898", "stored": "https://nas.example.invalid:9898" },
+    { "service": "sonarr", "input": "https://nas.example.invalid/sonarr", "stored": "https://nas.example.invalid/sonarr" },
+    { "service": "sonarr", "input": "http://nas.example.invalid:80", "stored": "http://nas.example.invalid:80" },
+    { "service": "radarr", "input": "http://[::1]:7878", "stored": "http://[::1]:7878" },
+    { "service": "sonarr", "input": "https://[2001:db8::1]", "stored": "https://[2001:db8::1]" },
+
+    { "service": "sonarr", "input": "http://192.0.2.10", "problem": "Add the port, for example http://192.0.2.10:8989. An https:// address needs none." },
+    { "service": "sabnzbd", "input": "192.0.2.10", "problem": "Add the port, for example http://192.0.2.10:8080. An https:// address needs none." },
+    { "service": "radarr", "input": "http://nas.example.invalid/", "problem": "Add the port, for example http://nas.example.invalid:7878. An https:// address needs none." },
+    { "service": "nzbhydra", "input": "http://nas.example.invalid/hydra", "problem": "Add the port, for example http://nas.example.invalid:5076/hydra. An https:// address needs none." },
+    { "service": "sonarr", "input": "http://[::1]", "problem": "Add the port, for example http://[::1]:8989. An https:// address needs none." },
+    { "service": "sonarr", "input": "http://192.0.2.10:", "problem": "Add the port, for example http://192.0.2.10:8989. An https:// address needs none." },
+    { "service": "sabnzbd", "input": "sab.example.invalid", "problem": "Add the port, for example http://sab.example.invalid:8080. An https:// address needs none." },
+    { "service": "sonarr", "input": "http://192.0.2.10:0", "problem": "The port must be a number from 1 to 65535." },
+    { "service": "sonarr", "input": "https://nas.example.invalid:0", "problem": "The port must be a number from 1 to 65535." },
+
+    { "service": "sonarr", "input": "ftp://nas.example.invalid:21", "invalid": true },
+    { "service": "sonarr", "input": "http://user:pw@nas.example.invalid:8989", "invalid": true },
+    { "service": "sonarr", "input": "http://nas.example.invalid:8989/?x=1", "invalid": true }
+  ]
+}
