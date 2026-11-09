@@ -1,6 +1,6 @@
 import React from 'react'
 import { test, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 import SecurityCard from '../../src/components/SecurityCard'
 import ConfigPage from '../../src/components/ConfigPage'
 import { AuthContext } from '../../src/AuthContext'
@@ -348,4 +348,70 @@ test('Settings puts Security first, above Layout and the Webhooks card', () => {
   </AuthContext.Provider>)
   const order = [...container.querySelectorAll('.security-card, .layout-choice, .webhook-card')].map(el => el.className.split(' ').find(name => name !== 'card'))
   expect(order).toEqual(['security-card', 'layout-choice', 'webhook-card'])
+})
+
+// Enter is handled by each form's own key handler (src/submitOnEnter.js). On one real Edge the key reached the page but the browser
+// never ran the form's own submission for it (no change, click or submit event followed). jsdom does not run implicit submission
+// either, so these tests fail on a form that relies on it.
+const enter = (target, init = {}) => fireEvent.keyDown(target, { key: 'Enter', ...init })
+
+test('Enter in the key form makes the key', async () => {
+  await mountOn(ON, () => reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'Cron job', created: 1 }))
+  fireEvent.change(field('Key name (optional)'), { target: { value: 'Cron job' } })
+  fireEvent.change(keyPasswordField(), { target: { value: 'my password!' } })
+  enter(keyPasswordField())
+  expect(await screen.findByLabelText('New key for Cron job')).toHaveValue(KEY)
+  expect(fn.mock.calls[0][0]).toBe('/api/auth/keys')
+  expect(body(fn.mock.calls[0])).toEqual({ name: 'Cron job', currentPassword: 'my password!' })
+})
+
+test('Enter in the Change password form changes the password', async () => {
+  await mountOn(ON)
+  click('Change password')
+  fireEvent.change(field('New password'), { target: { value: 'new password!' } })
+  fireEvent.change(field('Confirm new password'), { target: { value: 'new password!' } })
+  fireEvent.change(passwordFormField('Current password'), { target: { value: 'old password!' } })
+  enter(passwordFormField('Current password'))
+  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+  expect(body(fn.mock.calls[0])).toEqual({ currentPassword: 'old password!', newPassword: 'new password!' })
+})
+
+test('Enter in the Set a password form saves the password', async () => {
+  mount(base)
+  click(/Set a password/)
+  fireEvent.change(field('New password'), { target: { value: 'a new password' } })
+  fireEvent.change(field('Confirm new password'), { target: { value: 'a new password' } })
+  enter(field('Confirm new password'))
+  await waitFor(() => expect(refresh).toHaveBeenCalled())
+  expect(body(fn.mock.calls[0])).toEqual({ newPassword: 'a new password' })
+})
+
+test('Enter in the Remove password form asks to confirm and sends nothing yet', async () => {
+  await mountOn(ON)
+  click('Remove password')
+  fireEvent.change(passwordFormField('Current password'), { target: { value: 'my password!' } })
+  enter(passwordFormField('Current password'))
+  expect(await screen.findByRole('dialog')).toBeVisible()
+  expect(fn).not.toHaveBeenCalled()
+})
+
+test('Enter in the key form sends nothing more while a key is being made', async () => {
+  let release
+  await mountOn(ON, () => new Promise(resolve => { release = () => resolve(reply(200, { accessKey: KEY, id: 'aaaaaaaaaaaaaaaa', name: 'App key', created: 1 })) }))
+  fireEvent.change(keyPasswordField(), { target: { value: 'my password!' } })
+  enter(keyPasswordField())
+  await waitFor(() => expect(screen.getByRole('button', { name: /Make a key/ })).toBeDisabled())
+  fireEvent.change(keyPasswordField(), { target: { value: 'my password!' } })
+  enter(keyPasswordField())
+  expect(fn).toHaveBeenCalledTimes(1)
+  await act(async () => release())
+})
+
+test('Enter on the Cancel button of a form does not submit the form', async () => {
+  await mountOn(ON)
+  click('Remove password')
+  fireEvent.change(passwordFormField('Current password'), { target: { value: 'my password!' } })
+  enter(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(fn).not.toHaveBeenCalled()
 })

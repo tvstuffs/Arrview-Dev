@@ -4,6 +4,7 @@ import Icon from './Icon.jsx'
 import { apiFetch } from '../api'
 import { validatePassword, passwordError } from '../passwordRules'
 import { filledPasswords } from '../filledPasswords'
+import { submitOnEnter } from '../submitOnEnter'
 
 const NETWORK_ERROR = 'Can’t reach your ArrView server. Check your connection and try again.'
 
@@ -58,7 +59,7 @@ export default function Setup({ onDone }) {
             <p className="text-muted text-sm">You can set or remove a password later in Settings.</p>
           </div>
         ) : (
-          <form onSubmit={save} className="setup-actions">
+          <form onSubmit={save} onKeyDown={submitOnEnter} className="setup-actions">
             <input type="text" name="username" autoComplete="username" value="ArrView" readOnly tabIndex={-1} aria-hidden="true" className="visually-hidden" />
             <div className="field-group">
               <label htmlFor={`${idBase}-new`}>New password</label>

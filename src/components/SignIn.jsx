@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import './Security.css'
 import Icon from './Icon.jsx'
 import { apiFetch } from '../api'
+import { submitOnEnter } from '../submitOnEnter'
 
 const NETWORK_ERROR = 'Can’t reach your ArrView server. Check your connection and try again.'
 
@@ -21,6 +22,8 @@ export default function SignIn({ onSignedIn, expired = false }) {
     // manager) without telling the page, and then the state stays empty until the next click, so Enter would send nothing.
     // Read the field before any state change, because rendering writes the state back into it.
     const typed = input.current ? input.current.value : password
+    // The form does not use the browser's own validation: with it, an empty field left Enter doing nothing at all.
+    if (!typed) { setError('Enter your password'); input.current?.focus(); return }
     setPending(true); setError('')
     let failure = ''
     try {
@@ -46,7 +49,7 @@ export default function SignIn({ onSignedIn, expired = false }) {
 
   return (
     <main className="sign-in">
-      <form className="card sign-in-card" onSubmit={submit}>
+      <form className="card sign-in-card" onSubmit={submit} onKeyDown={submitOnEnter} noValidate>
         <img className="sign-in-logo" src="/arrview-icon.svg" alt="ArrView" width="64" height="64" />
         <h1><Icon name="lock" /> Sign in</h1>
         {expired && !error && <p className="text-muted" role="status">Your session ended. Sign in again.</p>}

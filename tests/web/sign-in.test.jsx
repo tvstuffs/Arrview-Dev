@@ -106,3 +106,97 @@ test('the expired notice shows when App switched here after a 401', () => {
   render(<SignIn onSignedIn={() => {}} expired />)
   expect(screen.getByRole('status')).toHaveTextContent('Your session ended. Sign in again.')
 })
+
+// Enter is handled by the form's own key handler (src/submitOnEnter.js). On one real Edge the key reached the page (keydown and
+// keyup) but the browser never ran the form's own submission for it (no change, click or submit event followed), so Enter did
+// nothing until the field was left and entered again. jsdom does not run implicit submission either, so these tests fail on a
+// form that relies on it.
+const enter = (target = screen.getByLabelText('Password'), init = {}) => fireEvent.keyDown(target, { key: 'Enter', ...init })
+
+test('Enter in the password field signs in without the browser submitting the form', async () => {
+  const fn = vi.fn(async () => reply(200, { success: true }))
+  vi.stubGlobal('fetch', fn)
+  const onSignedIn = vi.fn()
+  render(<SignIn onSignedIn={onSignedIn} />)
+  type('my secret pass')
+  enter()
+  await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1))
+  expect(fn).toHaveBeenCalledTimes(1)
+  expect(JSON.parse(fn.mock.calls[0][1].body)).toEqual({ password: 'my secret pass' })
+})
+
+// Something outside the page can cancel the key before the page sees it (an extension does); the browser then never reaches its own
+// submission, so Enter must still sign in.
+test('Enter signs in even when something cancelled the key before the page saw it', async () => {
+  const fn = vi.fn(async () => reply(200, { success: true }))
+  vi.stubGlobal('fetch', fn)
+  const onSignedIn = vi.fn()
+  render(<SignIn onSignedIn={onSignedIn} />)
+  const cancel = e => e.preventDefault()
+  document.addEventListener('keydown', cancel, true)
+  try {
+    type('my secret pass')
+    enter()
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1))
+  } finally {
+    document.removeEventListener('keydown', cancel, true)
+  }
+  expect(fn).toHaveBeenCalledTimes(1)
+  expect(JSON.parse(fn.mock.calls[0][1].body)).toEqual({ password: 'my secret pass' })
+})
+
+test('Enter with nothing in the field says so, keeps the cursor there and sends nothing', () => {
+  const fn = vi.fn(async () => reply(200, { success: true }))
+  vi.stubGlobal('fetch', fn)
+  render(<SignIn onSignedIn={() => {}} />)
+  enter()
+  expect(screen.getByRole('alert')).toHaveTextContent('Enter your password')
+  expect(screen.getByLabelText('Password')).toHaveFocus()
+  expect(fn).not.toHaveBeenCalled()
+})
+
+test('the Sign In button with nothing in the field says so too, instead of the browser blocking it without a word', () => {
+  const fn = vi.fn(async () => reply(200, { success: true }))
+  vi.stubGlobal('fetch', fn)
+  const { container } = render(<SignIn onSignedIn={() => {}} />)
+  expect(container.querySelector('form')).toHaveAttribute('novalidate')
+  submit()
+  expect(screen.getByRole('alert')).toHaveTextContent('Enter your password')
+  expect(fn).not.toHaveBeenCalled()
+})
+
+test('while a sign-in is running, Enter sends nothing more', async () => {
+  let release
+  const fn = vi.fn(() => new Promise(resolve => { release = () => resolve(reply(200, { success: true })) }))
+  vi.stubGlobal('fetch', fn)
+  render(<SignIn onSignedIn={() => {}} />)
+  type('my secret pass')
+  enter()
+  expect(await screen.findByRole('button', { name: 'Signing in…' })).toBeDisabled()
+  enter()
+  expect(fn).toHaveBeenCalledTimes(1)
+  await act(async () => release())
+})
+
+test('while the screen is blocked after too many attempts, Enter sends nothing', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const fn = vi.fn(async () => reply(429, { error: 'Too many attempts. Try again later.', retryAfterSeconds: 125 }))
+  vi.stubGlobal('fetch', fn)
+  render(<SignIn onSignedIn={() => {}} />)
+  type()
+  enter()
+  expect(await screen.findByRole('alert')).toHaveTextContent('Too many attempts')
+  expect(screen.getByRole('button', { name: 'Sign In' })).toBeDisabled()
+  type()
+  enter()
+  expect(fn).toHaveBeenCalledTimes(1)
+})
+
+test('Enter that confirms an input-method composition does not sign in', () => {
+  const fn = vi.fn(async () => reply(200, { success: true }))
+  vi.stubGlobal('fetch', fn)
+  render(<SignIn onSignedIn={() => {}} />)
+  type('a password')
+  enter(undefined, { isComposing: true })
+  expect(fn).not.toHaveBeenCalled()
+})

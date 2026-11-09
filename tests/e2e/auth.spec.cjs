@@ -38,6 +38,22 @@ async function signIn(page, password = PASSWORD) {
 // What a browser's autofill can do before the first click: the field shows the value, the page has not heard of it (no input event).
 // Type any other field first: a re-render writes the page's copy back into every field, which would undo the silent fill.
 const fillSilently = (field, value) => field.evaluate((el, text) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, text) }, value)
+// One real Edge delivered the Enter key to the page (keydown and keyup) but never ran the form's own submission for it: no change,
+// click or submit event followed, so Enter did nothing. Cancelling the key's keypress default before the page reproduces that.
+// Something outside the page (an extension) cancelling the key's keydown has the same effect, because the browser then never reaches its
+// keypress step either; a capture listener on the window that cancels the keydown before the page reproduces that.
+// Each Enter test runs four ways: typed, filled in without telling the page, typed with the browser dropping Enter's own submission,
+// and typed with something cancelling the Enter key before the page sees it.
+const dropEnterDefault = () => window.addEventListener('keypress', e => { if (e.key === 'Enter') e.preventDefault() }, true)
+const cancelEnterKey = () => window.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault() }, true)
+const KEY_TROUBLE = { dropped: dropEnterDefault, cancelled: cancelEnterKey }
+const MODES = ['typed', 'filled', 'dropped', 'cancelled']
+const SAID = {
+  typed: 'typed',
+  filled: 'filled in without telling the page',
+  dropped: 'typed, with the browser dropping the Enter key\'s own submission',
+  cancelled: 'typed, with something cancelling the Enter key before the page saw it'
+}
 // The text field that only serves password managers must stay a 1 px dot: as wide as the window it pushed the Sign in screen,
 // the first-run screen and the password forms in Settings up to 800 px to the right, so each scrolled sideways.
 const VIEWPORTS = [{ width: 1280, height: 800 }, { width: 390, height: 844 }]
@@ -95,9 +111,11 @@ for (const layout of ['modern', 'classic']) {
       })
     }
 
-    test('Enter saves the password after typing, and also when the browser filled both fields without telling the page', async ({ browser }) => {
-      for (const filled of [false, true]) {
+    test('Enter saves the password after typing, and also when the browser filled both fields without telling the page, when the browser drops the Enter key\'s own submission, and when something cancels the key before the page sees it', async ({ browser }) => {
+      for (const mode of MODES) {
+        const filled = mode === 'filled'
         const context = await freshContext(browser, layout)
+        if (KEY_TROUBLE[mode]) await context.addInitScript(KEY_TROUBLE[mode])
         const page = await context.newPage()
         let pending = true
         const posted = []
@@ -117,7 +135,7 @@ for (const layout of ['modern', 'classic']) {
           await page.keyboard.type(PASSWORD)
         }
         await page.keyboard.press('Enter')
-        const how = filled ? 'both passwords were filled in without telling the page' : 'both passwords were typed'
+        const how = `both passwords were ${SAID[mode]}`
         await expect.poll(() => posted, { message: how }).toEqual([{ newPassword: PASSWORD }])
         await expect(page.getByRole('heading', { name: 'Protect ArrView?' })).toHaveCount(0)
         await expect(nav(page)).toBeVisible()
@@ -178,9 +196,11 @@ for (const layout of ['modern', 'classic']) {
       }
     })
 
-    test('Enter signs in at once after typing, and also when the browser filled the password without telling the page', async ({ browser }) => {
-      for (const filled of [false, true]) {
+    test('Enter signs in at once after typing, and also when the browser filled the password without telling the page, when the browser drops the Enter key\'s own submission, and when something cancels the key before the page sees it', async ({ browser }) => {
+      for (const mode of MODES) {
+        const filled = mode === 'filled'
         const context = await freshContext(browser, layout)
+        if (KEY_TROUBLE[mode]) await context.addInitScript(KEY_TROUBLE[mode])
         const page = await context.newPage()
         await page.goto('/')
         await expect(signInHeading(page)).toBeVisible()
@@ -193,23 +213,25 @@ for (const layout of ['modern', 'classic']) {
           await page.keyboard.type(PASSWORD)
         }
         await page.keyboard.press('Enter')
-        await expect(nav(page)).toBeVisible()
+        await expect(nav(page), `the password was ${SAID[mode]}`).toBeVisible()
         await expect(signInHeading(page)).toHaveCount(0)
         await context.close()
       }
     })
 
     // The password forms in Settings read their fields the way Sign in did, so each gets the same two cases: typed, and filled silently.
-    test('Enter in the key form makes a key after typing, and also when the browser filled the password without telling the page', async ({ browser }) => {
-      for (const filled of [false, true]) {
+    test('Enter in the key form makes a key after typing, and also when the browser filled the password without telling the page, when the browser drops the Enter key\'s own submission, and when something cancels the key before the page sees it', async ({ browser }) => {
+      for (const mode of MODES) {
+        const filled = mode === 'filled'
         const context = await freshContext(browser, layout)
+        if (KEY_TROUBLE[mode]) await context.addInitScript(KEY_TROUBLE[mode])
         const page = await context.newPage()
         await page.goto('/')
         await signIn(page)
         await expect(nav(page)).toBeVisible()
         await openSettings(page, layout)
         const name = filled ? 'E2E filled key' : 'E2E typed key'
-        const how = filled ? 'the password was filled in without telling the page' : 'the password was typed'
+        const how = `the password was ${SAID[mode]}`
         await card(page).getByLabel('Key name (optional)').fill(name)
         const password = card(page).getByLabel('Current password to make a key')
         await password.focus()
@@ -226,9 +248,11 @@ for (const layout of ['modern', 'classic']) {
       }
     })
 
-    test('Enter in the Change password form changes it after typing, and also when the browser filled the current password without telling the page', async ({ browser }) => {
-      for (const filled of [false, true]) {
+    test('Enter in the Change password form changes it after typing, and also when the browser filled the current password without telling the page, when the browser drops the Enter key\'s own submission, and when something cancels the key before the page sees it', async ({ browser }) => {
+      for (const mode of MODES) {
+        const filled = mode === 'filled'
         const context = await freshContext(browser, layout)
+        if (KEY_TROUBLE[mode]) await context.addInitScript(KEY_TROUBLE[mode])
         const page = await context.newPage()
         await page.goto('/')
         await signIn(page)
@@ -244,16 +268,18 @@ for (const layout of ['modern', 'classic']) {
         else await page.keyboard.type(PASSWORD)
         await page.keyboard.press('Enter')
         // the form closes once the server has accepted the change; a refusal would leave it open with an alert
-        const how = filled ? 'the current password was filled in without telling the page' : 'the current password was typed'
+        const how = `the current password was ${SAID[mode]}`
         await expect(card(page).getByLabel('New password', { exact: true }), how).toHaveCount(0)
         await expect(card(page).getByRole('alert'), how).toHaveCount(0)
         await context.close()
       }
     })
 
-    test('Enter in the Remove password form asks to confirm after typing, and also when the browser filled the password without telling the page', async ({ browser }) => {
-      for (const filled of [false, true]) {
+    test('Enter in the Remove password form asks to confirm after typing, and also when the browser filled the password without telling the page, when the browser drops the Enter key\'s own submission, and when something cancels the key before the page sees it', async ({ browser }) => {
+      for (const mode of MODES) {
+        const filled = mode === 'filled'
         const context = await freshContext(browser, layout)
+        if (KEY_TROUBLE[mode]) await context.addInitScript(KEY_TROUBLE[mode])
         const page = await context.newPage()
         // the removal itself is answered here, so the password stays on for the tests that follow
         const posted = []
@@ -268,7 +294,7 @@ for (const layout of ['modern', 'classic']) {
         if (filled) await fillSilently(current, PASSWORD)
         else await page.keyboard.type(PASSWORD)
         await page.keyboard.press('Enter')
-        const how = filled ? 'the password was filled in without telling the page' : 'the password was typed'
+        const how = `the password was ${SAID[mode]}`
         await expect(page.getByRole('dialog'), how).toBeVisible()
         await page.getByRole('dialog').getByRole('button', { name: 'Remove password' }).click()
         await expect.poll(() => posted).toEqual([{ currentPassword: PASSWORD }])

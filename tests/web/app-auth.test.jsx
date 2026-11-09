@@ -154,6 +154,30 @@ test('setup: a refusal leaves silently filled fields showing their passwords, as
 })
 
 // What the form says when nothing at all was entered must not change with the fix (the page's copy of an untouched field is unset).
+// Enter is handled by the form's own key handler (src/submitOnEnter.js): on one real Edge the key reached the page but the browser
+// never ran the form's own submission. jsdom does not run implicit submission either, so this fails on a form that relies on it.
+test('setup: Enter in a password field saves the passwords without the browser submitting the form', async () => {
+  const bodies = stubFreshInstall()
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: /Protect with a password/ }))
+  fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a new password' } })
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a new password' } })
+  fireEvent.keyDown(screen.getByLabelText('Confirm new password'), { key: 'Enter' })
+  expect(await screen.findByRole('button', { name: 'Load data' })).toBeVisible()
+  expect(bodies).toEqual([{ newPassword: 'a new password' }])
+})
+
+test('setup: Enter on the Back button does not save', async () => {
+  const bodies = stubFreshInstall()
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: /Protect with a password/ }))
+  fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a new password' } })
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a new password' } })
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Back' }), { key: 'Enter' })
+  expect(bodies).toEqual([])
+  expect(screen.getByLabelText('New password')).toBeVisible()
+})
+
 test('setup: with nothing entered the form still says the length rule', async () => {
   const bodies = stubFreshInstall()
   render(<App />)

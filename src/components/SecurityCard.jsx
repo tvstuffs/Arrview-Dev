@@ -7,6 +7,7 @@ import { useAuth } from '../AuthContext'
 import { copyText } from '../clipboard'
 import { validatePassword, passwordError } from '../passwordRules'
 import { filledPasswords } from '../filledPasswords'
+import { submitOnEnter } from '../submitOnEnter'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
@@ -137,7 +138,7 @@ export default function SecurityCard() {
       {error && <p className="error-banner" role="alert">{error}</p>}
 
       {form === 'set' || form === 'change' ? (
-        <form onSubmit={savePassword}>
+        <form onSubmit={savePassword} onKeyDown={submitOnEnter}>
           <PasswordFields idBase={idBase} values={values} onChange={change}
             fields={[...(form === 'change' ? [['currentPassword', 'Current password', 'current-password']] : []), ...newFields]} />
           <div className="security-actions">
@@ -146,7 +147,7 @@ export default function SecurityCard() {
           </div>
         </form>
       ) : form === 'remove' ? (
-        <form onSubmit={askToRemove}>
+        <form onSubmit={askToRemove} onKeyDown={submitOnEnter}>
           <PasswordFields idBase={idBase} values={values} onChange={change} fields={[['currentPassword', 'Current password', 'current-password']]} />
           <div className="security-actions">
             <button type="submit" className="btn btn-danger" disabled={busy}>Remove password</button>
@@ -179,7 +180,7 @@ export default function SecurityCard() {
           </li>)}
         </ul>}
         {keys && keys.length === 0 && !fresh && <p className="text-muted text-sm">No keys yet.</p>}
-        <form className="key-create" onSubmit={createKey}>
+        <form className="key-create" onSubmit={createKey} onKeyDown={submitOnEnter}>
           <label htmlFor={`${idBase}-keyname`}>Key name (optional)</label>
           <input id={`${idBase}-keyname`} type="text" maxLength={KEY_NAME_MAX} placeholder="App key" autoComplete="off" value={keyName} onChange={e => setKeyName(e.target.value)} />
           <PasswordFields idBase={`${idBase}-key`} values={{ currentPassword: keyPassword }} onChange={(_, value) => setKeyPassword(value)}
