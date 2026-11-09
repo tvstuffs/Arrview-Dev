@@ -47,10 +47,11 @@
   form, Change password and Remove password (which opens its confirmation); all six pass each way. The unchanged 1.9A14 test
   page with the key cancelled stays on Sign in and sends no request, where this version signs in. On the real Edge that
   showed the problem, a copy of the Sign in page with a simpler key handler signed in at once where the unchanged page did
-  not.
-- **Not verified:** what takes the key in that browser (the emulations reproduce the symptom, not the cause); this exact
-  version on that browser (the copy that signed in there handled Enter on the Sign in form only, with fewer rules, and the
-  other four forms have not been tried there; the human test plan is the first run); a real password manager; Safari and
+  not; test pages built from this tree were then tried by hand on it, and Sign in, the first-run form and Make a key each
+  went through on Enter at once (the on-page log showed the form submitted and the request sent at the key press, answered
+  200).
+- **Not verified:** what takes the key in that browser (the emulations reproduce the symptom, not the cause); Change
+  password and Remove password on that browser (the human test plan is the first run); a real password manager; Safari and
   Firefox.
 - **Human test plan:**
   1. Open the Sign in page, type the password and press Enter at once, without clicking anywhere: you are signed in.
