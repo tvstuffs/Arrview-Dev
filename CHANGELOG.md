@@ -1,5 +1,66 @@
 # ArrView server development changelog
 
+## 1.9A16 (unreleased) — Service addresses: an http address must name its port, an https address needs none, and SABnzbd is "Connected" only when SABnzbd answers
+
+- **Version 1.9A16.** Settings → Services: the page and the two server routes behind it. `POST /api/config` and `POST /api/test/:service`
+  now answer 400 for a new or changed `http://` address that has no port. No other route, request body, config key or file format
+  changes, and `package.json` and the Dockerfile are unchanged.
+
+- **What was wrong.** On a new install, SABnzbd's address typed with no port (`http://<host>`) tested "Connected" and then the
+  Downloads page said "Cannot reach SABnzbd: Unexpected response", while Sonarr, Radarr and NZBHydra at the same address said
+  "HTTP 404: Not Found". Nothing assumed port 8080. The request went to port 80, where a web server (nginx on a NAS) redirected
+  SABnzbd's `/sabnzbd/api` to its own web page, which answered 200 with HTML. SABnzbd's path detection accepted any 200 that was not
+  `{"status": false}`, so it took that page for SABnzbd; the Downloads page then asked the same address for a queue and got the page.
+  (The background status check was stricter, so a saved address like that could show "Can't connect" after its Test had said
+  Connected.) The other three apps' Tests failed on that address only because the web server answers 404 for their paths.
+- **The address rule.** An `http://` address is taken to be a local one and must name its port; an `https://` address is taken to be
+  a public host name that leads to the app by name (a reverse proxy), so its port is optional and is used when given. ArrView adds no
+  port to what is typed in Settings, for any of the four apps. Under the field the page says "Add the port, for example
+  http://192.0.2.10:8080. An https:// address needs none." (with that app's usual port: 8080 SABnzbd, 8989 Sonarr, 7878 Radarr, 5076
+  NZBHydra) once the field has been left or a Test or Save is tried. Test and Save do not go ahead until the port is there, and a
+  port outside 1 to 65535 gets its own sentence. The server applies the same rule when it saves and when it tests, and an address it
+  refuses makes no request to the service. A port typed out counts, `:80` included, for a service that really is on port 80.
+- **What the rule leaves alone.** An address that was already saved keeps working, keeps testing and keeps saving, however it is
+  written: the rule is for a new or changed address, so an old setting never locks anyone out of Settings. A service set by the
+  Docker configuration is read-only and not part of it, and `ARRVIEW_HOST` and `ARRVIEW_<SVC>_URL` still add each app's default
+  port as documented. The ArrView apps are not changed.
+- **SABnzbd's Test.** "Connected" only when SABnzbd itself answers `mode=version` with a version string, at `/sabnzbd/api` or at
+  `/api`. Otherwise it says "That address answered, but not like SABnzbd — check the address and port" when something else
+  answered, and "Could not reach SABnzbd — check URL and API key" when nothing did. It asks once per path now (it used to ask a
+  third time for the version). The Tests of Sonarr, Radarr and NZBHydra are unchanged and still count any HTTP 200 as connected.
+
+- **Tests:** server 261/261 (251 at 1.9A15), web (vitest) 550/550 (540), e2e 178/178 in Microsoft Edge on macOS (177; CI repeats
+  them in real Chromium). New: 10 server tests (the rule for every app from one table that the page's copy of the rule is tested
+  against too; the Test making no request for a refused address; https tested with no port added; a saved address left alone; the
+  Docker variables left alone; SABnzbd's detection against the nginx redirect, against JSON and pages without a version, and against
+  a real answer at either path; the Downloads route agreeing with the Test), 5 web tests for the rule itself, 5 for the page (when
+  the message appears, Test and Save, each app's usual port, saved addresses, Docker-managed rows) and 1 e2e test in Edge at 1280
+  and 390 px. Existing tests that posted an `http://` address with no port as an incidental detail now give it one, so each still
+  tests what it says. On the 1.9A15 source 7 of the 10 server tests, 4 of the 5 page tests and the e2e test fail, and the web test file for the rule itself cannot load (the module does not exist there); the tests that pass there pin what must not change: https tested with no port added, the Docker variables, a real SABnzbd end to end, and Docker-managed rows.
+- **Checked in a browser** (Microsoft Edge driven by Playwright; screenshots of the message at 1280 and 390 px): the message sits
+  under the field, wraps on a phone and does not widen the page; Test and Save say why and send nothing until the port is typed; an
+  https address passes with no port and is posted as typed. **The false "Connected" is reproduced** with a local stand-in that does
+  what that web server did (redirect `/sabnzbd/api` to a page that answers 200): the previous server's Test answered 200 success
+  for it, this one says it is not SABnzbd.
+- **Not verified:** the network the report came from (the stand-in is modelled on what its port 80 answered, a 302 to a 200 HTML
+  page); a real HTTPS reverse proxy; Safari and Firefox; the Classic layout beyond the same page component (the e2e test runs in
+  Modern).
+- **Human test plan:**
+  1. On a new install, or in a service row you have not saved, type SABnzbd's address without its port, for example
+     `http://<docker-host-address>`, and its API key, then click out of the address field: a red line under it says "Add the port, for
+     example http://<docker-host-address>:8080. An https:// address needs none." Click Test: nothing is tested and the line stays.
+     Click Save: nothing is saved and the same sentence appears at the bottom, starting with "SABnzbd:".
+  2. Add the port SABnzbd really listens on (`:8080` unless you changed it): the line goes, Test says "Connected" with SABnzbd's
+     version, and after Save the Downloads tab shows the queue.
+  3. Do the same for Sonarr (`:8989`), Radarr (`:7878`) and NZBHydra (`:5076`): each suggests its own port.
+  4. Type an `https://` address with a host name and no port for any app: no red line, and Test tries that address as typed (it
+     fails unless an HTTPS service answers there, and the error is about reaching it, not about a port).
+  5. The case from the report: type SABnzbd's address with the port of a web server that is not SABnzbd, for example `:80` on a host
+     whose port 80 serves a web page: Test says "That address answered, but not like SABnzbd — check the address and port", not
+     Connected.
+  6. On an install that already saved a service address without a port: open Settings, change nothing and press Save: it saves. Change
+     that address's host and click out of the field: the red line asks for the port.
+
 ## 1.9A15 (unreleased) — Enter submits the password forms from the page's own key handler
 
 - **Version 1.9A15.** One web-app fix on top of 1.9A14. No server route, request, config key or file format changes,
