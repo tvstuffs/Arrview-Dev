@@ -298,9 +298,11 @@ In Sonarr and Radarr, open **Settings → Connect**, select **+** and choose
 | Method | `POST` (ArrView only accepts POST) |
 | Username, Password, Headers | Leave empty; ArrView does not use them |
 
-Select **Test**, then **Save**. A green check on Test means ArrView answered, and
-the message appears under **Last event received**. ArrView changes no page for
-the test message, so Test checks the address, not the triggers. Each real event
+Select **Test**, then **Save**. A green check on Test only means that something
+at that address answered: a login page or a redirect also passes. The proof
+that ArrView received it is `Test message received` under
+**Last event received**, within a few seconds. ArrView changes no page for the
+test message, so Test checks the address, not the triggers. Each real event
 shows under Last event received, adds a line such as
 `[Sonarr webhook] Download — series: Name` to ArrView's log
 (`docker logs arrview`), and refreshes the pages that are open. If Last event
@@ -335,6 +337,13 @@ runs: use the machine's IP address, remember that `localhost` inside a container
 is the container itself, and check the firewall. If ArrView sits behind an HTTPS
 proxy whose certificate Sonarr or Radarr does not trust, use ArrView's plain
 `http` address for the webhook.
+
+If Test passes but nothing updates, look under **Last event received** first.
+If `Test message received` did not appear after the Test, the test reached
+something other than this ArrView, for example a login page or a redirect from
+a proxy in front of it, or another server at that address: Sonarr and Radarr
+count any answer below 400 as a pass. Use an address that reaches ArrView
+directly. If the test message is listed, check the triggers.
 
 ArrView does not check who calls a webhook, so anyone who can reach its address
 can make it refresh. This stays true when the password login is on: the two
