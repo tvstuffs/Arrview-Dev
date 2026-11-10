@@ -246,6 +246,10 @@ never uses them.
   `config.json` as `"webhooks": { "baseUrl": "http://192.0.2.10:7777" }`.
 - The two webhook URLs built from it, `<address>/api/webhooks/sonarr` and
   `<address>/api/webhooks/radarr`, each with a **Copy** button.
+- **Status in Sonarr** and **Status in Radarr**, one for each of the two that
+  is configured: whether the app already has ArrView's webhook (`Set up.` or
+  `Not set up.`), with a **Set up** or a **Remove** button to change that from
+  here. See "Set up and Remove" below.
 - **Last event received**: for Sonarr and for Radarr, the last event that
   reached ArrView and how long ago, such as `Download (file import), 3 hours ago`,
   and separately the last test message. It refreshes every few seconds while
@@ -256,6 +260,32 @@ never uses them.
   arrived, not who sent it.
 - Step-by-step setup for each app and a troubleshooting list, with the same
   content as below.
+
+**Set up and Remove.** **Set up in Sonarr** (or **in Radarr**) shows what it
+will add (a connection named `ArrView` with that app's webhook URL, method POST
+and the six triggers of the table below) and adds it when you press **Add**.
+The app sends ArrView a test message before it saves. If that test fails,
+nothing is saved and the card shows the app's reason. If it passes, the app
+saves the webhook and the card says whether ArrView itself received the
+message: a login page or a redirect at that address can pass the app's test
+too. Set up uses the saved address only: with none saved the status reads
+`Save the ArrView address above first.`, and the button is disabled while the
+field holds unsaved changes. **Remove from Sonarr** (or **from Radarr**) asks
+first and deletes only ArrView's webhook; your other connections are not
+changed.
+
+ArrView's server does this itself, with the address and API key it holds for
+the app, and the page is told the outcome and nothing else about the app's
+connections. It never edits a connection that exists: a webhook of its own at
+an address other than the saved one reads `Set up, but at a different address`
+with that address, to fix in the app or to remove here and set up again. For a
+row that holds the other app's address the status says so and offers no button
+(see [Setup](#setup)).
+
+With **Set up** there is nothing more to do in Sonarr or Radarr. The steps
+below add the same connection by hand instead; ArrView recognises its webhook
+by the URL, whatever the connection is called, so once an address is saved the
+card shows the status of one added by hand as well.
 
 In Sonarr and Radarr, open **Settings → Connect**, select **+** and choose
 **Webhook**:
