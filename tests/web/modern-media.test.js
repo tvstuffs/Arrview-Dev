@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest'
-import { mainSeasonCounts, isMovieMissing, getMovieStatus, MOVIE_STATUS, nextRelease, releaseLabel, movieFileLine, artUrl, episodeState, wantedMissing, completenessTone } from '../../src/media'
+import { mainSeasonCounts, isMovieMissing, getMovieStatus, MOVIE_STATUS, nextRelease, releaseLabel, movieFileLine, artUrl, episodeState, wantedMissing, completenessTone,
+  seasonMonitoring, unmonitoredMissing, seasonSearchPlan } from '../../src/media'
 
 const NOW = Date.parse('2026-10-17T12:00:00Z')
 const TMDB = 'https://image.tmdb.org/t/p/original/abc.jpg'
@@ -78,6 +79,44 @@ test('wantedMissing: aired, without a file and not unmonitored; an episode witho
   expect(wantedMissing(eps, NOW).map(ep => ep.id)).toEqual([1, 3])
   expect(wantedMissing(eps.filter(ep => ep.monitored === false), NOW)).toEqual([])
   expect(wantedMissing([], NOW)).toEqual([])
+})
+test('seasonMonitoring: on when the season and every episode are monitored, off when neither is, mixed between; a missing flag counts as monitored', () => {
+  const eps = (...flags) => flags.map((monitored, id) => (monitored === undefined ? { id } : { id, monitored }))
+  expect(seasonMonitoring({ monitored: true }, eps(true, true))).toBe('on')
+  expect(seasonMonitoring({}, eps(undefined, true))).toBe('on')
+  expect(seasonMonitoring(undefined, eps(true))).toBe('on')
+  expect(seasonMonitoring({ monitored: false }, eps(false, false))).toBe('off')
+  // A monitored season with episodes unmonitored one by one, and the two ways the flag and the episodes can disagree.
+  expect(seasonMonitoring({ monitored: true }, eps(true, false))).toBe('mixed')
+  expect(seasonMonitoring({ monitored: true }, eps(false, false))).toBe('mixed')
+  expect(seasonMonitoring({ monitored: false }, eps(true, true))).toBe('mixed')
+  // No episodes yet: the season's own flag decides.
+  expect(seasonMonitoring({ monitored: true }, [])).toBe('on')
+  expect(seasonMonitoring({ monitored: false }, [])).toBe('off')
+})
+test('unmonitoredMissing: the aired episodes without a file that Search N Missing leaves out', () => {
+  const eps = [
+    { id: 1, hasFile: false, airDateUtc: '2020-01-01', monitored: false },
+    { id: 2, hasFile: false, airDateUtc: '2020-01-01', monitored: true },
+    { id: 3, hasFile: false, airDateUtc: '2020-01-01' },
+    { id: 4, hasFile: true, airDateUtc: '2020-01-01', monitored: false },
+    { id: 5, hasFile: false, airDateUtc: '2099-01-01', monitored: false },
+  ]
+  expect(unmonitoredMissing(eps, NOW).map(ep => ep.id)).toEqual([1])
+  expect(unmonitoredMissing([], NOW)).toEqual([])
+})
+test('seasonSearchPlan: the whole season when every aired episode is wanted and there is more than one; otherwise the wanted ids', () => {
+  const ep = (id, extra = {}) => ({ id, hasFile: false, airDateUtc: '2020-01-01', monitored: true, ...extra })
+  // Every aired episode is missing and monitored; one more has not aired.
+  expect(seasonSearchPlan([ep(1), ep(2), ep(3), ep(4, { airDateUtc: '2099-01-01' })], NOW)).toEqual({ ids: [1, 2, 3], whole: true })
+  // One of them is on disk: the rest are searched one by one, so the file is not fetched again.
+  expect(seasonSearchPlan([ep(1), ep(2), ep(3, { hasFile: true })], NOW)).toEqual({ ids: [1, 2], whole: false })
+  // One of them is unmonitored: a season pack would be refused by Sonarr, so the wanted ones are searched one by one.
+  expect(seasonSearchPlan([ep(1), ep(2), ep(3, { monitored: false })], NOW)).toEqual({ ids: [1, 2], whole: false })
+  // A single wanted episode is an episode search, even when it is the only one that has aired.
+  expect(seasonSearchPlan([ep(1), ep(2, { airDateUtc: '2099-01-01' })], NOW)).toEqual({ ids: [1], whole: false })
+  expect(seasonSearchPlan([ep(1, { hasFile: true })], NOW)).toEqual({ ids: [], whole: false })
+  expect(seasonSearchPlan([], NOW)).toEqual({ ids: [], whole: false })
 })
 const season = (seasonNumber, total, onDisk, wanted) => ({ seasonNumber, statistics: { totalEpisodeCount: total, episodeFileCount: onDisk, episodeCount: wanted } })
 test('mainSeasonCounts: total, on disk, what Sonarr wants and what is missing; specials excluded; show-level fallback', () => {

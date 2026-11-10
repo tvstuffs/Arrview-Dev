@@ -424,7 +424,7 @@ async function walk(page, count) {
   return seen
 }
 const mainFocusables = page => page.locator('main').locator('a[href], button:not([disabled]), input, select, [tabindex]:not([tabindex="-1"])').evaluateAll(els => els.map(el => el.getAttribute('aria-label') || el.textContent.replace(/\s+/g, ' ').trim()))
-const SHOW_SEQUENCE = ['Search Missing', 'Monitored: ' + SHOW, 'Open in Sonarr', 'Remove ' + SHOW + ' from Sonarr', 'Search 1 Missing', 'Delete downloaded files in Season 1',
+const SHOW_SEQUENCE = ['Search Missing', 'Monitored: ' + SHOW, 'Open in Sonarr', 'Remove ' + SHOW + ' from Sonarr', 'Monitored, Season 1. Press to unmonitor', 'Search 1 Missing', 'Delete downloaded files in Season 1',
   'Download', 'Interactive search — pick a release manually', 'Delete and unmonitor ' + EP_DOWNLOADED]
 for (const [width, phone] of [[1024, false], [402, true]]) {
   test(`focus order on the show and movie pages (${width}px) (criterion 31)`, async ({ page }) => {
@@ -720,6 +720,54 @@ test('Settings: Sonarr\'s address in the Radarr row is not Connected, and the Te
     await expect(page.locator('#sonarr-status')).toHaveText('Test failed')
     await expect(page.getByText('That address is Radarr, not Sonarr — check the address and port', { exact: true })).toBeVisible()
     expect(saves, 'a Test stores nothing').toEqual([])
+    await context.close()
+  }
+})
+test('Shows: an unmonitored season can be monitored and then searched as a whole season, in Modern and in Classic', async ({ browser, request }) => {
+  const base = (await (await request.get('/api/sonarr/series')).json())[0]
+  const day = n => new Date(Date.now() + n * 86400000).toISOString()
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+    const page = await context.newPage()
+    // A season nobody monitors: three aired episodes without a file and one that has not aired. The stand-in for the server does
+    // what the real route does in Sonarr: the season's flag and every episode of it.
+    let monitored = false
+    const sent = []
+    const show = () => ({ ...base, images: [], seasons: [{ seasonNumber: 1, monitored, statistics: { totalEpisodeCount: 4, episodeFileCount: 0, episodeCount: monitored ? 3 : 0 } }] })
+    const episodes = () => [1, 2, 3, 4].map(n => ({ id: 500 + n, seriesId: base.id, seasonNumber: 1, episodeNumber: n, title: `Season fixture episode ${n}`, hasFile: false, monitored, airDateUtc: day(n === 4 ? 10 : -10 * n) }))
+    await page.route('**/api/sonarr/series', route => route.fulfill({ json: [show()] }))
+    await page.route(`**/api/sonarr/series/${base.id}/episodes`, route => route.fulfill({ json: episodes() }))
+    await page.route(`**/api/sonarr/series/${base.id}/season/1`, route => {
+      sent.push({ method: route.request().method(), body: route.request().postDataJSON() })
+      monitored = route.request().postDataJSON().monitored
+      return route.fulfill({ json: { success: true, monitored } })
+    })
+    await page.route('**/api/sonarr/command', route => { sent.push({ method: 'POST', body: route.request().postDataJSON() }); return route.fulfill({ json: { id: 99 } }) })
+
+    await open(page, `/shows/${base.id}`)
+    const bar = page.locator('.m-season-bar')
+    await expect(bar).toContainText('0 of 4 episodes · 3 missing are unmonitored')
+    await expect(bar.getByRole('button', { name: /Search \d+ Missing/ })).toHaveCount(0)
+    expect(await fits(page), `the season bar fits at ${width} px`).toBe(true)
+    await bar.getByRole('button', { name: 'Monitor season 1' }).click()
+    await expect(bar.getByRole('button', { name: 'Monitored, Season 1. Press to unmonitor' })).toBeVisible()
+    await expect(bar).not.toContainText('unmonitored')
+    await bar.getByRole('button', { name: 'Search 3 Missing' }).click()
+    await expect.poll(() => sent.length).toBe(2)
+    expect(sent).toEqual([{ method: 'PUT', body: { monitored: true } }, { method: 'POST', body: { name: 'SeasonSearch', seriesId: base.id, seasonNumber: 1 } }])
+    expect(await fits(page), `the season bar fits at ${width} px once monitored`).toBe(true)
+
+    // Classic: the same control in the season's header, here used to unmonitor the season again.
+    await page.evaluate(() => { localStorage.setItem('arrview.ui.v1.layout', '"classic"'); localStorage.setItem('arrview.ui.v1.tab', '"shows"') })
+    await page.goto('/')
+    await page.getByRole('button', { name: `Episodes for ${base.title}` }).click()
+    const header = page.locator('.season-header')
+    await header.getByRole('button', { name: 'Monitored, Season 1. Press to unmonitor' }).click()
+    await expect(header.getByRole('button', { name: 'Monitor season 1' })).toBeVisible()
+    await expect(header).toContainText('0/4 episodes · 3 missing unmonitored')
+    await expect(header.getByRole('button', { name: /Search \d+ Missing/ })).toHaveCount(0)
+    expect(sent.at(-1)).toEqual({ method: 'PUT', body: { monitored: false } })
+    expect(await fits(page), `the Classic season header fits at ${width} px`).toBe(true)
     await context.close()
   }
 })

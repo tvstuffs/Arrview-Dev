@@ -52,10 +52,13 @@ export function useMediaActions(onToast) {
         onToast(`Search failed: ${e.message}`, 'error')
       }
     },
-    async searchSeason(sn, ids) {
+    // `wholeSeasonOf` is the series id when the whole season is wanted (seasonSearchPlan): Sonarr's own season search, which can
+    // take a season pack. Otherwise the episodes are searched one by one.
+    async searchSeason(sn, ids, wholeSeasonOf = null) {
       if (!ids.length) return
       try {
-        const r = await post('/api/sonarr/command', { name: 'EpisodeSearch', episodeIds: ids })
+        const r = await post('/api/sonarr/command', wholeSeasonOf === null
+          ? { name: 'EpisodeSearch', episodeIds: ids } : { name: 'SeasonSearch', seriesId: wholeSeasonOf, seasonNumber: sn })
         const data = await r.json()
         if (data.error) throw new Error(data.error)
         onToast(`Searching ${ids.length} missing episodes in S${sn}…`, 'info')

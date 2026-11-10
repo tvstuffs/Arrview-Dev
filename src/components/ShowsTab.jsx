@@ -1,4 +1,4 @@
-import { Poster, MonitorToggle } from './MediaControls'
+import { Poster, MonitorToggle, SeasonMonitorButton } from './MediaControls'
 import Icon from './Icon.jsx'
 import { useState, useCallback, useEffect } from 'react'
 import './ShowsTab.css'
@@ -6,7 +6,7 @@ import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from './Medi
 import { useMediaActions } from '../hooks/useMediaActions'
 import { usePreference, textPreference, oneOf, idList } from '../hooks/usePreference'
 import { useServerEvents, useVisiblePolling } from '../hooks/lifecycle'
-import { mainSeasonCounts, completenessTone, wantedMissing } from '../media'
+import { mainSeasonCounts, completenessTone, seasonMonitoring, seasonSearchPlan, unmonitoredMissing } from '../media'
 import { apiFetch } from '../api'
 import AddMediaModal from './AddMediaModal.jsx'
 import EpisodeSearchModal from './EpisodeSearchModal.jsx'
@@ -214,8 +214,10 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
             seasons.map(sn => {
               const eps = seasonMap[sn]
               const dlCount = eps.filter(e => e.hasFile).length
-              const searchable = wantedMissing(eps)
-              const missingCount = searchable.length
+              const search = seasonSearchPlan(eps)
+              const missingCount = search.ids.length
+              const unwanted = unmonitoredMissing(eps).length
+              const monitoring = seasonMonitoring((show.seasons || []).find(entry => entry.seasonNumber === sn), eps)
               const isSeasonOpen = expandedSeasons.includes(sn)
               return (
                 <div key={sn} className="season-block">
@@ -224,14 +226,16 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
                   >
                     <button className="season-toggle" aria-label={`Season ${sn}`} aria-expanded={isSeasonOpen} onClick={() => toggleSeason(sn)}>
                       <span aria-hidden="true" className="season-caret"><Icon name={isSeasonOpen ? 'caret-down' : 'caret-right'} /></span> Season {sn}
-                      <span className="text-xs text-muted"> {dlCount}/{eps.length} episodes</span>
+                      <span className="text-xs text-muted"> {dlCount}/{eps.length} episodes{unwanted > 0 && ` · ${unwanted} missing unmonitored`}</span>
                     </button>
+                    <SeasonMonitorButton show={show} season={sn} state={monitoring} size="xs" onToast={onToast}
+                      onChanged={async () => { await fetchEpisodes(); await onRemoved() }} />
                     {missingCount > 0 && (
                       <button
                         className="btn btn-attn btn-xs"
                         onClick={e => {
                           e.stopPropagation()
-                          actions.searchSeason(sn, searchable.map(ep => ep.id))
+                          actions.searchSeason(sn, search.ids, search.whole ? show.id : null)
                         }}
                       >
                         Search {missingCount} Missing

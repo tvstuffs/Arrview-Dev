@@ -83,6 +83,32 @@ export function wantedMissing(episodes, now = Date.now()) {
   return episodes.filter(ep => episodeState(ep, now) === 'missing' && ep.monitored !== false)
 }
 
+// The aired episodes without a file that a season's search leaves out because they are unmonitored: what "Search N Missing" does
+// not count, so the page can say that its number is not everything that is missing.
+export function unmonitoredMissing(episodes, now = Date.now()) {
+  return episodes.filter(ep => episodeState(ep, now) === 'missing' && ep.monitored === false)
+}
+
+// A season's monitoring as its control shows it. 'on': the season's own flag is set and every episode of it is monitored. 'off':
+// the flag is clear and no episode is. 'mixed': anything between, such as a monitored season with episodes that were unmonitored
+// one by one. A season or an episode without the flag counts as monitored (Sonarr always sends it).
+export function seasonMonitoring(season, episodes) {
+  const flag = season?.monitored !== false
+  const monitored = episodes.filter(ep => ep.monitored !== false).length
+  if (flag && monitored === episodes.length) return 'on'
+  return !flag && monitored === 0 ? 'off' : 'mixed'
+}
+
+// How a season's search is sent to Sonarr. When every aired episode of the season is wanted (missing and not unmonitored) and
+// there is more than one, it is Sonarr's own season search: one search that can take a season pack. A search by episode never
+// can, because Sonarr refuses a full-season release in a single-episode search, and a pack is how an older season is usually
+// found. Otherwise the wanted episodes are searched one by one, so nothing that is already on disk is fetched again.
+export function seasonSearchPlan(episodes, now = Date.now()) {
+  const ids = wantedMissing(episodes, now).map(ep => ep.id)
+  const aired = episodes.filter(ep => episodeState(ep, now) !== 'upcoming').length
+  return { ids, whole: ids.length > 1 && ids.length === aired }
+}
+
 const TMDB_ORIGINAL = 'https://image.tmdb.org/t/p/original/'
 const TMDB_WIDTH = { grid: 'w342', detail: 'w780', backdrop: 'w1280' }
 export const isHttpUrl = value => typeof value === 'string' && /^https?:\/\//i.test(value)

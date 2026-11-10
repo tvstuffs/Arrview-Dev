@@ -1188,7 +1188,7 @@ app.get('/api/arrview/identify', (req, res) => {
     app: 'arrview',
     version: APP_VERSION,
     capabilities: ['pwa', 'ping', 'health', 'movieDelete', 'seriesMonitor', 'historyLimit',
-      'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar', 'auth'],
+      'sonarrQueue', 'radarrQueue', 'episodeStills', 'calendarStills', 'radarrCalendar', 'seasonMonitor', 'auth'],
     auth: auth.mode !== 'off',
     services,
     bonjour: { ...bonjourStatus },
@@ -1794,6 +1794,43 @@ app.put('/api/sonarr/series/:id', async (req, res) => {
     const updated = await axios.put(url, { ...current.data, monitored: req.body.monitored }, { headers, timeout: 15000 });
     res.json(updated.data);
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.response?.data?.message || e.message }); }
+});
+
+// A season's monitoring, as Sonarr's own season bookmark sets it: the season's flag and every episode in it. Sonarr moves the
+// episodes along with the flag only when the flag changes, so a season whose flag is already right while some of its episodes are
+// not (unmonitored one by one) is completed through the episode route. The series is read first, so the update keeps its other fields.
+app.put('/api/sonarr/series/:id/season/:season', async (req, res) => {
+  const { id, season } = req.params;
+  const monitored = req.body.monitored;
+  if (!/^\d+$/.test(id) || !/^\d+$/.test(season) || typeof monitored !== 'boolean')
+    return res.status(400).json({ error: 'A numeric series id, a season number and boolean monitored are required' });
+  const seasonNumber = Number(season);
+  let flagSet = false;
+  try {
+    const { baseUrl, headers } = sonarrHeaders();
+    const base = baseUrl.replace(/\/+$/, '');
+    const url = `${base}/api/v3/series/${id}`;
+    const current = await axios.get(url, { headers, timeout: 15000 });
+    const seasons = Array.isArray(current.data?.seasons) ? current.data.seasons : [];
+    const entry = seasons.find(s => s && s.seasonNumber === seasonNumber);
+    if (!entry) return res.status(404).json({ error: `Season ${seasonNumber} not found` });
+    if (entry.monitored !== monitored) {
+      await axios.put(url, { ...current.data, seasons: seasons.map(s => (s === entry ? { ...s, monitored } : s)) }, { headers, timeout: 15000 });
+    }
+    flagSet = true;
+    const list = await axios.get(`${base}/api/v3/episode`, { headers, params: { seriesId: id, seasonNumber }, timeout: 15000 });
+    const episodeIds = (Array.isArray(list.data) ? list.data : [])
+      .filter(ep => ep && ep.seasonNumber === seasonNumber && ep.monitored !== monitored && Number.isSafeInteger(ep.id)).map(ep => ep.id);
+    if (episodeIds.length) {
+      await axios.put(`${base}/api/v3/episode/monitor`, { episodeIds, monitored }, { headers: { ...headers, 'Content-Type': 'application/json' }, timeout: 15000 });
+    }
+    res.json({ success: true, monitored });
+  } catch (e) {
+    const message = e.response?.data?.message || e.message;
+    res.status(e.response?.status || 503).json({
+      error: flagSet ? `Season ${seasonNumber} was set to ${monitored ? 'monitored' : 'unmonitored'}, but not all of its episodes: ${message}` : message,
+    });
+  }
 });
 
 app.delete('/api/sonarr/series/:id', async (req, res) => {

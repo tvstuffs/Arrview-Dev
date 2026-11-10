@@ -74,7 +74,9 @@ The **Webhooks** card in Settings, which can add ArrView's webhook to Sonarr and
 - **Missing episodes badge** per show
 - One-click **Search Missing** to trigger a Sonarr series-wide search
 - Expandable show detail: all seasons → all episodes with download status
-- Per-season and per-episode search buttons for granular control
+- Per-season and per-episode search buttons for granular control. A season's **Search N Missing** counts the aired episodes without a file that are monitored, and says how many missing ones it leaves out as unmonitored
+- **Monitor season** on every season: it monitors the season and every episode in it in Sonarr, as Sonarr's own season bookmark does, and reads **Monitored** once the whole season is (a press then unmonitors it)
+- When every aired episode of a season is wanted, the season is searched with Sonarr's own season search, so a season pack can be taken; otherwise the wanted episodes are searched one by one
 - Filter by: All / Has Missing / Continuing / Ended
 - Sort by: A–Z / Most Missing / Newest First
 

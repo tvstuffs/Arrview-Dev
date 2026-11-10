@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import Icon from '../Icon.jsx'
 import { apiFetch } from '../../api'
-import { MonitorToggle } from '../MediaControls'
+import { MonitorToggle, SeasonMonitorButton } from '../MediaControls'
 import EpisodeSearchModal from '../EpisodeSearchModal.jsx'
 import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from '../MediaSheets'
 import ArtImage from './ArtImage.jsx'
@@ -12,7 +12,7 @@ import { useSeries } from './LibraryProvider.jsx'
 import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
 import { useMediaActions } from '../../hooks/useMediaActions'
 import { useVisiblePolling, useServerEvents } from '../../hooks/lifecycle'
-import { artUrl, completenessTone, episodeState, mainSeasonCounts, wantedMissing } from '../../media'
+import { artUrl, completenessTone, episodeState, mainSeasonCounts, seasonMonitoring, seasonSearchPlan, unmonitoredMissing } from '../../media'
 
 const capitalise = text => text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
 const goToShows = () => { window.location.hash = '/shows' }
@@ -81,11 +81,15 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
   const season = seasonMap.has(selected) ? selected : seasons[0]
   const eps = (seasonMap.get(season) || []).sort((a, b) => b.episodeNumber - a.episodeNumber)
   const downloaded = eps.filter(ep => ep.hasFile).length
-  const missingIds = wantedMissing(eps).map(ep => ep.id)
+  const search = seasonSearchPlan(eps)
+  const unwanted = unmonitoredMissing(eps).length
+  const monitoring = seasonMonitoring((show.seasons || []).find(entry => entry.seasonNumber === season), eps)
 
   async function searchMissing() { setSearching(true); try { await actions.searchSeries(show) } finally { setSearching(false) } }
   async function removeSeries(deleteFiles) { await actions.removeSeries(show, deleteFiles); goToShows() }
   async function deleteSeasonFiles(sn) { try { await actions.deleteSeasonFiles(sn, episodes) } finally { await fetchEpisodes() } }
+  // The episodes carry the new flags and the series its new counts.
+  const seasonChanged = () => Promise.all([fetchEpisodes(), refresh()])
 
   return <article className="m-detail m-show">
     <ArtImage ambient srcs={[fanart, poster]} />
@@ -134,8 +138,9 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
                   <Icon name="caret-down" />
                 </span>
                 : <span className="m-season-name">Season {season}</span>}
-              <span className="m-season-meta">{downloaded} of {eps.length} episodes</span>
-              {missingIds.length > 0 && <button className="btn btn-attn btn-sm" onClick={() => actions.searchSeason(season, missingIds)}>Search {missingIds.length} Missing</button>}
+              <span className="m-season-meta">{downloaded} of {eps.length} episodes{unwanted > 0 && <span className="m-season-note"> · {unwanted} missing {unwanted === 1 ? 'is' : 'are'} unmonitored</span>}</span>
+              <SeasonMonitorButton show={show} season={season} state={monitoring} onChanged={seasonChanged} onToast={onToast} />
+              {search.ids.length > 0 && <button className="btn btn-attn btn-sm" onClick={() => actions.searchSeason(season, search.ids, search.whole ? show.id : null)}>Search {search.ids.length} Missing</button>}
               {downloaded > 0 && <button className="btn btn-icon btn-icon-danger" aria-label={`Delete downloaded files in Season ${season}`} title={`Delete downloaded files in Season ${season}`} onClick={() => setConfirmSeason(season)}><Icon name="trash" /></button>}
             </div>
             <ul className="m-episodes">

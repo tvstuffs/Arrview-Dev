@@ -259,6 +259,73 @@ test('season actions: no Search N Missing button when every missing episode is u
   expect(await screen.findByRole('heading', { level: 3, name: 'Gone Missing' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Search \d+ Missing/ })).toBeNull()
 })
+const puts = fetchMock => fetchMock.calls.filter(call => call.init?.method === 'PUT').map(call => ({ url: call.url, body: JSON.parse(call.init.body) }))
+const gets = (fetchMock, url) => fetchMock.calls.filter(call => call.url === url && !call.init?.method).length
+test('season monitoring: unmonitored missing episodes are counted beside the search, and Monitor season sends the season and reloads', async () => {
+  const unwanted = { id: 204, seasonNumber: 2, episodeNumber: 4, title: 'Not Wanted', hasFile: false, monitored: false, airDateUtc: past(10) }
+  const fetchMock = stubFetch({ '/api/sonarr/series/1/season/2': () => reply({ success: true, monitored: true }) }, { episodes: [...episodes, unwanted] })
+  const toast = vi.fn(); detail('1', toast)
+  expect(await screen.findByText('· 1 missing is unmonitored', { exact: false })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Search 1 Missing' })).toBeInTheDocument()
+  const button = screen.getByRole('button', { name: 'Monitor season 2' })
+  expect(button).toHaveTextContent('Monitor season')
+  expect(button.querySelector('svg.icon')).not.toBeNull()
+  const before = [gets(fetchMock, '/api/sonarr/series/1/episodes'), gets(fetchMock, '/api/sonarr/series')]
+  fireEvent.click(button)
+  await waitFor(() => expect(puts(fetchMock)).toEqual([{ url: '/api/sonarr/series/1/season/2', body: { monitored: true } }]))
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('Season 2 is monitored in Sonarr', 'info'))
+  // The episodes carry the new flags and the series its new counts, so both are read again.
+  await waitFor(() => expect(gets(fetchMock, '/api/sonarr/series/1/episodes')).toBeGreaterThan(before[0]))
+  expect(gets(fetchMock, '/api/sonarr/series')).toBeGreaterThan(before[1])
+})
+test('season monitoring: two unmonitored missing episodes are "are", and a season with none says nothing', async () => {
+  const more = [204, 205].map(id => ({ id, seasonNumber: 2, episodeNumber: id - 200, title: `Left ${id}`, hasFile: false, monitored: false, airDateUtc: past(10) }))
+  stubFetch({}, { episodes: [...episodes, ...more] }); detail()
+  expect(await screen.findByText('· 2 missing are unmonitored', { exact: false })).toBeInTheDocument()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Season' }), { target: { value: '1' } })
+  expect(screen.queryByText(/unmonitored/)).toBeNull()
+})
+test('season monitoring: a fully monitored season reads Monitored, and a press unmonitors it', async () => {
+  const fetchMock = stubFetch({ '/api/sonarr/series/1/season/2': () => reply({ success: true, monitored: false }) })
+  const toast = vi.fn(); detail('1', toast)
+  const button = await screen.findByRole('button', { name: 'Monitored, Season 2. Press to unmonitor' })
+  expect(button).toHaveTextContent('Monitored')
+  expect(screen.queryByRole('button', { name: /^Monitor season/ })).toBeNull()
+  fireEvent.click(button)
+  await waitFor(() => expect(puts(fetchMock)).toEqual([{ url: '/api/sonarr/series/1/season/2', body: { monitored: false } }]))
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('Season 2 is no longer monitored in Sonarr', 'info'))
+})
+test('season monitoring: a season whose own flag is off offers Monitor season even when its episodes are monitored, and follows the picked season', async () => {
+  const flagged = series.map(s => s.id === 1 ? { ...s, seasons: s.seasons.map(season => season.seasonNumber === 1 ? { ...season, monitored: false } : season) } : s)
+  stubFetch({}, { series: flagged }); detail()
+  expect(await screen.findByRole('button', { name: 'Monitored, Season 2. Press to unmonitor' })).toBeInTheDocument()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Season' }), { target: { value: '1' } })
+  expect(screen.getByRole('button', { name: 'Monitor season 1' })).toBeInTheDocument()
+})
+test('season monitoring: a refused change is reported, the page is read again, and the button works again', async () => {
+  const fetchMock = stubFetch({ '/api/sonarr/series/1/season/2': () => reply({ error: 'Season 2 was set to unmonitored, but not all of its episodes: database is locked' }, false) })
+  const toast = vi.fn(); detail('1', toast)
+  const button = await screen.findByRole('button', { name: 'Monitored, Season 2. Press to unmonitor' })
+  const before = gets(fetchMock, '/api/sonarr/series/1/episodes')
+  fireEvent.click(button)
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('Monitoring failed: Season 2 was set to unmonitored, but not all of its episodes: database is locked', 'error'))
+  await waitFor(() => expect(gets(fetchMock, '/api/sonarr/series/1/episodes')).toBeGreaterThan(before))
+  await waitFor(() => expect(button).not.toBeDisabled())
+})
+test('season search: when every aired episode of the season is wanted, it is Sonarr\'s season search, which can take a season pack', async () => {
+  const wanted = episodes.map(ep => ep.id === 201 ? { ...ep, hasFile: false, episodeFileId: undefined } : ep)
+  const fetchMock = stubFetch({ '/api/sonarr/command': () => reply({ id: 8 }) }, { episodes: wanted }); const toast = vi.fn(); detail('1', toast)
+  fireEvent.click(await screen.findByRole('button', { name: 'Search 2 Missing' }))
+  await waitFor(() => expect(posts(fetchMock)).toEqual([{ url: '/api/sonarr/command', body: { name: 'SeasonSearch', seriesId: 1, seasonNumber: 2 } }]))
+  expect(toast).toHaveBeenCalledWith('Searching 2 missing episodes in S2…', 'info')
+})
+test('season search: with one of the season\'s missing episodes unmonitored, the wanted ones are searched by id', async () => {
+  const wanted = episodes.map(ep => ep.id === 201 ? { ...ep, hasFile: false, episodeFileId: undefined, monitored: false } : ep)
+  const more = { id: 204, seasonNumber: 2, episodeNumber: 4, title: 'Also Missing', hasFile: false, airDateUtc: past(5) }
+  const fetchMock = stubFetch({ '/api/sonarr/command': () => reply({ id: 8 }) }, { episodes: [...wanted, more] }); detail('1', vi.fn())
+  fireEvent.click(await screen.findByRole('button', { name: 'Search 2 Missing' }))
+  await waitFor(() => expect(posts(fetchMock)).toEqual([{ url: '/api/sonarr/command', body: { name: 'EpisodeSearch', episodeIds: [204, 202] } }]))
+})
 test('the season trash button is absent when nothing is downloaded', async () => {
   stubFetch({}, { episodes: episodes.map(ep => ({ ...ep, hasFile: false })) }); detail()
   await screen.findByRole('combobox', { name: 'Season' })

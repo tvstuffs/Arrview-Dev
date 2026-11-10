@@ -59,6 +59,40 @@ test("Classic: a season's Search N Missing leaves out unmonitored episodes, in i
   expect(JSON.parse(calls.find(c => c.url === '/api/sonarr/command').init.body)).toEqual({ name: 'EpisodeSearch', episodeIds: [12] })
 })
 
+test('Classic: a season can be monitored from its header, and a wholly wanted season is searched as a season', async () => {
+  const day = n => new Date(Date.now() + n * 86400000).toISOString()
+  let eps = [
+    { id: 11, seasonNumber: 1, episodeNumber: 1, title: 'One', hasFile: false, monitored: false, airDateUtc: day(-30) },
+    { id: 12, seasonNumber: 1, episodeNumber: 2, title: 'Two', hasFile: false, monitored: false, airDateUtc: day(-20) },
+    { id: 13, seasonNumber: 1, episodeNumber: 3, title: 'Three', hasFile: false, monitored: false, airDateUtc: day(10) },
+  ]
+  const calls = []
+  vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+    calls.push({ url: String(url), init })
+    if (String(url) === '/api/sonarr/series/1/season/1') { eps = eps.map(ep => ({ ...ep, monitored: JSON.parse(init.body).monitored })); return reply({ success: true, monitored: true }) }
+    if (String(url) === '/api/sonarr/series/1/episodes') return reply(eps)
+    return String(url).startsWith('/api/sonarr/series') ? reply(series) : reply({ id: 5 })
+  }))
+  const toast = vi.fn()
+  render(<ShowsTab onToast={toast} sonarrUrl="http://sonarr.invalid" onUpcoming={() => {}} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Episodes for Delta Show' }))
+  // Nothing in the season is monitored: no search, the header says what is left out, and the season can be monitored.
+  const monitor = await screen.findByRole('button', { name: 'Monitor season 1' })
+  expect(screen.queryByRole('button', { name: /Search \d+ Missing/ })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Season 1' })).toHaveTextContent('0/3 episodes · 2 missing unmonitored')
+  fireEvent.click(monitor)
+  await waitFor(() => expect(calls.some(c => c.url === '/api/sonarr/series/1/season/1' && c.init?.method === 'PUT')).toBe(true))
+  expect(JSON.parse(calls.find(c => c.url === '/api/sonarr/series/1/season/1').init.body)).toEqual({ monitored: true })
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('Season 1 is monitored in Sonarr', 'info'))
+  // The season is read again: it is monitored now, and both aired episodes are wanted, so the search is the season's.
+  fireEvent.click(await screen.findByRole('button', { name: 'Search 2 Missing' }))
+  expect(screen.getByRole('button', { name: 'Monitored, Season 1. Press to unmonitor' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Season 1' })).toHaveTextContent('0/3 episodes')
+  expect(screen.getByRole('button', { name: 'Season 1' })).not.toHaveTextContent('unmonitored')
+  await waitFor(() => expect(calls.some(c => c.url === '/api/sonarr/command')).toBe(true))
+  expect(JSON.parse(calls.find(c => c.url === '/api/sonarr/command').init.body)).toEqual({ name: 'SeasonSearch', seriesId: 1, seasonNumber: 1 })
+})
+
 test('Classic: Has Missing and Most Missing count what Sonarr wants', async () => {
   render(<ShowsTab onToast={() => {}} sonarrUrl="http://sonarr.invalid" onUpcoming={() => {}} />)
   await screen.findByRole('button', { name: 'Episodes for Delta Show' })
