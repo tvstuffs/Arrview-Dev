@@ -43,6 +43,8 @@ Settings are saved to `config.json` (gitignored). You can re-open them any time 
 
 SABnzbd's **Test** says Connected only when SABnzbd itself answers with its version. If something else answers at the address (a web page, another app), it says so and suggests checking the address and port.
 
+Sonarr's and Radarr's **Test** also read which app answered. The two share one API, so Sonarr's address and key in the Radarr row (or the other way round) used to test Connected, and the pages of that row then failed. The Test now says "That address is Sonarr, not Radarr", and a web page that answers where the app should be is refused too. The status beside a saved app follows the same check, so such a row reads "Can't connect". An app too old to name itself (Sonarr 3) is accepted as before. Saving still asks nothing of the apps, so a row can be saved while its app is stopped.
+
 ---
 
 ## Finding your API keys
@@ -721,6 +723,8 @@ This is liveness, not a guarantee that all configured services are reachable.
 lightweight status/version/capabilities APIs. Service names are `sonarr`, `radarr`,
 `sabnzbd`, `nzbhydra`; success is `{"status":"ok"}`, unavailable/unconfigured is
 HTTP 503, and unknown services are HTTP 404. The dashboard polls these for pills.
+Since 1.9A17 a Sonarr or Radarr answer that names the other of the two apps counts as
+unavailable, as the Test button in Settings does.
 
 Hashed build assets under `/assets/` are immutable for one year. The HTML shell
 and mutable public files revalidate; API responses are not stored. Reverse proxies

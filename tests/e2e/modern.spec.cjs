@@ -687,6 +687,42 @@ test('Settings: an http address must name its port and an https address needs no
     await context.close()
   }
 })
+test('Settings: Sonarr\'s address in the Radarr row is not Connected, and the Test names the app that answered (through the real server)', async ({ browser }) => {
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+    const page = await context.newPage()
+    const saves = []
+    page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/config') saves.push(request.url()) })
+    await open(page, '/settings')
+    // The fixture's upstream names itself under /as-sonarr and /as-radarr, as the real apps do in system/status.
+    const row = async (id, name, path) => {
+      const url = page.locator(`#${id}-url`)
+      if (!(await url.isVisible())) await page.getByRole('button', { name, exact: true }).click()
+      const upstream = new URL(await url.inputValue()).origin
+      await url.fill(`${upstream}${path}`)
+      await page.locator(`#${id}-key`).fill('typed-key-1')
+      await page.locator(`#${id}-panel .service-test`).click()
+    }
+
+    await row('radarr', 'Radarr', '/as-sonarr')
+    const button = page.locator('#radarr-panel .service-test')
+    await expect(button).toHaveAttribute('aria-label', 'Test failed')
+    await expect(page.locator('#radarr-status')).toHaveText('Test failed')
+    await expect(page.getByText('That address is Sonarr, not Radarr — check the address and port', { exact: true })).toBeVisible()
+    expect(await fits(page), `the message fits the page at ${width} px`).toBe(true)
+
+    // The app the row is for: Connected, with the version it sent (the edit makes the button ready at once).
+    await row('radarr', 'Radarr', '/as-radarr')
+    await expect(page.locator('#radarr-status')).toHaveText('Connected · v6.4.4.10685')
+
+    // And the other way round.
+    await row('sonarr', 'Sonarr', '/as-radarr')
+    await expect(page.locator('#sonarr-status')).toHaveText('Test failed')
+    await expect(page.getByText('That address is Radarr, not Sonarr — check the address and port', { exact: true })).toBeVisible()
+    expect(saves, 'a Test stores nothing').toEqual([])
+    await context.close()
+  }
+})
 test('Shows: the bar, the caption and the missing count follow what Sonarr wants, in Modern and in Classic', async ({ page, request }) => {
   const OK = 'rgb(126, 226, 160)', DANGER = 'rgb(255, 107, 107)'
   const base = (await (await request.get('/api/sonarr/series')).json())[0]

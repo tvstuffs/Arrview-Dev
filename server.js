@@ -916,7 +916,8 @@ app.get('/api/:service/ping', async (req, res) => {
       const isObject = v => typeof v === 'object' && v !== null && !Array.isArray(v);
       const hydraOk = isObject(data) && !Object.prototype.hasOwnProperty.call(data, 'error')
         && (isObject(data.caps) || isObject(data.server) || isObject(data.searching) || isObject(data.categories));
-      if (isHydra ? !hydraOk : !data?.version) {
+      // Sonarr and Radarr: a status answer with a version, and not the other of the two (the same check as the Test button).
+      if (isHydra ? !hydraOk : arrAnswerProblem(service, data)) {
         throw new Error('Invalid service response');
       }
     }
@@ -1311,6 +1312,25 @@ async function detectSabPath(baseUrl, apikey) {
   return (await probeSab(baseUrl, apikey)).path;
 }
 
+// ── Sonarr and Radarr: is it the app the row is for? ─────────────────────────
+// Both answer /api/v3/system/status in the same shape, each for its own key, so one app's address and key in the other's row answered
+// 200 and tested "Connected", and then every page of that row failed (Sonarr has no /api/v3/movie, Radarr no /api/v3/series). Both
+// name themselves in that answer (appName; Sonarr 3 does not send it), so the Test button and the status ping read it.
+const ARR_APPS = { sonarr: 'Sonarr', radarr: 'Radarr' };
+
+// What is wrong with a system/status answer for this service's row, as the sentence the Test shows, or null when it can be that app.
+// Only a positive mismatch is refused: an answer that names the other of the two. One that carries no name, or another name on the
+// same API, is accepted as before, so an older version or a compatible app is not locked out.
+function arrAnswerProblem(service, data) {
+  const app = ARR_APPS[service];
+  if (!isPlainObject(data) || typeof data.version !== 'string' || data.version.trim() === '') {
+    return `That address answered, but not like ${app} — check the address and port`;
+  }
+  const said = typeof data.appName === 'string' ? data.appName.trim().toLowerCase() : '';
+  const other = Object.keys(ARR_APPS).find(id => id !== service && id === said);
+  return other ? `That address is ${ARR_APPS[other]}, not ${app} — check the address and port` : null;
+}
+
 // ── Test connections ──────────────────────────────────────────────────────────
 
 app.post('/api/test/:service', async (req, res) => {
@@ -1346,19 +1366,13 @@ app.post('/api/test/:service', async (req, res) => {
       return res.json({ success: true, version: found.version, sabPath: found.path });
     }
 
-    if (service === 'sonarr') {
+    if (service === 'sonarr' || service === 'radarr') {
       const r = await axios.get(`${url}/api/v3/system/status`, {
         headers: { 'X-Api-Key': apikey },
         timeout: 10000,
       });
-      return res.json({ success: true, version: r.data.version });
-    }
-
-    if (service === 'radarr') {
-      const r = await axios.get(`${url}/api/v3/system/status`, {
-        headers: { 'X-Api-Key': apikey },
-        timeout: 10000,
-      });
+      const problem = arrAnswerProblem(service, r.data);
+      if (problem) return res.status(503).json({ error: problem });
       return res.json({ success: true, version: r.data.version });
     }
 

@@ -149,6 +149,9 @@ const upstream = http.createServer((req, res) => {
   if (url.pathname.endsWith('/movie')) return res.end(JSON.stringify([{ id: 2, title: 'Fixture Movie with a long descriptive title', year: 2024, qualityProfileId: 2, path: '/media/tv2/Fixture Movie (2024)', studio: 'Fixture Studio', images: [{ coverType: 'poster', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }, { coverType: 'fanart', remoteUrl: 'https://localhost:18778/arrview-icon.svg' }], monitored: true, isAvailable: true, hasFile: false, overview: 'A movie description to verify wrapping and action controls.' }]))
   if (url.searchParams.get('t') === 'search') return res.end(JSON.stringify({ channel: { item: [{ title: 'A lengthy fixture NZB result title', guid: 'nzb1', link: 'https://example.invalid/fixture.nzb', size: 1073741824 }] } }))
   if (url.pathname.includes('/command')) return res.end(JSON.stringify({ id: 99, status: 'completed', result: 'successful' }))
+  // An app that names itself, as real Sonarr and Radarr do: <upstream>/as-sonarr and <upstream>/as-radarr are addresses a test can type.
+  const named = url.pathname.match(/^\/as-(sonarr|radarr)\/api\/v3\/system\/status$/)
+  if (named) return res.end(JSON.stringify(named[1] === 'sonarr' ? { appName: 'Sonarr', version: '4.0.20.3014' } : { appName: 'Radarr', version: '6.4.4.10685' }))
   res.end(JSON.stringify({ version: '4.0', caps: { server: { title: 'fixture' } } }))
 })
 upstream.listen(0, '127.0.0.1', () => {
