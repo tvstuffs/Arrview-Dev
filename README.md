@@ -45,6 +45,8 @@ SABnzbd's **Test** says Connected only when SABnzbd itself answers with its vers
 
 Sonarr's and Radarr's **Test** also read which app answered. The two share one API, so Sonarr's address and key in the Radarr row (or the other way round) used to test Connected, and the pages of that row then failed. The Test now says "That address is Sonarr, not Radarr", and a web page that answers where the app should be is refused too. The status beside a saved app follows the same check, so such a row reads "Can't connect". An app too old to name itself (Sonarr 3) is accepted as before. Saving still asks nothing of the apps, so a row can be saved while its app is stopped.
 
+The **Webhooks** card in Settings, which can add ArrView's webhook to Sonarr and Radarr and remove it again, asks the app the same question before it does anything. For a row that holds the other app's address and key it says "the address saved for Radarr is Sonarr, not Radarr", offers neither Set up nor Remove, and does not read or change that app's connections. As with the Test, an app too old to name itself is not caught.
+
 ---
 
 ## Finding your API keys

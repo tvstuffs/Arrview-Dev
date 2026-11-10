@@ -223,6 +223,59 @@ test('a set-up the app refuses shows its text, and the status stays Not set up',
   await expect(block.getByRole('button', { name: 'Set up in Sonarr' })).toBeEnabled()
 })
 
+// Through the real server. Sonarr and Radarr share the connection API, so the server asks the app at a row's address who
+// it is before it reads the list. The fixture's upstream names itself under /as-sonarr and /as-radarr, as the real apps do
+// in system/status, and has an empty connection list there. These two tests save Sonarr's address in both rows.
+const WRONG_APP_REFUSAL = { error: "The address saved for Radarr is Sonarr, not Radarr. Fix Radarr's address in ArrView under Settings, Services.", state: 'wrong-app' }
+async function withSonarrInBothRows(request, run) {
+  const KEY = 'fixture-only-key'
+  const saved = await (await request.get('/api/config')).json()
+  const asSonarr = { url: `${new URL(saved.radarr.url).origin}/as-sonarr`, apikey: KEY }
+  const save = data => request.post('/api/config', { data: { ...saved, ...data } })
+  try {
+    expect((await save({ sonarr: asSonarr, radarr: asSonarr, webhooks: { baseUrl: ADDRESS } })).status()).toBe(200)
+    await run()
+  } finally {
+    // Leave the fixture's settings as they were, whatever happened above (a changed address needs its key again).
+    await save({ sonarr: { url: saved.sonarr.url, apikey: KEY }, radarr: { url: saved.radarr.url, apikey: KEY }, webhooks: { baseUrl: '' } })
+  }
+  expect(await (await request.get('/api/config')).json(), 'the settings are back as they were').toEqual(saved)
+}
+
+test('Sonarr\'s address saved in the Radarr row: status, set up and remove stop at asking the app who it is, and its connection list is never asked for (through the real server)', async ({ request }) => {
+  await withSonarrInBothRows(request, async () => {
+    // No page is open here, so every request under /as-sonarr comes from these three calls.
+    await request.post('/__fixture/reset-requests')
+    const status = await request.get('/api/webhook-setup/radarr')
+    expect([status.status(), await status.json()]).toEqual([200, { service: 'radarr', state: 'wrong-app', url: `${ADDRESS}/api/webhooks/radarr` }])
+    const added = await request.post('/api/webhook-setup/radarr', { data: {} })
+    expect([added.status(), await added.json()]).toEqual([409, WRONG_APP_REFUSAL])
+    const removed = await request.delete('/api/webhook-setup/radarr')
+    expect([removed.status(), await removed.json()]).toEqual([409, WRONG_APP_REFUSAL])
+    const asked = (await (await request.get('/__fixture/requests')).json()).map(sent => `${sent.method} ${sent.path}`).filter(sent => sent.includes('/as-sonarr/'))
+    expect(asked).toEqual(Array(3).fill('GET /as-sonarr/api/v3/system/status'))
+  })
+})
+
+test('Sonarr\'s address saved in the Radarr row: the card says which app answered and offers neither Set up nor Remove, and Sonarr\'s own row works (through the real server)', async ({ browser, request }) => {
+  await withSonarrInBothRows(request, async () => {
+    for (const [width, height] of [[1280, 900], [390, 844], [305, 700]]) {
+      const context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+      const page = await context.newPage()
+      await page.goto(`${BASE}/#/settings`)
+      const radarr = setupBlock(page, 'Radarr')
+      await expect(radarr).toContainText("Cannot check: the address saved for Radarr is Sonarr, not Radarr. Fix Radarr's address under Services.")
+      await expect(radarr.getByRole('button')).toHaveCount(0)
+      // The same app in its own row is read as before.
+      const sonarr = setupBlock(page, 'Sonarr')
+      await expect(sonarr).toContainText('Not set up.')
+      await expect(sonarr.getByRole('button', { name: 'Set up in Sonarr' })).toBeEnabled()
+      expect(await fits(page), `the card fits the page at ${width} px`).toBe(true)
+      await context.close()
+    }
+  })
+})
+
 for (const width of [305, 320, 390, 834, 1280]) {
   test(`the Webhooks card fits ${width}px with a long address, the longest list lines and every guide open, and Copy is a touch-sized button`, async ({ browser, request }) => {
     // Both lines at their longest: an event and a Test message for each service.

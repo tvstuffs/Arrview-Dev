@@ -18,6 +18,8 @@ const SERVICES = {
     logLine: '[Radarr webhook] Download — movie: ArrView test',
   },
 }
+// Sonarr and Radarr share the API the status is read through, so a row can hold the address of the other one.
+const OTHER_APP = { sonarr: 'radarr', radarr: 'sonarr' }
 const triggerLabels = service => WEBHOOK_TRIGGERS[service].map(trigger => trigger.label)
 const LOADING = { status: 'loading', data: null, receivedAt: 0 }
 // How long a set-up or remove runs before the card says why it can take long: the app tests the address first,
@@ -25,8 +27,8 @@ const LOADING = { status: 'loading', data: null, receivedAt: 0 }
 export const WAIT_NOTICE_MS = 3000
 
 // The status line for one service, from GET /api/webhook-setup/:service. `status` is null while it loads and
-// 'unknown' when the answer was not one.
-function statusText(name, status) {
+// 'unknown' when the answer was not one. `other` is the name of the other app, for a row that holds its address.
+function statusText(name, status, other) {
   if (status === null) return `Checking ${name}…`
   if (status === 'unknown') return 'Cannot check the webhook status.'
   switch (status.state) {
@@ -39,6 +41,7 @@ function statusText(name, status) {
     case 'not-configured': return `Cannot check: ${name} is not set up in ArrView.`
     case 'unreachable': return `Cannot check: ${name} could not be reached.`
     case 'key-rejected': return `Cannot check: ${name} rejected the API key.`
+    case 'wrong-app': return `Cannot check: the address saved for ${name} is ${other}, not ${name}. Fix ${name}'s address under Services.`
     case 'name-taken': return `Cannot set up: a connection named ArrView already exists in ${name}. Rename or remove it there.`
     case 'multiple': return `Several ArrView webhooks exist in ${name}. Remove the extra ones there.`
     default: return 'Cannot check the webhook status.'
@@ -118,7 +121,7 @@ function SetupStatus({ service, savedAddress, unsaved }) {
   return <div className="webhook-setup" aria-labelledby={titleId} role="group">
     <h3 id={titleId}>Status in {name}</h3>
     <div aria-live="polite" className="webhook-setup-live">
-      <p className="text-sm">{statusText(name, status)}</p>
+      <p className="text-sm">{statusText(name, status, SERVICES[OTHER_APP[service]].name)}</p>
       {outcome && outcomeText(name, outcome).map(text => <p key={text} className={`text-sm${outcome.kind === 'created' && outcome.testReceived ? '' : ' text-warning'}`}>{text}</p>)}
       {waiting && <p className="text-sm text-muted">Waiting for {name} to test the address. If {name} cannot reach ArrView, this can take up to two minutes.</p>}
     </div>

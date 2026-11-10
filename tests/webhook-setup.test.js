@@ -14,6 +14,8 @@ const urlTable = require('./fixtures/webhook-urls.json');
 // which only passwords are masked, unique names compared without case across every kind of connection but checked
 // before a slow test (so two creates can both pass), a 400 array or a 500 { message, description } when the test
 // fails, the Test message posted to ArrView before the create answers, and 200 {} for any delete.
+// The real apps also say who they are in GET /api/v3/system/status. A fake answers that only in a test that sets its
+// statusAnswer; everywhere else the request gets the 404 of a path the fake does not have, which must change nothing.
 
 const ADDRESS = 'http://arrview.example:7777';
 const target = service => `${ADDRESS}/api/webhooks/${service}`;
@@ -30,6 +32,12 @@ const WANTED = {
   radarr: ['onDownload', 'onUpgrade', 'onRename', 'onMovieAdded', 'onMovieDelete', 'onMovieFileDelete'],
 };
 const supportsFlag = field => `supports${field.charAt(0).toUpperCase()}${field.slice(1)}`;
+// Who each app says it is, as far as ArrView reads it (the real answers have about thirty fields).
+const STATUS_PATH = '/api/v3/system/status';
+const STATUS = {
+  sonarr: { appName: 'Sonarr', instanceName: 'Sonarr', version: '4.0.20.3014' },
+  radarr: { appName: 'Radarr', instanceName: 'Radarr', version: '6.4.4.10685' },
+};
 
 function webhookTemplate(service, supports = {}) {
   const template = {};
@@ -77,6 +85,7 @@ async function startFakeArr(t, service) {
     service, key: `fake-${service}-key-5ec4e7`, hits: [], list: [], nextId: 1, supports: {},
     create: 'ok', postTest: true, arrview: null, gate: null, deleteKeeps: false,
     listAnswer: null, schemaAnswer: null, onSchema: null, deleteAnswer: null, message: null,
+    statusAnswer: null, statusReads: [],
     hold() { fake.gate = new Promise(resolve => { fake.release = () => { fake.gate = null; resolve(); }; }); },
     creates: () => fake.hits.filter(h => h.method === 'POST' && h.path === '/api/v3/notification'),
     deletes: () => fake.hits.filter(h => h.method === 'DELETE'),
@@ -134,8 +143,13 @@ async function startFakeArr(t, service) {
     const text = Buffer.concat(chunks).toString('utf8');
     let body = null;
     try { body = text ? JSON.parse(text) : null; } catch (_) { body = text; }
-    fake.hits.push({ method: req.method, path: url.pathname, search: url.search, body, raw: text, key: req.headers['x-api-key'] });
+    // Who the app is gets asked ahead of its connection list. Those reads are kept apart, each with the number of connection requests
+    // that came before it, so `hits` stays the traffic on the connection API that the tests read request by request.
+    const identity = req.method === 'GET' && url.pathname === STATUS_PATH;
+    if (identity) fake.statusReads.push({ key: req.headers['x-api-key'], search: url.search, before: upstreamPaths(fake).length });
+    else fake.hits.push({ method: req.method, path: url.pathname, search: url.search, body, raw: text, key: req.headers['x-api-key'] });
     if (req.headers['x-api-key'] !== fake.key) { res.writeHead(401); return res.end(); }
+    if (identity && fake.statusAnswer) return fake.statusAnswer(res, url);
     if (req.method === 'GET' && url.pathname === '/api/v3/notification') {
       if (fake.listAnswer) return fake.listAnswer(res);
       return send(res, 200, sortedByName(fake.list).map(readBack));
@@ -819,4 +833,175 @@ test('with the login off all three work without credentials, and a POST without 
   assert.equal((await del('sonarr')).status, 200);
   // A cookie-less call with the browser's headers is fine too while the login is off.
   assert.equal((await fetch(`${s.base}/api/webhook-setup/sonarr`, { method: 'POST', headers: AJAX, body: '{}' })).status, 201);
+});
+
+// ── Which app answers ───────────────────────────────────────────────────────
+// Sonarr and Radarr share the connection API, so the address and key of one saved in the other's row had its list read, and
+// written to, as the other's. Both name themselves in GET /api/v3/system/status (appName), and every call asks that once before it
+// reads the list. Only an app that names the other of the two is refused: any other answer, and no answer, changes nothing.
+
+const says = data => res => { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
+const LABEL = { sonarr: 'Sonarr', radarr: 'Radarr' };
+const otherOf = service => (service === 'sonarr' ? 'radarr' : 'sonarr');
+const wrongApp = row => ({ state: 'wrong-app',
+  error: `The address saved for ${LABEL[row]} is ${LABEL[otherOf(row)]}, not ${LABEL[row]}. Fix ${LABEL[row]}'s address in ArrView under Settings, Services.` });
+
+// ArrView whose `row` holds the address and key of the other app: a fake of that app, which names itself as the real one does.
+async function otherAppInRow(t, row, { address = ADDRESS, ...options } = {}) {
+  const other = otherOf(row);
+  const env = await setup(t, { address, services: [other], ...options });
+  const app = env.fakes[other];
+  app.statusAnswer = says(STATUS[other]);
+  fs.writeFileSync(env.s.configFile, JSON.stringify({ [row]: { url: app.url, apikey: app.key }, ...(address ? { webhooks: { baseUrl: address } } : {}) }));
+  return { ...env, app };
+}
+
+// Every GET ArrView sends, with what it asked for; the read of who the app is gets a short timeout of its own for a test.
+function recordGets(ms, gets) {
+  return { post: axios.post.bind(axios), put: axios.put.bind(axios), delete: axios.delete.bind(axios),
+    get: (url, options = {}) => {
+      const path = new URL(url).pathname;
+      gets.push({ path, timeout: options.timeout, maxRedirects: options.maxRedirects, key: options.headers?.['X-Api-Key'] });
+      return axios.get(url, path === STATUS_PATH ? { ...options, timeout: ms } : options);
+    } };
+}
+
+test('the other app\'s address and key in a row: the status says so, set up and remove refuse, and its connection list is never read', async t => {
+  for (const row of ['radarr', 'sonarr']) {
+    const { get, post, del, app } = await otherAppInRow(t, row);
+    const status = [200, { service: row, state: 'wrong-app', url: target(row) }];
+    // What the other app holds: someone else's connection, then also one that points at this row's receiver.
+    const held = () => [discordEntry(1, 'Family chat', 'DISCORD-TOKEN'), webhookEntry(8, 'ArrView', target(row))];
+    app.list = held().slice(0, 1);
+    assert.deepEqual(await get(row).then(r => [r.status, r.body]), status, row);
+    assert.deepEqual(await post(row).then(r => [r.status, r.body]), [409, wrongApp(row)], row);
+    app.list = held();
+    assert.deepEqual(await get(row).then(r => [r.status, r.body]), status, row);
+    assert.deepEqual(await post(row).then(r => [r.status, r.body]), [409, wrongApp(row)], row);
+    assert.deepEqual(await del(row).then(r => [r.status, r.body]), [409, wrongApp(row)], row);
+    // Nothing was written, and nothing on the connection API was even asked.
+    assert.deepEqual(app.list, held(), row);
+    assert.deepEqual(app.hits, [], row);
+    // One question per call, with the key stored for the row.
+    assert.deepEqual(app.statusReads, Array(5).fill({ key: app.key, search: '', before: 0 }), row);
+  }
+});
+
+test('the name is read whatever its case or padding, and with or without the rest of a status answer', async t => {
+  const { get, post, del, app } = await otherAppInRow(t, 'radarr');
+  app.list = [webhookEntry(8, 'ArrView', target('radarr'))];
+  for (const answer of [{ ...STATUS.sonarr, appName: 'sonarr' }, { ...STATUS.sonarr, appName: 'SONARR' }, { ...STATUS.sonarr, appName: ' Sonarr ' }, { appName: 'Sonarr' }]) {
+    app.statusAnswer = says(answer);
+    assert.equal((await get('radarr')).body.state, 'wrong-app', answer.appName);
+    assert.deepEqual(await post('radarr').then(r => [r.status, r.body]), [409, wrongApp('radarr')], answer.appName);
+    assert.deepEqual(await del('radarr').then(r => [r.status, r.body]), [409, wrongApp('radarr')], answer.appName);
+  }
+  assert.deepEqual(app.hits, []);
+  assert.equal(app.list.length, 1);
+});
+
+test('only an app that names the other one is refused: any other answer, an error or no answer leaves status, set up and remove as they were', async t => {
+  const { get, post, del, sonarr } = await setup(t, { services: ['sonarr'] });
+  const failing = (status, data) => res => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(data === undefined ? '' : JSON.stringify(data)); };
+  const cases = [
+    ['the app the row is for', says(STATUS.sonarr)],
+    ['no appName (Sonarr 3)', says({ version: '3.0.6.1342' })],
+    ['an empty appName', says({ appName: '', version: '3.0.6.1342' })],
+    ['an appName that is not text', says({ appName: ['Radarr'], version: '6.4.4.10685' })],
+    ['another app on the same API', says({ appName: 'Whisparr', version: '2.0.0.548' })],
+    ['a name that only holds the other app\'s', says({ appName: 'Radarr Fork', version: '6.4.4.10685' })],
+    ['a JSON array', says(['Radarr'])],
+    ['a web page', res => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<html><title>Radarr</title></html>'); }],
+    ['not found, as a fake answers when it is not told what it is', null],
+    ['a rejected key on that route alone', failing(401)],
+    ['a server error, whatever its body says', failing(500, STATUS.radarr)],
+    // Followed, the redirect would lead to an answer that names the other app.
+    ['a redirect, which is not followed', (res, url) => {
+      if (url.search) return says(STATUS.radarr)(res);
+      res.writeHead(302, { Location: `${STATUS_PATH}?followed=1` });
+      return res.end();
+    }],
+    ['a connection that is cut', res => res.socket.destroy()],
+  ];
+  for (const [name, statusAnswer] of cases) {
+    sonarr.list = [];
+    sonarr.statusReads = [];
+    sonarr.statusAnswer = statusAnswer;
+    assert.equal((await get('sonarr')).body.state, 'absent', name);
+    assert.deepEqual(await post('sonarr').then(r => [r.status, r.body.created]), [201, true], name);
+    assert.equal((await get('sonarr')).body.state, 'present', name);
+    assert.deepEqual(await del('sonarr').then(r => [r.status, r.body]), [200, { state: 'absent', removed: true }], name);
+    // The app was asked, once per call and at no second address, and what it said was let pass.
+    assert.deepEqual(sonarr.statusReads.map(read => read.search), ['', '', '', ''], name);
+  }
+});
+
+test('a read of who the app is that never answers is given up after the list\'s own timeout, and the list then decides as before', async t => {
+  const gets = [];
+  const { get, post, sonarr } = await setup(t, { services: ['sonarr'], modules: { axios: recordGets(150, gets) } });
+  sonarr.statusAnswer = () => {};
+  assert.equal((await get('sonarr')).body.state, 'absent');
+  // The same key, timeout and redirect rule as the list read that follows it.
+  assert.deepEqual(gets, [{ path: STATUS_PATH, timeout: 15000, maxRedirects: 0, key: sonarr.key },
+    { path: '/api/v3/notification', timeout: 15000, maxRedirects: 0, key: sonarr.key }]);
+  assert.deepEqual(await post('sonarr').then(r => [r.status, r.body.created]), [201, true]);
+  assert.equal(sonarr.statusReads.length, 2);
+});
+
+test('the app is asked who it is once per call, ahead of its connection list and with the stored key', async t => {
+  const { get, post, del, sonarr } = await setup(t, { services: ['sonarr'] });
+  sonarr.statusAnswer = says(STATUS.sonarr);
+  assert.equal((await get('sonarr')).body.state, 'absent');
+  assert.equal((await post('sonarr')).status, 201);
+  assert.equal((await del('sonarr')).status, 200);
+  // `before` is the number of connection requests that came first: none for the status, one for the set-up, five for the remove.
+  // So each call asks once, before anything else, and not again for its second read of the list.
+  assert.deepEqual(sonarr.statusReads, [0, 1, 5].map(before => ({ key: sonarr.key, search: '', before })));
+  assert.deepEqual(upstreamPaths(sonarr), ['GET /api/v3/notification',
+    'GET /api/v3/notification', 'GET /api/v3/notification/schema', 'GET /api/v3/notification', 'POST /api/v3/notification',
+    'GET /api/v3/notification', 'DELETE /api/v3/notification/1', 'GET /api/v3/notification']);
+});
+
+test('no app is asked who it is when nothing may be asked of it, and a remove with no saved address asks before it reads the list', async t => {
+  // An unknown service, and a service that is not set up while another one is.
+  const { call, sonarr } = await setup(t, { services: ['sonarr'] });
+  sonarr.statusAnswer = says(STATUS.sonarr);
+  for (const method of ['GET', 'POST', 'DELETE']) { await call(method, 'lidarr'); await call(method, 'radarr'); }
+  assert.deepEqual(sonarr.statusReads, []);
+
+  // With the login on, a call without credentials is turned away first.
+  const locked = await setup(t, { services: ['sonarr'], start: startSeeded });
+  locked.sonarr.statusAnswer = says(STATUS.radarr);
+  for (const method of ['GET', 'POST', 'DELETE']) assert.equal((await locked.call(method, 'sonarr')).status, 401, method);
+  assert.deepEqual(locked.sonarr.statusReads, []);
+  const signedIn = await fetch(`${locked.s.base}/api/webhook-setup/sonarr`, { headers: { Cookie: locked.s.seeded.cookie } });
+  assert.equal((await signedIn.json()).state, 'wrong-app');
+  assert.equal(locked.sonarr.statusReads.length, 1);
+
+  // With no saved address the status and a set-up stop before any request. A remove reads the list even then, so it asks first.
+  const bare = await otherAppInRow(t, 'radarr', { address: null });
+  bare.app.list = [webhookEntry(5, 'ArrView', target('radarr'))];
+  assert.equal((await bare.get('radarr')).body.state, 'needs-address');
+  assert.deepEqual(await bare.post('radarr').then(r => [r.status, r.body.state]), [409, 'needs-address']);
+  assert.deepEqual(bare.app.statusReads, []);
+  assert.deepEqual(await bare.del('radarr').then(r => [r.status, r.body]), [409, wrongApp('radarr')]);
+  assert.equal(bare.app.statusReads.length, 1);
+  assert.deepEqual(bare.app.hits, []);
+  assert.equal(bare.app.list.length, 1);
+});
+
+test('nothing the other app says about itself or holds in its list reaches an answer or a log line', async t => {
+  const { get, post, del, app, s, seen } = await otherAppInRow(t, 'radarr');
+  const SECRETS = ['INSTANCE-SECRET', 'URLBASE-SECRET', 'STARTUP-SECRET', 'APPDATA-SECRET', 'BRANCH-SECRET', STATUS.sonarr.version,
+    'DISCORD-SECRET-TOKEN', 'Family chat', 'discord.example', 'elsewhere.example', app.key, `127.0.0.1:${app.port}`];
+  app.statusAnswer = says({ ...STATUS.sonarr, instanceName: 'INSTANCE-SECRET', urlBase: '/URLBASE-SECRET', startupPath: '/STARTUP-SECRET',
+    appData: '/APPDATA-SECRET', branch: 'BRANCH-SECRET' });
+  // Read as Radarr's, this list would show the address of a connection that is Sonarr's.
+  app.list = [discordEntry(1, 'Family chat', 'DISCORD-SECRET-TOKEN'), webhookEntry(2, 'ArrView', 'http://elsewhere.example:7777/api/webhooks/radarr')];
+  await get('radarr'); await post('radarr'); await del('radarr');
+  assert.equal(seen.length, 3);
+  for (const text of [...seen, ...s.logs]) for (const secret of SECRETS) assert.ok(!text.includes(secret), `${secret} in ${text}`);
+  // An answer is the state with ArrView's own URL, or the state with a sentence that names the two apps.
+  assert.deepEqual(seen.map(text => Object.keys(JSON.parse(text)).sort()), [['service', 'state', 'url'], ['error', 'state'], ['error', 'state']]);
+  assert.ok(s.logs.every(line => !line.startsWith('[Webhook setup]')));
 });

@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, act, within } from '@testing-librar
 import WebhookSettings from '../../src/components/WebhookSettings'
 import ConfigPage from '../../src/components/ConfigPage'
 import Dashboard from '../../src/components/Dashboard'
-import { normalizeAddress } from '../../src/webhooks'
+import { normalizeAddress, readSetupStatus } from '../../src/webhooks'
 import { copyText } from '../../src/clipboard'
 import { reply, config, stubFetch, stubMedia, resetEnvironment } from './modern-helpers'
 
@@ -406,6 +406,54 @@ test('an answer that is not a setup state, a 404 from an older server or a faile
     const { unmount } = render(<SetupHarness />)
     await waitFor(() => expect(live('Sonarr')).toHaveTextContent('Cannot check the webhook status.'))
     expect(within(block('Sonarr')).queryAllByRole('button')).toHaveLength(0)
+    unmount()
+  }
+})
+
+// Sonarr and Radarr share the connection API, so the server asks the app at a row's address who it is before it reads the
+// list. A row that holds the other app's address and key gets the state wrong-app, and nothing may be set up or removed.
+const WRONG_APP = {
+  Sonarr: "Cannot check: the address saved for Sonarr is Radarr, not Sonarr. Fix Sonarr's address under Services.",
+  Radarr: "Cannot check: the address saved for Radarr is Sonarr, not Radarr. Fix Radarr's address under Services.",
+}
+
+test('a row that holds the other app says which app answered and where to fix it, with neither Set up nor Remove', async () => {
+  for (const name of ['Sonarr', 'Radarr']) {
+    const fetch = setupFetch({ GET: service => stateOf(service, 'wrong-app') })
+    const { unmount } = render(<SetupHarness sonarr={name === 'Sonarr'} radarr={name === 'Radarr'} />)
+    expect(live(name)).toHaveTextContent(`Checking ${name}…`)
+    await waitFor(() => expect(live(name)).toHaveTextContent(WRONG_APP[name]))
+    expect(live(name).textContent).toBe(WRONG_APP[name])
+    expect(within(block(name)).queryAllByRole('button')).toHaveLength(0)
+    // Reading the status is all the card did.
+    expect(fetch.mock.calls.filter(([url]) => String(url).startsWith('/api/webhook-setup/'))).toHaveLength(1)
+    unmount()
+  }
+})
+
+test('the card takes the state of a wrong-app answer and nothing else that might come with it', () => {
+  const url = `${SAVED}/api/webhooks/radarr`
+  expect(readSetupStatus({ service: 'radarr', state: 'wrong-app', url })).toEqual({ state: 'wrong-app', url, address: null, extra: false })
+  expect(readSetupStatus({ service: 'radarr', state: 'wrong-app', url, address: 'http://sonarr.example:8989', extra: true, appName: 'Sonarr', version: '4.0.20.3014' }))
+    .toEqual({ state: 'wrong-app', url, address: null, extra: false })
+})
+
+test('a set-up or a remove that the server refuses because the row now holds the other app shows its sentence, and the re-read status leaves no button', async () => {
+  const refusal = "The address saved for Sonarr is Radarr, not Sonarr. Fix Sonarr's address in ArrView under Settings, Services."
+  const refuse = () => answer(409, { error: refusal, state: 'wrong-app' })
+  for (const [method, before, press] of [['POST', 'absent', ['Set up in Sonarr', 'Add']], ['DELETE', 'present', ['Remove from Sonarr', 'Remove']]]) {
+    // The row pointed at Sonarr when the page loaded, and at Radarr by the time the button is pressed.
+    let state = before
+    const fetch = setupFetch({ GET: service => stateOf(service, state), [method]: () => { state = 'wrong-app'; return refuse() } })
+    const { unmount } = render(<SetupHarness />)
+    fireEvent.click(await screen.findByRole('button', { name: press[0] }))
+    fireEvent.click(within(block('Sonarr')).getByRole('button', { name: press[1] }))
+    await waitFor(() => expect(lines('Sonarr')).toEqual([WRONG_APP.Sonarr, refusal]))
+    expect(setupCalls(fetch, method)).toHaveLength(1)
+    expect(setupCalls(fetch, 'GET')).toHaveLength(2)
+    await waitFor(() => expect(within(block('Sonarr')).queryAllByRole('button')).toHaveLength(0))
+    expect(screen.queryByRole('region', { name: 'Webhook to add in Sonarr' })).toBeNull()
+    expect(block('Sonarr')).not.toHaveTextContent('Remove the ArrView webhook from Sonarr?')
     unmount()
   }
 })

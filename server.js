@@ -1315,8 +1315,16 @@ async function detectSabPath(baseUrl, apikey) {
 // ── Sonarr and Radarr: is it the app the row is for? ─────────────────────────
 // Both answer /api/v3/system/status in the same shape, each for its own key, so one app's address and key in the other's row answered
 // 200 and tested "Connected", and then every page of that row failed (Sonarr has no /api/v3/movie, Radarr no /api/v3/series). Both
-// name themselves in that answer (appName; Sonarr 3 does not send it), so the Test button and the status ping read it.
+// name themselves in that answer (appName; Sonarr 3 does not send it), so the Test button and the status ping read it, and the
+// webhook set-up asks it before it reads or changes anything in the app.
 const ARR_APPS = { sonarr: 'Sonarr', radarr: 'Radarr' };
+
+// The other of the two apps, when a system/status answer names it: the positive mismatch. Null for the row's own app, for an answer
+// that carries no name or another name, and for anything that is not such an answer.
+function arrOtherApp(service, data) {
+  const said = isPlainObject(data) && typeof data.appName === 'string' ? data.appName.trim().toLowerCase() : '';
+  return Object.keys(ARR_APPS).find(id => id !== service && id === said) || null;
+}
 
 // What is wrong with a system/status answer for this service's row, as the sentence the Test shows, or null when it can be that app.
 // Only a positive mismatch is refused: an answer that names the other of the two. One that carries no name, or another name on the
@@ -1326,8 +1334,7 @@ function arrAnswerProblem(service, data) {
   if (!isPlainObject(data) || typeof data.version !== 'string' || data.version.trim() === '') {
     return `That address answered, but not like ${app} — check the address and port`;
   }
-  const said = typeof data.appName === 'string' ? data.appName.trim().toLowerCase() : '';
-  const other = Object.keys(ARR_APPS).find(id => id !== service && id === said);
+  const other = arrOtherApp(service, data);
   return other ? `That address is ${ARR_APPS[other]}, not ${app} — check the address and port` : null;
 }
 
@@ -2227,6 +2234,8 @@ app.post('/api/webhooks/radarr', (req, res) => {
 // app's connection list, which holds every connection the user has with whatever is in it (usernames, header values
 // and URL queries read back in clear; only passwords are masked). Ours is recognised by its URL, whatever it is
 // called. Set up and remove for one service run one at a time: the apps' unique-name check is not atomic.
+// Sonarr and Radarr share the connection API, so each call first asks the app at the row's address who it is, and
+// stops when it is the other of the two: its list is not read as this row's, and nothing is added to it or removed.
 // Not under /api/webhooks/, so the JSON content-type guard and the login gate apply as to any other route.
 const WEBHOOK_APPS = {
   sonarr: { name: 'Sonarr', connection: () => sonarrHeaders() },
@@ -2319,10 +2328,12 @@ function classifyWebhooks(read, service, target) {
 // The address of a different-address state, for an answer.
 const shownAddress = c => (c.state === 'different-address' ? { address: c.address, ...(c.extra ? { extra: true } : {}) } : {});
 
-// Why a set-up cannot go ahead in this state (null when it can, or when it is already done).
-function webhookRefusal(state, name) {
+// Why a set-up cannot go ahead in this state (null when it can, or when it is already done). `other` is the app that
+// answered, for wrong-app.
+function webhookRefusal(state, name, other) {
   switch (state) {
     case 'not-configured': return { status: 503, error: `${name} not configured` };
+    case 'wrong-app': return { status: 409, error: `The address saved for ${name} is ${other}, not ${name}. Fix ${name}'s address in ArrView under Settings, Services.` };
     case 'needs-address': return { status: 409, error: 'Save the ArrView address first' };
     case 'key-rejected': return { status: 502, error: `${name} rejected the API key` };
     case 'unreachable': return { status: 502, error: `${name} could not be reached` };
@@ -2338,6 +2349,20 @@ function cleanAppText(text) {
   const line = String(text).replace(/\s+/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/gi, '$1').trim();
   return line.length > 300 ? `${line.slice(0, 300)}…` : line;
+}
+
+// The name of the other app when the one at this row's address says it is that one (Sonarr in Radarr's row, or the
+// other way round), else null. One request ahead of the list read, with the list read's limits. Only that answer
+// stops a call (arrOtherApp): an app that does not name itself, another name, an error, a redirect or no answer at
+// all leaves the call to the list, as before.
+async function otherAppAt({ baseUrl, headers }, service) {
+  try {
+    const r = await axios.get(`${baseUrl}/api/v3/system/status`, { headers, timeout: WEBHOOK_READ_TIMEOUT_MS, maxRedirects: 0 });
+    const other = arrOtherApp(service, r.data);
+    return other ? ARR_APPS[other] : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // The list read and classified. Ours in the list settles an unknown create: whatever it was, it is now there.
@@ -2380,6 +2405,8 @@ app.get('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
   const conn = connectionOf(arr);
   if (!conn) return { status: 200, body: { service, state: 'not-configured', url } };
   if (!url) return { status: 200, body: { service, state: 'needs-address', url } };
+  // The state is all that is said: which app answered follows from the service, and nothing that app sent is passed on.
+  if (await otherAppAt(conn, service)) return { status: 200, body: { service, state: 'wrong-app', url } };
   const c = await readAndClassify(conn, service, url);
   return { status: 200, body: { service, state: c.state, url, ...shownAddress(c) } };
 }, false));
@@ -2450,7 +2477,7 @@ function webhookCreateBody(service, template, url) {
 
 const webhookStateAnswer = (c, name) => {
   if (c.state === 'present') return { status: 200, body: { state: 'present', created: false } };
-  const refusal = webhookRefusal(c.state, name);
+  const refusal = webhookRefusal(c.state, name, c.other);
   return { status: refusal.status, body: { error: refusal.error, state: c.state, ...shownAddress(c) } };
 };
 
@@ -2459,6 +2486,8 @@ app.post('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
   if (!conn) return webhookStateAnswer({ state: 'not-configured' }, arr.name);
   const url = webhookTargetUrl(service);
   if (!url) return webhookStateAnswer({ state: 'needs-address' }, arr.name);
+  const other = await otherAppAt(conn, service);
+  if (other) return webhookStateAnswer({ state: 'wrong-app', other }, arr.name);
   let c = await readAndClassify(conn, service, url);
   if (c.state !== 'absent') return webhookStateAnswer(c, arr.name);
   if (Date.now() < webhookUnresolvedUntil[service]) {
@@ -2489,6 +2518,9 @@ app.delete('/api/webhook-setup/:service', webhookRoute(async (service, arr) => {
   const conn = connectionOf(arr);
   if (!conn) return webhookStateAnswer({ state: 'not-configured' }, arr.name);
   const url = webhookTargetUrl(service);
+  // A remove reads the list even with no saved address, so it asks first as well.
+  const other = await otherAppAt(conn, service);
+  if (other) return webhookStateAnswer({ state: 'wrong-app', other }, arr.name);
   const c = await readAndClassify(conn, service, url);
   if (c.state === 'unreachable' || c.state === 'key-rejected') return webhookStateAnswer(c, arr.name);
   if (c.state === 'absent' || c.state === 'name-taken') return { status: 404, body: { state: c.state, error: `There is no ArrView webhook in ${arr.name}` } };

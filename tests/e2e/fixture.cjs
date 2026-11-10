@@ -152,6 +152,8 @@ const upstream = http.createServer((req, res) => {
   // An app that names itself, as real Sonarr and Radarr do: <upstream>/as-sonarr and <upstream>/as-radarr are addresses a test can type.
   const named = url.pathname.match(/^\/as-(sonarr|radarr)\/api\/v3\/system\/status$/)
   if (named) return res.end(JSON.stringify(named[1] === 'sonarr' ? { appName: 'Sonarr', version: '4.0.20.3014' } : { appName: 'Radarr', version: '6.4.4.10685' }))
+  // Under those two addresses it also has the connection list both apps share, with nothing in it.
+  if (/^\/as-(sonarr|radarr)\/api\/v3\/notification$/.test(url.pathname)) return res.end('[]')
   res.end(JSON.stringify({ version: '4.0', caps: { server: { title: 'fixture' } } }))
 })
 upstream.listen(0, '127.0.0.1', () => {

@@ -28,8 +28,9 @@ export const WEBHOOK_TRIGGERS = {
 
 // --- Whether the webhook is set up in Sonarr or Radarr (GET /api/webhook-setup/:service) ---
 
+// wrong-app: the app at the row's address says it is the other of the two, so its connection list was not read.
 export const SETUP_STATES = ['present', 'absent', 'different-address', 'needs-address', 'not-configured', 'unreachable',
-  'key-rejected', 'name-taken', 'multiple']
+  'key-rejected', 'name-taken', 'multiple', 'wrong-app']
 
 // The server's answer in the shape the card uses, or null when it is not one (an older server's 404, a catch-all).
 export function readSetupStatus(body) {
