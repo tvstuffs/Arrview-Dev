@@ -1,5 +1,64 @@
 # ArrView server development changelog
 
+## 1.9A17 (unreleased) — Sonarr and Radarr: the Test and the status tell the two apps apart
+
+- **Version 1.9A17.** One server fix on top of 1.9A16, in `POST /api/test/sonarr`, `POST /api/test/radarr`, `GET /api/sonarr/ping` and
+  `GET /api/radarr/ping`. No route, request body, config key or file format changes. The web app's code is unchanged (it shows the
+  server's sentence, as it does for every failed Test), and `package.json` and the Dockerfile are unchanged.
+
+- **What was wrong.** Sonarr's address, port and API key typed into the Radarr row tested "Connected", with Sonarr's version beside
+  the name, and could be saved; the Movies page then said "Cannot reach Radarr". Found by the maintainer while testing 1.9A16. Sonarr
+  and Radarr share one API: each answers `/api/v3/system/status` for its own key, and that request is all the Test and the status
+  check made. The pages then ask for what only the right app has (`/api/v3/movie`, `/api/v3/series`), and the other app answers 404.
+- **The check.** Both apps name themselves in that same answer (`appName`: `Sonarr`, `Radarr`), so no extra request is needed. In
+  the Radarr row an app that says it is Sonarr is refused with "That address is Sonarr, not Radarr — check the address and port",
+  and the other way round in the Sonarr row. An answer that is not a status answer at all (a web page, a login page, JSON without
+  a version string) is refused with "That address answered, but not like Radarr — check the address and port"; until now the Test
+  counted any HTTP 200 as connected, while the status check already wanted a version. A rejected key (HTTP 401), an address
+  nothing answers on and every other failure keep their words.
+- **Only a positive mismatch is refused.** An app that does not name itself is accepted as before, and so is one that carries
+  another name on the same API, so an older version or a compatible app is not locked out. Sonarr 3.0.6 sends no `appName`;
+  Sonarr 4.0.0 and Radarr 4.0.4 do (read in their source; the versions between were not looked at). Such an older app in the wrong
+  row is still not caught.
+- **The status follows.** `GET /api/<service>/ping` makes the same check, so a saved row that points at the other app reads
+  "Can't connect" in Settings, the Modern layout shows its "Can't reach Radarr" strip on the pages that need Radarr, and the Classic
+  layout shows its pill offline, where all three said connected. The route's 503 body stays the generic one.
+- **Saving is unchanged.** `POST /api/config` still asks nothing of the apps: a row can be saved while its app is stopped, and a row
+  that points at the other app can still be saved; its status then says so. The checks of SABnzbd and NZBHydra are unchanged. The
+  ArrView apps are unchanged: they do not use the ping route, and in Connect Directly mode their own connection test reads only
+  the version, so it has the same gap.
+
+- **Tests:** server 270/270 (261 at 1.9A16), web (vitest) 550/550 (unchanged), e2e 179/179 in Microsoft Edge on macOS (178; CI
+  repeats them in real Chromium). New: `tests/service-identity.test.js`, 9 tests against local stand-ins that answer as the real
+  apps do (each app in the other's row, in any letter case; the right app with its version; an app with no name, an empty name or
+  another name, accepted in both rows; a page, a login page and JSON without a version string; a rejected key and an unanswered
+  address keeping their words; the status ping for swapped, right and unnamed apps; saving making no request; the refusal carrying
+  no address, key or detail the other app sent), and 1 e2e test at 1280 and 390 px that types the address of a stand-in that names
+  itself into the Radarr row and into the Sonarr row and presses Test, through the real server. On the 1.9A16 server 5 of the 9
+  server tests fail, and the e2e test fails with "Test passed" in the Radarr row; the 4 that pass there pin what must not change
+  (the right app, an app that does not name itself, a rejected key and an unanswered address, saving).
+- **Checked against real apps (read only):** `system/status` of a real Sonarr 4.0.20 and a real Radarr 6.4.4, each asked with its
+  own key: `appName` is `Sonarr` and `Radarr`. Sonarr answers 404 for `/api/v3/movie`, Radarr answers 404 for `/api/v3/series`, and
+  Sonarr answers 401 for Radarr's key.
+- **Checked in a browser** (Microsoft Edge driven by Playwright against the test server and a stand-in that names itself): the X on
+  the Test button, "Test failed" beside the name and the sentence under the fields, at 1280 and 390 px; it wraps on a phone and
+  does not widen the page, and the same sentence follows "Radarr test failed." in the text for screen readers. With the stand-in
+  for Sonarr saved in the Radarr row: the row says "Can't connect" while Sonarr's says Connected, the Movies page shows one "Can't
+  reach Radarr" strip and the Shows page none, and the Classic layout shows Radarr offline.
+- **Not verified:** the Test with the real apps (it needs a real key typed into the other app's row: step 1 below is the first
+  run); Sonarr 3, Radarr 3 and any compatible app that carries another name; Safari and Firefox; the Classic layout's Settings
+  page beyond the shared page component (the e2e test runs in Modern); what a screen reader says.
+- **Human test plan:**
+  1. Settings, Radarr row: type Sonarr's address, port and API key and press Test: a red X, "Test failed" and "That address is
+     Sonarr, not Radarr — check the address and port". Reload the page without saving.
+  2. The same in the Sonarr row with Radarr's address, port and key: "That address is Radarr, not Sonarr — check the address and
+     port". Reload.
+  3. Press Test in both rows as they are saved: Connected, with each app's own version.
+  4. Optional: save Sonarr's address and key in the Radarr row anyway. Within a minute the Radarr row says "Can't connect" and the
+     Movies page shows "Can't reach Radarr". Put Radarr's own address and key back and Save: Connected again, and Movies loads.
+  5. A wrong key in either row still says "HTTP 401: Unauthorized".
+  6. Roll back to the 1.9A16 image: nothing to migrate; the old Test comes back.
+
 ## 1.9A16 (unreleased) — Service addresses: an http address must name its port, an https address needs none, and SABnzbd is "Connected" only when SABnzbd answers
 
 - **Version 1.9A16.** Settings → Services: the page and the two server routes behind it. `POST /api/config` and `POST /api/test/:service`
