@@ -1,5 +1,99 @@
 # ArrView server development changelog
 
+## 1.9A18 (unreleased) — Webhooks: the status, Set up and Remove refuse a row that holds the other app
+
+- **Version 1.9A18.** One fix on top of 1.9A17, in `GET`, `POST` and `DELETE /api/webhook-setup/:service` and in the Webhooks card of
+  Settings. No route is added. `GET` gains one value of `state`, `wrong-app`, and `POST` and `DELETE` gain one refusal (409 with that
+  state). No request body, config key or file format changes, and `package.json` and the Dockerfile are unchanged.
+
+- **What was wrong.** The three routes read and change an app's connection list (`/api/v3/notification`) at the address saved for
+  the row, and never asked which app answers. Sonarr and Radarr share that API. With Sonarr's address and key saved in the Radarr
+  row, "Status in Radarr" read Sonarr's connections and said "Not set up.", Set up in Radarr added a connection named ArrView to
+  Sonarr that posts to `/api/webhooks/radarr`, and Remove looked for it in Sonarr too. Found by reading the code while 1.9A17 was
+  built. Reproduced for this version on the 1.9A17 server against a local stand-in that answers as Sonarr does: the status was
+  `absent`, the set-up answered 201 and left the connection in the stand-in with the three triggers the two apps share switched
+  on (On File Import, On File Upgrade, On Rename), and the remove deleted it there. It has not been tried against the real apps.
+- **The check.** Each of the three calls now asks the app who it is before anything else: one `GET /api/v3/system/status` with the
+  stored key, the list read's limit of 15 seconds and no redirect followed. It is the request the Test button makes, read for
+  `appName` as in 1.9A17. When the app names the other of the two, the call stops there: `GET` answers
+  `{ service, state: "wrong-app", url }`, and `POST` and `DELETE` answer 409 with that state and "The address saved for Radarr is
+  Sonarr, not Radarr. Fix Radarr's address in ArrView under Settings, Services." The connection list is not asked for, so nothing
+  is decided from it, added to it or removed from it. The question is asked once per call, after the checks that need no request
+  (an unknown service, a service that is not set up, the login, and for the status and a set-up a missing ArrView address). A
+  remove works without a saved ArrView address, so it asks even then.
+- **Only an app that names the other one is refused.** No name (Sonarr 3), an empty name, another name on the same API, an answer
+  that is not a status answer, an HTTP error, a redirect, a cut connection and no answer within the 15 seconds all leave the call
+  to the list, as before. An older or silent app in the wrong row is therefore still not caught. Here the name alone decides: an
+  answer that names the other app is refused even when it carries no version (the Test words that case "not like Radarr").
+- **The card.** The status line reads "Cannot check: the address saved for Radarr is Sonarr, not Radarr. Fix Radarr's address under
+  Services." (the other way round in Sonarr's block), with no Set up and no Remove button. A set-up or a remove that the server
+  refuses because the row changed after the page loaded shows the server's sentence under the status, and the status is read
+  again. The browser still gets only a state: which app answered follows from the row, and nothing that app sent (its version,
+  its instance name, its URL base, its connections) is passed on or logged. A page from before this version that is still open
+  or cached does not know the state and shows "Cannot check the webhook status." with no buttons.
+- **The cost.** One more request to the app per call. An address that accepts the connection and never answers now takes 30
+  seconds to read "could not be reached" where it took 15 (measured against a silent local port, for the status and for a
+  remove): the question waits its 15 seconds, then the list read waits its own. An address that refuses the connection, a
+  rejected key and an app without the route answer at once, as before. Asking for both at the same time would save that wait, at
+  the price of reading the other app's connection list before knowing whose it is.
+- **Unchanged.** Saving, the Test button and the status beside a service (1.9A17), the two receivers, `GET /api/webhooks/last`, the
+  written guide, and everything the three routes do for the right app: the same requests in the same order after the one
+  question. The ArrView apps do not use these routes.
+
+- **Tests:** server 277/277 (270 at 1.9A17), web (vitest) 553/553 (550), e2e 181/181 in Microsoft Edge on macOS (179; CI repeats
+  them in real Chromium). New: 7 tests in `tests/webhook-setup.test.js` against the in-process fakes of the apps (each app in the
+  other's row: the state, the two refusals, no request on the connection API and one question per call; the name in any letter
+  case, padded, and without a version; thirteen answers that must change nothing, each through status, set-up, status and
+  remove: the row's own app, no name, an empty name, a name that is not text, another app, a name that only contains the other
+  one's, a JSON array, a web page, a 404, a 401, a 500 whose body names the other app, a redirect that would lead to such an
+  answer and is not followed, and a cut connection; a question that is never answered, given up after the list's limit with the
+  same key and no redirects; the question once per call and ahead of the requests of 1.9A17, which follow unchanged; no question
+  where nothing may be asked; and nothing the other app says about itself or holds in its list in any answer or log line), 3 card
+  tests in `tests/web/webhook-settings.test.jsx` (the sentence for each app with no button and one request; the card taking the
+  state and nothing else from such an answer; a refused set-up and a refused remove showing the server's sentence and losing
+  their buttons), and 2 tests in `tests/e2e/webhooks.spec.cjs` through the real server, with a stand-in that names itself as
+  Sonarr saved in both rows through `POST /api/config` (the three calls for Radarr stop at three `system/status` requests and
+  nothing else reaches the stand-in; in the browser at 1280, 390 and 305 px Radarr's block shows the sentence and no button,
+  Sonarr's block says "Not set up." with Set up in Sonarr, and the page does not scroll sideways). For those two the upstream of
+  `tests/e2e/fixture.cjs` also answers an empty connection list under `/as-sonarr` and `/as-radarr`.
+- **The older tests.** The fakes answer `system/status` only in a test that sets an answer. In the 27 older tests of
+  `tests/webhook-setup.test.js` the question gets the 404 of a path the fake does not have, and all 27 pass with their assertions
+  as they were. One thing changed under them: the fakes keep the question in a list of its own, apart from the requests on the
+  connection API that those tests count.
+- **On the 1.9A17 code** (the committed tree with only the four test files replaced): all 7 server tests, all 3 card tests and
+  both e2e tests fail, and nothing else does (server 270 of 277, web 550 of 553, e2e 179 of 181). The status of the Radarr row
+  is `absent` there, and the page shows "Not set up." with Set up in Radarr.
+- **Checked in a browser** (Microsoft Edge driven by Playwright against the test server, the stand-in saved in both rows): in the
+  Modern and in the Classic layout, at 1280 and at 390 px, Radarr's block reads the sentence with no button and Sonarr's block
+  reads "Not set up." with Set up in Sonarr; the sentence is one line at 1280 px and two at 390 px, and the page does not scroll
+  sideways.
+- **Not verified:** the real apps (no real key was put in the other app's row and nothing was asked of a real server, Sonarr or
+  Radarr for this version: step 2 below is the first run); Sonarr 3, Radarr 3 and compatible apps that carry another name, which
+  are not caught by design; an app under a URL base, with its own login on or behind a reverse proxy that treats
+  `system/status` and the connection API differently; an app reached over HTTPS; ArrView's login on, in a browser (a server test
+  only); how long a real address that is down takes (only a silent local port was timed); Safari and Firefox; what a screen
+  reader says (the sentence is in the same polite live region as the other states); the Classic layout beyond those two
+  looks; the published image.
+- **Human test plan** (on a real install after the upgrade, with both apps saved and an ArrView address saved under Webhooks):
+  1. Settings, Webhooks, before anything is changed: "Status in Sonarr" and "Status in Radarr" read what they read before the
+     upgrade ("Set up." with a Remove button where ArrView's webhook exists, "Not set up." with a Set up button where it does
+     not), within a second or two.
+  2. Settings, Services, Radarr row: type Sonarr's address, port and API key. Test says "That address is Sonarr, not Radarr —
+     check the address and port" (1.9A17). Press Save anyway and open Settings again. "Status in Radarr" reads "Cannot check: the
+     address saved for Radarr is Sonarr, not Radarr. Fix Radarr's address under Services." and has no button under it. "Status in
+     Sonarr" reads what it read in step 1. In Sonarr (Settings, Connect) the connections are as they were. (On 1.9A17 this
+     status read Sonarr's list as Radarr's: "Not set up." with Set up in Radarr, or, when Sonarr already holds a connection
+     named ArrView, "Cannot set up: a connection named ArrView already exists in Radarr.")
+  3. Put Radarr's own address, port and key back and Save. "Status in Radarr" reads what it read in step 1, with its button.
+  4. Optional, the other way round: Radarr's address, port and key in the Sonarr row and Save: "Cannot check: the address saved
+     for Sonarr is Radarr, not Sonarr. Fix Sonarr's address under Services." and no button. Put Sonarr's own back and Save.
+  5. The right app still works: where a status reads "Set up.", press Remove from Radarr, then Remove in the question: "Not set
+     up." Press Set up in Radarr, then Add: "Set up." and "ArrView received Radarr's test message." Radarr (Settings, Connect)
+     holds one connection named ArrView again, with its six triggers.
+  6. Optional: stop Radarr for a minute. "Status in Radarr" reads "Cannot check: Radarr could not be reached." as before; with the
+     app stopped and its machine up, at once. Start it again.
+  7. Roll back to the 1.9A17 image: nothing to migrate, because nothing new is stored; the old status comes back.
+
 ## 1.9A17 (unreleased) — Sonarr and Radarr: the Test and the status tell the two apps apart
 
 - **Version 1.9A17.** One server fix on top of 1.9A16, in `POST /api/test/sonarr`, `POST /api/test/radarr`, `GET /api/sonarr/ping` and
