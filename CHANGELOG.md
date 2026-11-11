@@ -1,5 +1,79 @@
 # ArrView server development changelog
 
+## 1.9A19 (unreleased) — Shows: a season can be monitored, and a wholly wanted season is searched as a season
+
+- **Version 1.9A19.** One feature on top of 1.9A18, from the maintainer's test of the show page: a new route,
+  `PUT /api/sonarr/series/:id/season/:season`, a new `seasonMonitor` capability in `GET /api/arrview/identify` (before `auth`, which
+  stays last), a Monitored control on every season in both layouts, and a change in how a season's search is sent. No existing
+  route, request, config key or file format changes, and `package.json` and the Dockerfile are unchanged.
+
+- **What was missing.** Since 1.9A10 a season's "Search N Missing" counts and searches only the aired episodes without a file that
+  are not unmonitored. A season whose missing episodes are all unmonitored therefore has no search, one with nine monitored and nine
+  unmonitored missing episodes says 9 while 18 are missing, and ArrView had no way to monitor a season, so such a season could only
+  be fetched one episode at a time. In Sonarr the season's bookmark monitors it and its search then takes the season.
+- **Monitor season.** Every season has a button beside its search: "Monitor season" (an outlined bookmark) until the season's own
+  flag is set and every episode of it is monitored, and "Monitored" (a filled bookmark) from then on. A press on the first monitors
+  the season and every episode in it, future ones included; a press on the second unmonitors them. Modern: in the season bar of the
+  show page, for the season picked in the dropdown. Classic: in each season's header of the opened show. No confirmation is asked:
+  nothing is deleted and a second press undoes it. As with Sonarr's own bookmark, a monitored season is one Sonarr fetches new
+  releases for by itself.
+- **The count says what it leaves out.** Beside "N of M episodes" a season now says "· 9 missing are unmonitored" (Classic: "· 9
+  missing unmonitored") when aired episodes without a file are left out of its search because they are unmonitored.
+- **The route.** `PUT /api/sonarr/series/:id/season/:season` with `{ "monitored": true }` or `false`. It reads the series, changes
+  that season's flag in a series update that keeps every other field (as `PUT /api/sonarr/series/:id` does), then reads the season's
+  episodes and sets those whose flag still differs through Sonarr's episode monitor route. Sonarr itself moves a season's episodes
+  with its flag, but only when the flag changes, so the second step is what completes a season whose flag was already set while some
+  of its episodes had been unmonitored one by one. It answers `{ "success": true, "monitored": ... }`; 400 for an id or a season that
+  is not a number or a `monitored` that is not a boolean, before Sonarr is asked; 404 "Season N not found"; otherwise Sonarr's own
+  status and message. When the flag was set and the episode step failed, the message says so ("Season 2 was set to monitored, but
+  not all of its episodes: ..."), and the page reads the season again whatever the outcome. It is behind the login like every route.
+- **A wholly wanted season is searched as a season.** When every aired episode of a season is wanted (missing and not unmonitored)
+  and there is more than one, the season's button now sends Sonarr's own season search (`SeasonSearch` with the series and the season
+  number): one search that can take a season pack. Until now it always sent `EpisodeSearch` with the episode ids, which Sonarr runs
+  as one search per episode, and a single-episode search refuses a full-season release, so a pack, the usual form of an older season,
+  could never be taken. For any other season (something already on disk, or a missing episode left unmonitored) the wanted episodes
+  are still searched one by one, so nothing that is already on disk is fetched again. The button, its count and its toast are
+  unchanged.
+- **What Sonarr does was read in its source** (tag `v4.0.20.3014`): the season flag and its episodes (`SeriesService.UpdateSeries`),
+  one search per id for `EpisodeSearch`, the refusal of a full-season release in a single-episode search, and the season search
+  refusing a release that holds an unmonitored episode.
+- **The ArrView apps are unchanged.** Their per-season search still sends the episode ids and they have no season monitoring;
+  `seasonMonitor` is the capability to look for.
+
+- **Tests:** server 288/288 (277 at 1.9A18), web (vitest) 564/564 (553), e2e 182/182 in Microsoft Edge on
+  macOS (181; CI repeats them in real Chromium). New: `tests/season-monitor.test.js`, 11 tests against a stand-in for Sonarr
+  that moves the episodes with the flag as Sonarr does (the series update keeping every other field; a season whose flag is already
+  set; unmonitoring; a Sonarr that leaves the episodes alone; an episode list that ignores the season; nothing to do; the refusals
+  before Sonarr is asked; an unknown season; Sonarr's own refusals and the wording of a half-done change; no Sonarr set up; the
+  capability); 3 tests of the helpers, 7 of the Modern show page and 1 of the Classic card; and 1 e2e test in both layouts at 1280
+  and 390 px. On the previous code all 11 server tests fail, 10 of the 11 page tests fail (the one that passes pins the search by
+  id for a season that is not wholly wanted) and the e2e test fails. The capability lists in three tests gained `seasonMonitor`, and
+  the e2e test of the show page's focus order names the new control.
+- **Checked in a browser** (Microsoft Edge driven by Playwright; the series and its episodes answered by the script: 18 aired
+  episodes without a file, nine of them monitored): "0 of 18 episodes · 9 missing are unmonitored", "Monitor season" and "Search 9
+  Missing"; after a press "Monitored" and "Search 18 Missing"; after another, "Monitor season" alone with "18 missing are
+  unmonitored". One row at 1280 px, wrapped at 390 px with 44 px buttons, no sideways scroll, and the Classic header likewise.
+- **Not verified:** a real Sonarr (the route ran against a stand-in that behaves as the source reads; no season was changed on a
+  real install and no season search was sent to one), so whether a season pack is then taken is unseen, and it also depends on the
+  indexers; Sonarr 3; anime and daily series, for which Sonarr's season search takes its own paths; Safari and Firefox; a phone; a
+  screen reader.
+- **Human test plan:**
+  1. A show with a season nobody monitors and nothing on disk (an old season): the season says "0 of N episodes · N missing are
+     unmonitored", has no Search button and offers "Monitor season". Press it: the toast says "Season N is monitored in Sonarr",
+     the button reads "Monitored", the note goes and "Search N Missing" appears. In Sonarr the season's bookmark is filled, and so
+     are its episodes'.
+  2. Press "Search N Missing" on that season: Sonarr runs one season search for it (not one search per episode), and if an indexer
+     has the season as a pack, one download for the whole season appears on Downloads ("S<n> · Episodes 1–N").
+  3. A season with some episodes on disk and some missing: its button still starts one search per missing episode.
+  4. A season that says, for example, "Search 9 Missing" with "9 missing are unmonitored": press "Monitor season": the count
+     becomes 18.
+  5. Press "Monitored" on a season you do not want: the toast says it is no longer monitored, its Search button goes and the note
+     counts its missing episodes again. In Sonarr that season and its episodes are unmonitored and the other seasons are as they
+     were.
+  6. Classic layout: open a show; each season's header has the same button and note, and they act the same.
+  7. On a phone the buttons wrap under the season's name and nothing scrolls sideways.
+  8. Roll back to the 1.9A18 image: nothing to migrate; the buttons go, and what was monitored in Sonarr stays as it is.
+
 ## 1.9A18 (unreleased) — Webhooks: the status, Set up and Remove refuse a row that holds the other app
 
 - **Version 1.9A18.** One fix on top of 1.9A17, in `GET`, `POST` and `DELETE /api/webhook-setup/:service` and in the Webhooks card of
