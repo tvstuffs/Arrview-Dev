@@ -1,5 +1,78 @@
 # ArrView server development changelog
 
+## 1.9A20 (unreleased) — Shows: every season of a show can be monitored in one press
+
+- **Version 1.9A20.** One feature on top of 1.9A19, from the maintainer's wish after trying the per-season control: on a show of many
+  seasons, one press monitors every season. A new route, `PUT /api/sonarr/series/:id/seasons`, and a control in both layouts. No
+  existing route, request, config key or file format changes, and `package.json` and the Dockerfile are unchanged. The capability
+  `seasonMonitor` that 1.9A19 added now stands for both season routes (the two versions are published together, so no server
+  advertises it for one route only).
+
+- **What was missing.** Since 1.9A19 a season can be monitored, but one press per season. A long-running show has thirty seasons, and
+  Sonarr's own Season Pass does it in one.
+- **The control.** On a show with more than one season: "Monitor all seasons" (an outlined bookmark), in the heading of the Episodes
+  section in the Modern layout and above the seasons in Classic. It reads "All seasons monitored" (a filled bookmark) when the show
+  itself is monitored and every season and every episode in them is, and a press on it unmonitors them all. No confirmation is
+  asked: nothing is deleted, and a second press undoes it (the choices made season by season before are not remembered). The toast
+  says "All seasons are monitored in Sonarr" or "All seasons are no longer monitored in Sonarr". A show with one season has no such
+  control, because the season's own does the same, and the picked season's control and its counts follow what was done.
+- **The route.** `PUT /api/sonarr/series/:id/seasons` with `{ "monitored": true }` or `false`. It reads the series, makes one update
+  that keeps every other field and sets the flag of every season whose flag differs, reads the episodes of the series once, and sets
+  the ones whose flag still differs in one call (Sonarr moves a season's episodes along with its flag only when the flag changes, so
+  a monitored season with episodes unmonitored one by one is completed by this step). That is at most four requests to Sonarr
+  whatever the number of seasons. It answers `{ "success": true, "monitored": ..., "seasons": N }`; 400 for an id that is not a
+  number or a `monitored` that is not a boolean, before Sonarr is asked; 404 "No seasons found" for a series with no season but 0;
+  otherwise Sonarr's own status and message. When the flags were set and the episode step failed, the message says so ("The seasons
+  were set to monitored, but not all of their episodes: ..."), and the page reads the show again whatever the outcome. It is behind
+  the login like every route.
+- **What it leaves alone.** Season 0, the specials: its flag and its episodes stay as they are, as Sonarr's own "All Episodes"
+  leaves them, and neither layout shows the specials. Monitoring also turns the show's own flag on when it is off, in the same
+  update, because Sonarr grabs nothing for a series that is not monitored; unmonitoring leaves that flag as it was (a monitored
+  show with nothing monitored is how Sonarr keeps following a show). The one-season route of 1.9A19 does not touch the show's flag
+  and is unchanged.
+- **Checked against a real Sonarr** (4.0.20.3014 in a container, with a show added with nothing monitored: 29 main seasons, 337
+  episodes and 35 specials; every figure below was read from Sonarr itself): one press monitored all 29 seasons and all 337 episodes
+  in about 40 ms and turned the show on; the same again changed nothing; unmonitoring cleared them all and left the show on; with
+  two episodes of a monitored season unmonitored by hand, monitoring completed them; a special monitored by hand stayed so through
+  both; the one-season route of 1.9A19 set one season and its 17 episodes and no other; Sonarr accepted and ran the season search
+  that ArrView sends (`SeasonSearch`; "0 reports downloaded", as no indexer was set up). The page in Edge did the same against that
+  Sonarr in both layouts at 1280 and 390 px, with no sideways scroll. The container and the scratch server were removed afterwards.
+
+- **Tests:** server 299/299 (288 at 1.9A19), web (vitest) 572/572 (564), e2e 183/183 in Microsoft Edge on macOS (182; CI repeats them in real
+  Chromium). New: `tests/season-monitor-all.test.js`, 11 tests against a stand-in for Sonarr that moves the episodes with the flag
+  as Sonarr does (every season at once with every other field kept and the specials left alone; the show's own flag turned on when
+  monitoring, alone when every season was already set, and left as it was when unmonitoring; an older Sonarr that leaves the
+  episodes alone; the number of requests not growing with 27 seasons; everything already as asked; the refusals before Sonarr is
+  asked; a series with no main season; Sonarr's own refusals and the wording of a half-done change; no Sonarr set up), 1 test of the
+  helper `showMonitoring`, 5 of the Modern show page and 2 of the Classic card, and 1 e2e test in both layouts at 1280 and 390 px.
+  On the 1.9A19 code all 11 server tests fail, 6 of the 8 page tests fail (the two that pass pin that a show with one season has no
+  such control) and the e2e test fails.
+- **Checked in a browser** (Microsoft Edge driven by Playwright; first against the test server with the route answered by the
+  script, then against the real Sonarr above): the heading of the Episodes section holds the title and the button on one line at
+  1280 and at 390 px (44 px high on a phone), the Classic control sits above the first season, nothing is clipped and nothing
+  scrolls sideways, and both layouts read "Monitor all seasons" and "All seasons monitored" as the state moves.
+- **Not verified:** a real library with its indexers (whether a season pack is then taken depends on them, as for 1.9A19); Sonarr 3;
+  anime and daily series; a show with gaps in its season list; the control with the login on, in a browser (the route sits behind
+  the same gate as the others, but no test exercises this route's gate on its own); Safari and Firefox; a phone; a screen reader; the
+  published image.
+- **Human test plan** (on a real install after the upgrade):
+  1. A show with several seasons, some of them unmonitored, in the Modern layout: the heading of the Episodes section has "Monitor
+     all seasons". Press it: the toast says "All seasons are monitored in Sonarr", the button reads "All seasons monitored", the
+     show's bookmark at the top is filled, and the control of every season picked from the dropdown reads "Monitored". In Sonarr
+     every season's bookmark is filled and every episode is monitored; the Specials are as they were.
+  2. On a season with nothing on disk, "Search N Missing" is now there: press it and Sonarr runs one search for the season (the
+     1.9A19 plan, step 2, goes further: whether a season pack arrives depends on your indexers).
+  3. Press "All seasons monitored": the toast says "All seasons are no longer monitored in Sonarr", the button reads "Monitor all
+     seasons", every season and every episode is unmonitored in Sonarr, the show's own bookmark is still filled, and the Specials
+     are as they were.
+  4. A show that is not monitored itself (its bookmark at the top is outlined): "Monitor all seasons" also fills that bookmark.
+  5. A show with a monitored season whose episodes you unmonitored one by one: the control reads "Monitor all seasons"; press it and
+     those episodes are monitored again.
+  6. A show with one season has no such control.
+  7. Classic layout: open a show with several seasons. The control is above the first season and acts the same.
+  8. On a phone the heading and the button share one line, and nothing scrolls sideways.
+  9. Roll back to the 1.9A19 image: nothing to migrate; the control goes, and what was monitored in Sonarr stays as it is.
+
 ## 1.9A19 (unreleased) — Shows: a season can be monitored, and a wholly wanted season is searched as a season
 
 - **Version 1.9A19.** One feature on top of 1.9A18, from the maintainer's test of the show page: a new route,
