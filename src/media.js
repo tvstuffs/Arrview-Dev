@@ -99,6 +99,22 @@ export function seasonMonitoring(season, episodes) {
   return !flag && monitored === 0 ? 'off' : 'mixed'
 }
 
+// The monitoring of all of a show's main seasons as the show-level control shows it (season 0, the specials, is not one of them).
+// 'on': the show itself is monitored and every main season is 'on' (seasonMonitoring). 'off': no main season is monitored and no
+// episode in one. 'mixed': anything between, a show that is not monitored itself included, because Sonarr grabs nothing for it. A
+// show without the flag counts as monitored, like a season or an episode. A season is judged by the seasons the show carries, so
+// one with no episodes yet counts by its flag.
+export function showMonitoring(show, episodes) {
+  const bySeason = new Map()
+  for (const ep of episodes) {
+    if (!bySeason.has(ep.seasonNumber)) bySeason.set(ep.seasonNumber, [])
+    bySeason.get(ep.seasonNumber).push(ep)
+  }
+  const states = (show.seasons || []).filter(season => season.seasonNumber > 0).map(season => seasonMonitoring(season, bySeason.get(season.seasonNumber) || []))
+  if (show.monitored !== false && states.length > 0 && states.every(state => state === 'on')) return 'on'
+  return states.every(state => state === 'off') ? 'off' : 'mixed'
+}
+
 // How a season's search is sent to Sonarr. When every aired episode of the season is wanted (missing and not unmonitored) and
 // there is more than one, it is Sonarr's own season search: one search that can take a season pack. A search by episode never
 // can, because Sonarr refuses a full-season release in a single-episode search, and a pack is how an older season is usually

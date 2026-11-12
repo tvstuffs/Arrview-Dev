@@ -76,6 +76,7 @@ The **Webhooks** card in Settings, which can add ArrView's webhook to Sonarr and
 - Expandable show detail: all seasons → all episodes with download status
 - Per-season and per-episode search buttons for granular control. A season's **Search N Missing** counts the aired episodes without a file that are monitored, and says how many missing ones it leaves out as unmonitored
 - **Monitor season** on every season: it monitors the season and every episode in it in Sonarr, as Sonarr's own season bookmark does, and reads **Monitored** once the whole season is (a press then unmonitors it)
+- **Monitor all seasons** on a show with more than one season (in the Episodes heading in the Modern layout, above the seasons in Classic): one press monitors every season and every episode in them, and the show itself if it was not monitored, because Sonarr grabs nothing for an unmonitored show. Season 0, the specials, is left as it is, as Sonarr's own "All Episodes" leaves it. It reads **All seasons monitored** once everything is, and a press then unmonitors every season and leaves the show's own setting as it was
 - When every aired episode of a season is wanted, the season is searched with Sonarr's own season search, so a season pack can be taken; otherwise the wanted episodes are searched one by one
 - Filter by: All / Has Missing / Continuing / Ended
 - Sort by: A–Z / Most Missing / Newest First
@@ -934,6 +935,7 @@ strings in `GET /api/arrview/identify`.
 | `GET /api/sonarr/series/:id/episodes` (adds `includeImages=true`) | `episodeStills` |
 | `GET /api/sonarr/calendar` (adds `includeEpisodeImages=true`) | `calendarStills` |
 | `GET /api/radarr/calendar?start&end` | `radarrCalendar` |
+| `PUT /api/sonarr/series/:id/season/:season` and `PUT /api/sonarr/series/:id/seasons`, body `{ "monitored": true }` or `false`: one season, or every season except season 0, with their episodes | `seasonMonitor` |
 
 ### Queue: `GET /api/sonarr/queue`, `GET /api/radarr/queue`
 

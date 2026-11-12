@@ -93,6 +93,45 @@ test('Classic: a season can be monitored from its header, and a wholly wanted se
   expect(JSON.parse(calls.find(c => c.url === '/api/sonarr/command').init.body)).toEqual({ name: 'SeasonSearch', seriesId: 1, seasonNumber: 1 })
 })
 
+test('Classic: a show with several seasons has one control above its seasons that monitors them all', async () => {
+  const day = n => new Date(Date.now() + n * 86400000).toISOString()
+  const two = { ...show(1, 'Delta Show', 6, 0, 0), seasons: [1, 2].map(seasonNumber => ({ seasonNumber, monitored: false, statistics: { totalEpisodeCount: 3, episodeFileCount: 0, episodeCount: 0 } })) }
+  let flag = false
+  let eps = [1, 2].flatMap(sn => [1, 2, 3].map(n => ({ id: sn * 10 + n, seasonNumber: sn, episodeNumber: n, title: `S${sn}E${n}`, hasFile: false, monitored: false, airDateUtc: day(-10 * n) })))
+  const calls = []
+  vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+    calls.push({ url: String(url), init })
+    if (String(url) === '/api/sonarr/series/1/seasons') { flag = JSON.parse(init.body).monitored; eps = eps.map(ep => ({ ...ep, monitored: flag })); return reply({ success: true, monitored: flag, seasons: 2 }) }
+    if (String(url) === '/api/sonarr/series/1/episodes') return reply(eps)
+    return String(url).startsWith('/api/sonarr/series') ? reply([{ ...two, seasons: two.seasons.map(season => ({ ...season, monitored: flag })) }, ...series.slice(1)]) : reply({ id: 5 })
+  }))
+  const toast = vi.fn()
+  render(<ShowsTab onToast={toast} sonarrUrl="http://sonarr.invalid" onUpcoming={() => {}} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Episodes for Delta Show' }))
+  const all = await screen.findByRole('button', { name: 'Monitor all seasons of Delta Show' })
+  expect(all).toHaveTextContent('Monitor all seasons')
+  // Above the first season, not in a season's header.
+  expect(all.closest('.show-seasons-head')).not.toBeNull()
+  expect(all.closest('.season-header')).toBeNull()
+  fireEvent.click(all)
+  await waitFor(() => expect(calls.some(c => c.url === '/api/sonarr/series/1/seasons' && c.init?.method === 'PUT')).toBe(true))
+  expect(JSON.parse(calls.find(c => c.url === '/api/sonarr/series/1/seasons').init.body)).toEqual({ monitored: true })
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('All seasons are monitored in Sonarr', 'info'))
+  // The show and its episodes are read again: the control and both seasons read Monitored.
+  expect(await screen.findByRole('button', { name: 'All seasons monitored for Delta Show. Press to unmonitor them' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Monitored, Season 1. Press to unmonitor' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Monitored, Season 2. Press to unmonitor' })).toBeInTheDocument()
+})
+
+test('Classic: a show with one season has no all-seasons control', async () => {
+  const eps = [1, 2].map(n => ({ id: n, seasonNumber: 1, episodeNumber: n, title: `E${n}`, hasFile: true, monitored: true, airDateUtc: '2020-01-01T00:00:00Z' }))
+  vi.stubGlobal('fetch', vi.fn(async url => String(url) === '/api/sonarr/series/1/episodes' ? reply(eps) : String(url).startsWith('/api/sonarr/series') ? reply(series) : reply({})))
+  render(<ShowsTab onToast={() => {}} sonarrUrl="http://sonarr.invalid" onUpcoming={() => {}} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Episodes for Delta Show' }))
+  expect(await screen.findByRole('button', { name: 'Monitored, Season 1. Press to unmonitor' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /all seasons/i })).toBeNull()
+})
+
 test('Classic: Has Missing and Most Missing count what Sonarr wants', async () => {
   render(<ShowsTab onToast={() => {}} sonarrUrl="http://sonarr.invalid" onUpcoming={() => {}} />)
   await screen.findByRole('button', { name: 'Episodes for Delta Show' })

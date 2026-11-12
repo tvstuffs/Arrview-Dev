@@ -1,4 +1,4 @@
-import { Poster, MonitorToggle, SeasonMonitorButton } from './MediaControls'
+import { Poster, MonitorToggle, SeasonMonitorButton, SeasonsMonitorButton } from './MediaControls'
 import Icon from './Icon.jsx'
 import { useState, useCallback, useEffect } from 'react'
 import './ShowsTab.css'
@@ -6,7 +6,7 @@ import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from './Medi
 import { useMediaActions } from '../hooks/useMediaActions'
 import { usePreference, textPreference, oneOf, idList } from '../hooks/usePreference'
 import { useServerEvents, useVisiblePolling } from '../hooks/lifecycle'
-import { mainSeasonCounts, completenessTone, seasonMonitoring, seasonSearchPlan, unmonitoredMissing } from '../media'
+import { mainSeasonCounts, completenessTone, seasonMonitoring, seasonSearchPlan, showMonitoring, unmonitoredMissing } from '../media'
 import { apiFetch } from '../api'
 import AddMediaModal from './AddMediaModal.jsx'
 import EpisodeSearchModal from './EpisodeSearchModal.jsx'
@@ -210,8 +210,14 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
             </div>
           ) : seasons.length === 0 ? (
             <div className="text-muted text-sm">No episodes found</div>
-          ) : (
-            seasons.map(sn => {
+          ) : (<>
+            {seasons.length > 1 && (
+              <div className="show-seasons-head">
+                <SeasonsMonitorButton show={show} state={showMonitoring(show, episodes)} size="xs" onToast={onToast}
+                  onChanged={async () => { await fetchEpisodes(); await onRemoved() }} />
+              </div>
+            )}
+            {seasons.map(sn => {
               const eps = seasonMap[sn]
               const dlCount = eps.filter(e => e.hasFile).length
               const search = seasonSearchPlan(eps)
@@ -260,8 +266,8 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
                   ))}
                 </div>
               )
-            })
-          )}
+            })}
+          </>)}
         </div>
       )}
     </div>

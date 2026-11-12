@@ -92,6 +92,7 @@
   cursor: default;
 }
 
+.show-seasons-head { display: flex; align-items: center; }
 .season-block { display: flex; flex-direction: column; gap: 2px; }
 .season-header {
   display: flex;

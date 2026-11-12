@@ -49,6 +49,29 @@ export function SeasonMonitorButton({ show, season, state, onChanged, onToast, s
     {pending ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <Icon name="bookmark-simple" weight={on ? 'fill' : 'regular'} />} {on ? 'Monitored' : 'Monitor season'}
   </button>
 }
+// The control for every main season of a show. `state` is showMonitoring's answer: when the show and all of its seasons are monitored
+// it reads "All seasons monitored" and a press unmonitors them all; otherwise it reads "Monitor all seasons" and a press monitors every
+// season and every episode in them, and the show itself. The server sets it all in Sonarr in one go. The page is read again whatever
+// the outcome, because a change that failed half way has still changed Sonarr.
+export function SeasonsMonitorButton({ show, state, onChanged, onToast, size = 'sm' }) {
+  const [pending, setPending] = useState(false)
+  const on = state === 'on'
+  async function toggle() {
+    setPending(true)
+    try {
+      await checkedFetch(`/api/sonarr/series/${show.id}/seasons`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monitored: !on }),
+      })
+      onToast(on ? 'All seasons are no longer monitored in Sonarr' : 'All seasons are monitored in Sonarr', 'info')
+    } catch (e) { onToast(`Monitoring failed: ${e.message}`, 'error') }
+    try { await onChanged() } finally { setPending(false) }
+  }
+  return <button className={`btn btn-secondary btn-${size} seasons-monitor`} disabled={pending} aria-busy={pending || undefined} onClick={toggle}
+    aria-label={on ? `All seasons monitored for ${show.title}. Press to unmonitor them` : `Monitor all seasons of ${show.title}`}
+    title={on ? 'Every season is monitored. Press to unmonitor them all' : 'Monitor every episode of every season'}>
+    {pending ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <Icon name="bookmark-simple" weight={on ? 'fill' : 'regular'} />} {on ? 'All seasons monitored' : 'Monitor all seasons'}
+  </button>
+}
 export function supportsMovieRemoval(identity) {
   if (identity?.capabilities?.includes('movieDelete')) return true
   const parts = /^(\d+)\.(\d+)(?:\.(\d+))?$/.exec(identity?.version || '')

@@ -312,6 +312,56 @@ test('season monitoring: a refused change is reported, the page is read again, a
   await waitFor(() => expect(gets(fetchMock, '/api/sonarr/series/1/episodes')).toBeGreaterThan(before))
   await waitFor(() => expect(button).not.toBeDisabled())
 })
+// The control for every season of a show: in the heading of the Episodes section, and only with two or more main seasons.
+const seasonsFlagged = flag => series.map(s => s.id === 1 ? { ...s, seasons: s.seasons.map(season => season.seasonNumber === 1 ? { ...season, monitored: flag } : season) } : s)
+test('all seasons: a show with several seasons has one control in the Episodes heading; it reads All seasons monitored and a press unmonitors them all', async () => {
+  const fetchMock = stubFetch({ '/api/sonarr/series/1/seasons': () => reply({ success: true, monitored: false, seasons: 2 }) })
+  const toast = vi.fn(); detail('1', toast)
+  const button = await screen.findByRole('button', { name: 'All seasons monitored for Alpha Show. Press to unmonitor them' })
+  expect(button).toHaveTextContent('All seasons monitored')
+  expect(button.querySelector('svg.icon')).not.toBeNull()
+  expect(button.closest('.m-seasons-head')).toContainElement(screen.getByRole('heading', { level: 2, name: 'Episodes' }))
+  expect(screen.queryByRole('button', { name: /^Monitor all seasons/ })).toBeNull()
+  const before = [gets(fetchMock, '/api/sonarr/series/1/episodes'), gets(fetchMock, '/api/sonarr/series')]
+  fireEvent.click(button)
+  await waitFor(() => expect(puts(fetchMock)).toEqual([{ url: '/api/sonarr/series/1/seasons', body: { monitored: false } }]))
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('All seasons are no longer monitored in Sonarr', 'info'))
+  // The episodes carry the new flags and the show its new counts, so both are read again.
+  await waitFor(() => expect(gets(fetchMock, '/api/sonarr/series/1/episodes')).toBeGreaterThan(before[0]))
+  expect(gets(fetchMock, '/api/sonarr/series')).toBeGreaterThan(before[1])
+})
+test('all seasons: with a season that is not monitored the control reads Monitor all seasons, and a press monitors them all', async () => {
+  const fetchMock = stubFetch({ '/api/sonarr/series/1/seasons': () => reply({ success: true, monitored: true, seasons: 2 }) }, { series: seasonsFlagged(false) })
+  const toast = vi.fn(); detail('1', toast)
+  const button = await screen.findByRole('button', { name: 'Monitor all seasons of Alpha Show' })
+  expect(button).toHaveTextContent('Monitor all seasons')
+  expect(screen.queryByRole('button', { name: /^All seasons monitored/ })).toBeNull()
+  // The picked season's own control is separate and keeps its own state.
+  expect(screen.getByRole('button', { name: 'Monitored, Season 2. Press to unmonitor' })).toBeInTheDocument()
+  fireEvent.click(button)
+  await waitFor(() => expect(puts(fetchMock)).toEqual([{ url: '/api/sonarr/series/1/seasons', body: { monitored: true } }]))
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('All seasons are monitored in Sonarr', 'info'))
+})
+test('all seasons: an unmonitored show reads Monitor all seasons even when every season is on, because Sonarr grabs nothing for it', async () => {
+  stubFetch({}, { series: series.map(s => s.id === 1 ? { ...s, monitored: false } : s) }); detail()
+  expect(await screen.findByRole('button', { name: 'Monitor all seasons of Alpha Show' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Monitored, Season 2. Press to unmonitor' })).toBeInTheDocument()
+})
+test('all seasons: no control for a show with one main season', async () => {
+  stubFetch({}, { episodes: episodes.filter(ep => ep.seasonNumber === 1) }); detail('1')
+  expect(await screen.findByRole('button', { name: 'Monitored, Season 1. Press to unmonitor' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /all seasons/i })).toBeNull()
+})
+test('all seasons: a refused change is reported, the page is read again, and the button works again', async () => {
+  const fetchMock = stubFetch({ '/api/sonarr/series/1/seasons': () => reply({ error: 'The seasons were set to unmonitored, but not all of their episodes: database is locked' }, false) })
+  const toast = vi.fn(); detail('1', toast)
+  const button = await screen.findByRole('button', { name: 'All seasons monitored for Alpha Show. Press to unmonitor them' })
+  const before = gets(fetchMock, '/api/sonarr/series/1/episodes')
+  fireEvent.click(button)
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('Monitoring failed: The seasons were set to unmonitored, but not all of their episodes: database is locked', 'error'))
+  await waitFor(() => expect(gets(fetchMock, '/api/sonarr/series/1/episodes')).toBeGreaterThan(before))
+  await waitFor(() => expect(button).not.toBeDisabled())
+})
 test('season search: when every aired episode of the season is wanted, it is Sonarr\'s season search, which can take a season pack', async () => {
   const wanted = episodes.map(ep => ep.id === 201 ? { ...ep, hasFile: false, episodeFileId: undefined } : ep)
   const fetchMock = stubFetch({ '/api/sonarr/command': () => reply({ id: 8 }) }, { episodes: wanted }); const toast = vi.fn(); detail('1', toast)

@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { mainSeasonCounts, isMovieMissing, getMovieStatus, MOVIE_STATUS, nextRelease, releaseLabel, movieFileLine, artUrl, episodeState, wantedMissing, completenessTone,
-  seasonMonitoring, unmonitoredMissing, seasonSearchPlan } from '../../src/media'
+  seasonMonitoring, showMonitoring, unmonitoredMissing, seasonSearchPlan } from '../../src/media'
 
 const NOW = Date.parse('2026-10-17T12:00:00Z')
 const TMDB = 'https://image.tmdb.org/t/p/original/abc.jpg'
@@ -93,6 +93,28 @@ test('seasonMonitoring: on when the season and every episode are monitored, off 
   // No episodes yet: the season's own flag decides.
   expect(seasonMonitoring({ monitored: true }, [])).toBe('on')
   expect(seasonMonitoring({ monitored: false }, [])).toBe('off')
+})
+test('showMonitoring: on when the show is monitored and every main season is on, off when none is, mixed between; the specials do not count', () => {
+  const season = (seasonNumber, monitored) => (monitored === undefined ? { seasonNumber } : { seasonNumber, monitored })
+  const eps = (seasonNumber, ...flags) => flags.map((monitored, index) => ({ id: seasonNumber * 100 + index, seasonNumber, monitored }))
+  const show = (monitored, ...seasons) => ({ monitored, seasons })
+  const all = [...eps(1, true, true), ...eps(2, true)]
+  // The specials (season 0) may be anything.
+  expect(showMonitoring(show(true, season(0, false), season(1, true), season(2, true)), [...all, ...eps(0, false)])).toBe('on')
+  // A show, a season or an episode without the flag counts as monitored (Sonarr always sends it).
+  expect(showMonitoring(show(undefined, season(1), season(2)), [...eps(1, undefined), ...eps(2, undefined, true)])).toBe('on')
+  expect(showMonitoring(show(true, season(1, false), season(2, false)), [...eps(1, false, false), ...eps(2, false)])).toBe('off')
+  // Everything is on except the show itself: Sonarr grabs nothing for an unmonitored show, so it is not "on".
+  expect(showMonitoring(show(false, season(1, true), season(2, true)), all)).toBe('mixed')
+  // One season off, and an episode unmonitored in a monitored season.
+  expect(showMonitoring(show(true, season(1, true), season(2, false)), [...eps(1, true, true), ...eps(2, false)])).toBe('mixed')
+  expect(showMonitoring(show(true, season(1, true), season(2, true)), [...eps(1, true, false), ...eps(2, true)])).toBe('mixed')
+  // A season with no episodes yet: its own flag decides.
+  expect(showMonitoring(show(true, season(1, true), season(2, true)), eps(1, true))).toBe('on')
+  expect(showMonitoring(show(true, season(1, true), season(2, false)), eps(1, true))).toBe('mixed')
+  // No main season at all: nothing to monitor.
+  expect(showMonitoring(show(true, season(0, true)), [])).toBe('off')
+  expect(showMonitoring({}, [])).toBe('off')
 })
 test('unmonitoredMissing: the aired episodes without a file that Search N Missing leaves out', () => {
   const eps = [

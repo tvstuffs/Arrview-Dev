@@ -1833,6 +1833,50 @@ app.put('/api/sonarr/series/:id/season/:season', async (req, res) => {
   }
 });
 
+// Every main season of a show in one press: what the route above does for one season, for all of them, in at most four requests to
+// Sonarr whatever the number of seasons (the series read, one update that sets every flag that differs, the episodes read once, and
+// one call for the episodes whose flag still differs). Season 0, the specials, is left as it is, as Sonarr's own "All Episodes"
+// leaves it. Monitoring also turns the show's own flag on when it is off, because Sonarr grabs nothing for an unmonitored series;
+// unmonitoring leaves that flag as it was.
+app.put('/api/sonarr/series/:id/seasons', async (req, res) => {
+  const { id } = req.params;
+  const monitored = req.body.monitored;
+  if (!/^\d+$/.test(id) || typeof monitored !== 'boolean')
+    return res.status(400).json({ error: 'A numeric series id and boolean monitored are required' });
+  let flagsSet = false;
+  try {
+    const { baseUrl, headers } = sonarrHeaders();
+    const base = baseUrl.replace(/\/+$/, '');
+    const url = `${base}/api/v3/series/${id}`;
+    const current = await axios.get(url, { headers, timeout: 15000 });
+    const seasons = Array.isArray(current.data?.seasons) ? current.data.seasons : [];
+    const main = seasons.filter(s => s && Number.isSafeInteger(s.seasonNumber) && s.seasonNumber > 0);
+    if (!main.length) return res.status(404).json({ error: 'No seasons found' });
+    const showOff = monitored && current.data.monitored !== true;
+    if (showOff || main.some(s => s.monitored !== monitored)) {
+      await axios.put(url, {
+        ...current.data,
+        ...(showOff ? { monitored: true } : {}),
+        seasons: seasons.map(s => (main.includes(s) && s.monitored !== monitored ? { ...s, monitored } : s)),
+      }, { headers, timeout: 15000 });
+    }
+    flagsSet = true;
+    const list = await axios.get(`${base}/api/v3/episode`, { headers, params: { seriesId: id }, timeout: 15000 });
+    const wanted = new Set(main.map(s => s.seasonNumber));
+    const episodeIds = (Array.isArray(list.data) ? list.data : [])
+      .filter(ep => ep && wanted.has(ep.seasonNumber) && ep.monitored !== monitored && Number.isSafeInteger(ep.id)).map(ep => ep.id);
+    if (episodeIds.length) {
+      await axios.put(`${base}/api/v3/episode/monitor`, { episodeIds, monitored }, { headers: { ...headers, 'Content-Type': 'application/json' }, timeout: 15000 });
+    }
+    res.json({ success: true, monitored, seasons: main.length });
+  } catch (e) {
+    const message = e.response?.data?.message || e.message;
+    res.status(e.response?.status || 503).json({
+      error: flagsSet ? `The seasons were set to ${monitored ? 'monitored' : 'unmonitored'}, but not all of their episodes: ${message}` : message,
+    });
+  }
+});
+
 app.delete('/api/sonarr/series/:id', async (req, res) => {
   try {
     const { baseUrl, headers } = sonarrHeaders();

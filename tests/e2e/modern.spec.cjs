@@ -771,6 +771,49 @@ test('Shows: an unmonitored season can be monitored and then searched as a whole
     await context.close()
   }
 })
+test('Shows: every season of a show can be monitored in one press, in Modern and in Classic', async ({ browser, request }) => {
+  const base = (await (await request.get('/api/sonarr/series')).json())[0]
+  const day = n => new Date(Date.now() + n * 86400000).toISOString()
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+    const page = await context.newPage()
+    // A show with three seasons nobody monitors. The stand-in for the server does what the real route does in Sonarr: the flag of
+    // every season and every episode in them.
+    let monitored = false
+    const sent = []
+    const show = () => ({ ...base, images: [], seasons: [1, 2, 3].map(seasonNumber => ({ seasonNumber, monitored, statistics: { totalEpisodeCount: 2, episodeFileCount: 0, episodeCount: monitored ? 2 : 0 } })) })
+    const episodes = () => [1, 2, 3].flatMap(sn => [1, 2].map(n => ({ id: sn * 100 + n, seriesId: base.id, seasonNumber: sn, episodeNumber: n, title: `Seasons fixture episode ${sn}.${n}`, hasFile: false, monitored, airDateUtc: day(-10 * n) })))
+    await page.route('**/api/sonarr/series', route => route.fulfill({ json: [show()] }))
+    await page.route(`**/api/sonarr/series/${base.id}/episodes`, route => route.fulfill({ json: episodes() }))
+    await page.route(`**/api/sonarr/series/${base.id}/seasons`, route => {
+      sent.push({ method: route.request().method(), body: route.request().postDataJSON() })
+      monitored = route.request().postDataJSON().monitored
+      return route.fulfill({ json: { success: true, monitored, seasons: 3 } })
+    })
+
+    await open(page, `/shows/${base.id}`)
+    const head = page.locator('.m-seasons-head')
+    await expect(head.getByRole('heading', { name: 'Episodes' })).toBeVisible()
+    expect(await fits(page), `the Episodes heading fits at ${width} px`).toBe(true)
+    await head.getByRole('button', { name: `Monitor all seasons of ${base.title}` }).click()
+    await expect(head.getByRole('button', { name: `All seasons monitored for ${base.title}. Press to unmonitor them` })).toBeVisible()
+    expect(sent).toEqual([{ method: 'PUT', body: { monitored: true } }])
+    // The picked season's own control follows what was done to every season.
+    await expect(page.locator('.m-season-bar').getByRole('button', { name: /^Monitored, Season \d\. Press to unmonitor$/ })).toBeVisible()
+    expect(await fits(page), `the Episodes heading fits at ${width} px once monitored`).toBe(true)
+
+    // Classic: the control above the seasons, here used to unmonitor them all again.
+    await page.evaluate(() => { localStorage.setItem('arrview.ui.v1.layout', '"classic"'); localStorage.setItem('arrview.ui.v1.tab', '"shows"') })
+    await page.goto('/')
+    await page.getByRole('button', { name: `Episodes for ${base.title}` }).click()
+    const classicHead = page.locator('.show-seasons-head')
+    await classicHead.getByRole('button', { name: `All seasons monitored for ${base.title}. Press to unmonitor them` }).click()
+    await expect(classicHead.getByRole('button', { name: `Monitor all seasons of ${base.title}` })).toBeVisible()
+    expect(sent.at(-1)).toEqual({ method: 'PUT', body: { monitored: false } })
+    expect(await fits(page), `the Classic control fits at ${width} px`).toBe(true)
+    await context.close()
+  }
+})
 test('Shows: the bar, the caption and the missing count follow what Sonarr wants, in Modern and in Classic', async ({ page, request }) => {
   const OK = 'rgb(126, 226, 160)', DANGER = 'rgb(255, 107, 107)'
   const base = (await (await request.get('/api/sonarr/series')).json())[0]
