@@ -3,6 +3,7 @@ import Icon from '../Icon.jsx'
 import ConfirmSheet from '../ConfirmSheet.jsx'
 import ArtImage from './ArtImage.jsx'
 import PageHeader, { SettingsLink } from './PageHeader.jsx'
+import { useScreen } from './ScreenContext.js'
 import { DownloadBar } from './DownloadStatus.jsx'
 import { useLibraryOnce } from './LibraryProvider.jsx'
 import useUpcoming from '../../hooks/useUpcoming'
@@ -54,7 +55,7 @@ function HeroShell({ art, category, children }) {
   return <section className={`m-dl-hero is-${variant}`}>
     {variant !== 'glyph' && <ArtImage ambient srcs={variant === 'fanart' ? [art.fanart, art.poster] : [art.poster]} />}
     <div className="m-dl-hero-body">{children}</div>
-    {variant === 'fanart' && <div className="m-hero-art"><ArtImage srcs={[art.fanart, art.poster]} className="m-art-hero" width="1280" height="720" eager icon={category.icon} /></div>}
+    {variant === 'fanart' && <div className="m-hero-art" data-m-backdrop=""><ArtImage srcs={[art.fanart, art.poster]} className="m-art-hero" width="1280" height="720" eager icon={category.icon} /></div>}
     {variant === 'poster' && <div className="m-dl-hero-poster"><ArtImage srcs={[art.poster]} className="m-art-poster" width="300" height="450" eager icon={category.icon} /></div>}
     {variant === 'glyph' && <div className="m-dl-hero-poster"><GlyphTile category={category} large /></div>}
   </section>
@@ -98,7 +99,7 @@ function QueueRow({ item, onPause, onResume, onRemove }) {
   const titleId = idOf('dl-row-title', item.key)
   const line = rowStatus(status, item.pct)
   const paused = status === 'paused'
-  return <li className="m-dl-row">
+  return <li className="m-dl-row" data-m-anchor={`dl-queue:${item.key}`}>
     <Thumb item={item} />
     <div className="m-dl-row-main">
       <Title item={item} id={titleId} className="m-dl-row-title" />
@@ -124,7 +125,7 @@ function QueueRow({ item, onPause, onResume, onRemove }) {
 function HistoryRow({ item, now }) {
   const when = relativeTime(item.completed, now)
   const failed = item.status === 'Failed'
-  return <li className="m-dl-row is-history">
+  return <li className="m-dl-row is-history" data-m-anchor={`dl-history:${item.key}`}>
     <Thumb item={item} />
     <div className="m-dl-row-main">
       <Title item={item} id={idOf('dl-hist-title', item.key)} className="m-dl-row-title" />
@@ -198,7 +199,8 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
     dl.refresh()
   }
 
-  const gear = phone && <div className="m-gear-row"><SettingsLink /></div>
+  const { settingsInRail } = useScreen()
+  const gear = phone && !settingsInRail && <div className="m-gear-row"><SettingsLink /></div>
   // `ready` stays latched once reached, so a page opened later also waits for its own arr answers (no unmatched flash).
   const awaitingArr = dl.slots.length > 0 && ['sonarr', 'radarr'].some(service => dl.arr[service] === 'idle' || dl.arr[service] === 'pending')
   if (!dl.ready || awaitingArr) return <div className="empty-state" role="status"><h1 className="m-sr" data-m-placeholder>Downloads</h1><span className="spinner" /><span>Loading downloads…</span></div>
@@ -229,7 +231,7 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
   return <div className="m-page m-dl">
     {!plainHeader && gear}
     {plainHeader
-      ? <><PageHeader title="Downloads" phone={phone} gear /><p className="m-meta">Nothing is downloading</p></>
+      ? <PageHeader title="Downloads" phone={phone} gear meta="Nothing is downloading" />
       : <h1 className="m-sr">Downloads</h1>}
     {active && <Hero item={active} onPause={id => post('pause', id)} onResume={id => post('resume', id)} onRemove={setRemoving} />}
     {lead && <HeroShell art={lead.art} category={lead.category}>

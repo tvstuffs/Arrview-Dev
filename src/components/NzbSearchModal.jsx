@@ -50,8 +50,9 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
     }
   }, [])
 
+  // Enter searches, then lets go of focus so the phone keyboard and its form bar go away (B4).
   function handleKeyDown(e) {
-    if (e.key === 'Enter') search(query)
+    if (e.key === 'Enter') { search(query); if (!e.nativeEvent.isComposing) e.currentTarget.blur() }
     if (e.key === 'Escape') onClose?.()
   }
 
@@ -85,6 +86,7 @@ export default function NzbSearchModal({ onClose, onToast, embedded = false, can
             aria-label="Search for something to download"
             placeholder="Search for something to download…"
             value={query}
+            enterKeyHint="search"
             autoFocus
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}

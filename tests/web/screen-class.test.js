@@ -126,6 +126,11 @@ test('no height media query decides the short layout; sheets key off <html data-
   for (const file of sources.filter(f => f.endsWith('.css'))) expect(read(file), path.relative(root, file)).not.toMatch(/max-height:\s*7\d\dpx\)/)
   expect(read(path.join(root, 'src/components/Sheet.css'))).toMatch(/html\[data-screen-height="short"\]/)
 })
+test('<html data-screen-height> is kept current from startup in both layouts, not only while Modern is mounted (note 1 item 1, criterion 29)', () => {
+  const main = read(path.join(root, 'src/main.jsx'))
+  expect(main).toMatch(/import \{ watchScreen \} from '\.\/hooks\/useScreenClass\.js'/)
+  expect(main).toMatch(/^watchScreen\(\)$/m)
+})
 test('nothing reads screen.width or screen.height (note 1 item 7); the keep-out is not hard-coded in source', () => {
   for (const file of sources) {
     expect(read(file), path.relative(root, file)).not.toMatch(/\bscreen\.(width|height|availWidth|availHeight)\b/)

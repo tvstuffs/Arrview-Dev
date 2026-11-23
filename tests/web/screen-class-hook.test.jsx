@@ -21,7 +21,7 @@ function media(query) {
   return queries.get(query)
 }
 function size(next) {
-  Object.assign(state, { large: null, insets: {}, ...next })
+  Object.assign(state, { large: null, insets: {}, coarse: false, ...next })
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: state.width })
   Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: state.height })
 }

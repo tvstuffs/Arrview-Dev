@@ -7,6 +7,7 @@ import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from '../Med
 import ArtImage from './ArtImage.jsx'
 import NotFound from './NotFound.jsx'
 import { SettingsLink } from './PageHeader.jsx'
+import { useScreen } from './ScreenContext.js'
 import { EpisodeLive } from './DownloadStatus.jsx'
 import { useSeries } from './LibraryProvider.jsx'
 import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
@@ -21,7 +22,7 @@ function EpisodeItem({ ep, fanart, live, onSearch, onInteractive, onDelete }) {
   const state = episodeState(ep)
   const date = ep.airDateUtc ? new Date(ep.airDateUtc).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : null
   const meta = [`Episode ${ep.episodeNumber}`, date, state === 'missing' && !live ? 'Missing' : state === 'upcoming' ? 'Upcoming' : null].filter(Boolean)
-  return <li className={`m-ep is-${state}`}>
+  return <li className={`m-ep is-${state}`} data-m-anchor={`episode:${ep.id}`}>
     <div className="m-still">
       <ArtImage srcs={[artUrl(ep, 'screenshot', 'still'), fanart]} className="m-art-still" width="320" height="180" icon="television-simple" />
       {ep.runtime > 0 && <span className="m-runtime">{ep.runtime}m</span>}
@@ -46,6 +47,7 @@ function EpisodeItem({ ep, fanart, live, onSearch, onInteractive, onDelete }) {
 }
 
 function ShowDetail({ show, phone, onToast, config, refresh }) {
+  const { settingsInRail, backInRail } = useScreen()
   const actions = useMediaActions(onToast)
   const downloads = useDownloads()
   const [episodes, setEpisodes] = useState(null)
@@ -94,11 +96,11 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
   return <article className="m-detail m-show">
     <ArtImage ambient srcs={[fanart, poster]} />
     <section className="m-hero">
-      <div className="m-hero-nav">
+      {!backInRail && <div className="m-hero-nav">
         <a className="m-back" href="#/shows" aria-label="Back to TV Shows"><Icon name="caret-left" /><span>TV Shows</span></a>
-        {phone && <SettingsLink className="m-iconbtn m-roundbtn" />}
-      </div>
-      <div className="m-hero-art">
+        {phone && !settingsInRail && <SettingsLink className="m-iconbtn m-roundbtn" />}
+      </div>}
+      <div className="m-hero-art" data-m-backdrop="">
         <ArtImage srcs={[fanart, poster]} className="m-art-hero" width="1280" height="720" eager icon="television-simple" />
       </div>
       <div className="m-hero-body">

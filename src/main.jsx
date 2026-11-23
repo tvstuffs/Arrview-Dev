@@ -4,6 +4,10 @@ import App from './App.jsx'
 import './index.css'
 import './responsive.css'
 import { registerSW } from 'virtual:pwa-register'
+import { watchScreen } from './hooks/useScreenClass.js'
+
+// <html data-screen-height> follows the screen class from startup, in both layouts (shared sheets key off it).
+watchScreen()
 
 // LAN HTTP remains a normal website/Home Screen shortcut. Never register a
 // worker on an insecure origin or let registration failure block the dashboard.

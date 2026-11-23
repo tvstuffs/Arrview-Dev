@@ -1,0 +1,15 @@
+{
+  "compactBelow": 640,
+  "shortBelow": 700,
+  "columnMin": 72,
+  "columnOtherMax": 20,
+  "iconsOnlyBelow": 520,
+  "statusKeepOutRatio": 0.38,
+  "statusKeepOutMin": 90,
+  "railPlacement": "inside",
+  "railAnchor": "bottom",
+  "railStyle": "ios",
+  "railWidth": 72,
+  "labelled": { "item": 56, "itemIconsOnly": 44, "gap": 2, "pad": 8 },
+  "ios": { "pitch": 48, "pad": 8, "gap": 12, "pitchTight": 44, "padTight": 6, "gapTight": 8, "pillWidth": 52, "bottomMargin": 24 }
+}

@@ -87,9 +87,9 @@ function inspect(page, { column, keepOut, first, coarse }) {
     const vw = document.documentElement.clientWidth, vh = window.innerHeight
     const shown = el => !el.checkVisibility || el.checkVisibility({ opacityProperty: true, visibilityProperty: true })
     // The part of an element's box that is not clipped by a scrolling or clipping ancestor, nor outside the viewport.
-    function visible(rect, el) {
+    function visible(rect, el, self = false) {
       let r = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
-      for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      for (let a = self ? el : el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
         const s = getComputedStyle(a)
         if (s.overflowX !== 'visible' || s.overflowY !== 'visible' || s.clip !== 'auto') {
           const b = a.getBoundingClientRect()
@@ -133,7 +133,7 @@ function inspect(page, { column, keepOut, first, coarse }) {
           const parent = node.parentElement
           if (!node.textContent.trim() || !parent || parent.closest('.m-sr, script, style, [hidden]') || !shown(parent)) continue
           const range = document.createRange(); range.selectNodeContents(node)
-          for (const r of range.getClientRects()) if (hits(visible(r, parent), top)) { out.keepOutHits.push(`text: ${node.textContent.trim().slice(0, 40)}`); break }
+          for (const r of range.getClientRects()) if (hits(visible(r, parent, true), top)) { out.keepOutHits.push(`text: ${node.textContent.trim().slice(0, 40)}`); break }
         }
       }
     }
@@ -220,7 +220,8 @@ async function checkSize(browser, size) {
   for (const p of PAGES) {
     await show(page, p)
     const keepOut = column && SC ? keepOutFor(size, { detail: Boolean(p.detail) }) : null
-    const r = await inspect(page, { column, keepOut, first: p.first, coarse: size.touch })
+    // Regular-height sizes keep the acf02d6 layout (brief rule 3), so they get the regression guard's exemptions.
+    const r = await inspect(page, { column, keepOut, first: p.first, coarse: size.touch && (short ? true : 'regression') })
     expect.soft(r.overflow, `${size.id} ${p.id}: horizontal overflow`).toBe(false)
     expect.soft(r.shell && r.shell.nav, `${size.id} ${p.id}: navigation`).toBe(size.expected.nav)
     expect.soft(r.shell && r.shell.height, `${size.id} ${p.id}: height class`).toBe(size.expected.height)
@@ -447,6 +448,7 @@ test.describe('foldables: navigation', () => {
     await page.getByRole('button', { name: 'Search Missing' }).first().click()
     const toast = page.locator('.toast').first()
     await expect(toast).toBeVisible()
+    await page.waitForTimeout(500) // the slide-in animation
     const r = await toast.evaluate(el => ({ box: el.getBoundingClientRect().toJSON(), vw: document.documentElement.clientWidth, vh: innerHeight }))
     expect(r.box.right).toBeLessThanOrEqual(r.vw - inset(FOLD.cover, 'right') + 0.5)
     expect(r.box.bottom).toBeLessThanOrEqual(r.vh - inset(FOLD.cover, 'bottom') + 0.5)
@@ -482,7 +484,7 @@ test.describe('foldables: navigation', () => {
   test('condensed headers: one title row and one toolbar row that never wraps; compact search starts as an icon button (criterion 21)', async ({ browser }) => {
     const { context, page } = await openContext(browser, FOLD.cover)
     await enlarge(page)
-    await page.addInitScript(() => localStorage.removeItem('arrview.ui.v1.movies.search'))
+    await page.addInitScript(() => { if (!sessionStorage.getItem('fold-init')) { localStorage.removeItem('arrview.ui.v1.movies.search'); sessionStorage.setItem('fold-init', '1') } })
     await show(page, PAGES[2])
     const header = page.locator('.m-pageheader.is-condensed')
     await expect(header.locator('.m-titlerow h1')).toHaveText('Movies')
@@ -659,14 +661,14 @@ async function expectKeyboardSafe(page, offsetTop, visibleHeight, primary) {
 }
 
 // Criteria 31-32b: folding and unfolding keeps the page. One test per row of the continuity matrix.
-function anchorsIn(page) {
-  return page.evaluate(() => {
+function anchorsIn(page, { rows = false } = {}) {
+  return page.evaluate(rows => {
     const top = document.querySelector('.m-topbar') ? Math.max(0, document.querySelector('.m-topbar').getBoundingClientRect().bottom) : 0
     const bottom = document.querySelector('.m-bottomnav') ? document.querySelector('.m-bottomnav').getBoundingClientRect().top : innerHeight
     return [...document.querySelectorAll('.m-main [data-m-anchor]')].map(el => ({ key: el.getAttribute('data-m-anchor'), r: el.getBoundingClientRect() }))
       .filter(({ r }) => r.height > 0 && r.top >= top - 1 && r.bottom <= bottom + 1)
-      .sort((a, b) => Math.round(a.r.top) - Math.round(b.r.top) || a.r.left - b.r.left).map(a => a.key)
-  })
+      .sort((a, b) => Math.round(a.r.top) - Math.round(b.r.top) || a.r.left - b.r.left).map(a => rows ? { key: a.key, top: a.r.top } : a.key)
+  }, rows)
 }
 async function scrollToItem(page, selector, n) {
   await page.evaluate(({ selector, n }) => {
@@ -779,6 +781,8 @@ const ROWS = [
     } },
 ]
 async function libraryState(page, field, query, chip, sort) {
+  // On a short compact screen the search starts as a button with the field's name (criterion 21).
+  if (!(await page.getByRole('textbox', { name: field }).count())) await page.getByRole('button', { name: field }).click()
   await page.getByRole('textbox', { name: field }).fill(query)
   await page.getByRole('group', { name: 'Filter' }).getByRole('button', { name: chip, exact: true }).click()
   await page.getByRole('combobox', { name: 'Sort results' }).selectOption(sort)
@@ -798,7 +802,7 @@ async function readUpcoming(page) {
 async function runFold(browser, row, order) {
   const sequence = order === 'reverse' ? [FOLD.inner, FOLD.cover, FOLD.inner] : [FOLD.cover, FOLD.inner, FOLD.cover]
   const { context, page } = await openContext(browser, sequence[0])
-  await page.addInitScript(() => { for (const key of Object.keys(localStorage)) if (key.startsWith('arrview.ui.v1.') && key !== 'arrview.ui.v1.layout') localStorage.removeItem(key) })
+  await page.addInitScript(() => { if (sessionStorage.getItem('fold-init')) return; sessionStorage.setItem('fold-init', '1'); for (const key of Object.keys(localStorage)) if (key.startsWith('arrview.ui.v1.') && key !== 'arrview.ui.v1.layout') localStorage.removeItem(key) })
   if (row.enlarge) await enlarge(page)
   if (row.setup) await row.setup(page)
   await page.goto(`/#${row.hash}`)
@@ -827,8 +831,12 @@ async function runFold(browser, row, order) {
     if (row.id === 'C1') { expect.soft(now.history, `${row.id} at ${size.id}: history rows`).toBe(now.expectHistory) }
     else expect.soft(now, `${row.id} at ${size.id}: page state`).toEqual(state)
     if (key) {
-      const visible = await anchorsIn(page)
-      expect.soft(visible.slice(0, 2), `${row.id} at ${size.id}: ${key} is the first or second fully visible item`).toContain(key)
+      // First or second fully visible anchor; in a grid row of three or six the remembered tile need not be leftmost, so
+      // a tile in the first fully visible row counts as well (spec 32b read for multi-column grids; see build.md).
+      const visible = await anchorsIn(page, { rows: true })
+      const found = visible.find(item => item.key === key)
+      const ok = Boolean(found) && (visible.slice(0, 2).some(item => item.key === key) || Math.abs(found.top - visible[0].top) < 2)
+      expect.soft(ok, `${row.id} at ${size.id}: ${key} is the first or second fully visible item, or in the first fully visible row (got ${visible.slice(0, 3).map(v => v.key).join(', ')})`).toBe(true)
     }
     if (row.report) test.info().annotations.push({ type: 'section', description: `${size.id}: ${await row.report(page)}` })
   }
@@ -842,6 +850,19 @@ test.describe('foldables: fold and unfold keep the page (continuity matrix)', ()
     }
   }
 })
+
+// Criterion 25: Upcoming shows at least two full tiles on the cover and four on the inner screen at scroll 0.
+for (const [size, least] of [[FOLD.cover, 2], [FOLD.inner, 4]]) {
+  test(`Upcoming: at least ${least} full tiles at scroll 0 at ${size.id} (criterion 25)`, async ({ browser }) => {
+    const { context, page } = await openContext(browser, size)
+    await page.route('**/api/sonarr/calendar**', async route => { const base = await (await route.fetch()).json(); await route.fulfill({ json: [...base, ...CAL()] }) })
+    await show(page, PAGES[3])
+    const full = await page.evaluate(() => [...document.querySelectorAll('.m-utile')].filter(el => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight }).length)
+    expect(full).toBeGreaterThanOrEqual(least)
+    await expect(page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Thumbnails' })).toHaveAttribute('aria-pressed', 'true')
+    await context.close()
+  })
+}
 
 // Criteria 26, 32c in the browser: backdrops are marked; anchors only on the stated families.
 test('backdrops carry data-m-backdrop: the ambient art and the detail hero art (criterion 26)', async ({ browser }) => {

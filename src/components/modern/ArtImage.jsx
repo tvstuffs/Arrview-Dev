@@ -11,7 +11,7 @@ export default function ArtImage({ srcs = [], className = '', width, height, eag
   const src = list[index]
   const onError = () => setFailure({ key, count: index + 1 })
   if (ambient) {
-    return src ? <img key={src} className="m-ambient" src={src} alt="" aria-hidden="true" decoding="async" referrerPolicy="no-referrer" onError={onError} /> : null
+    return src ? <img key={src} className="m-ambient" data-m-backdrop="" src={src} alt="" aria-hidden="true" decoding="async" referrerPolicy="no-referrer" onError={onError} /> : null
   }
   return <span className={`m-art ${className}`}>
     {src

@@ -18,6 +18,11 @@
   --live-bg:   rgba(63,208,243,.14);
   --radius:    12px;
   --radius-sm: 8px;
+  /* Safe areas: env() is read here only; everything else uses these, so tests can set them on <html>. */
+  --sa-top: env(safe-area-inset-top, 0px);
+  --sa-right: env(safe-area-inset-right, 0px);
+  --sa-bottom: env(safe-area-inset-bottom, 0px);
+  --sa-left: env(safe-area-inset-left, 0px);
 }
 
 @font-face {
@@ -352,8 +357,8 @@ label {
 /* -- Toast notifications --------------------------------- */
 .toast-container {
   position: fixed;
-  bottom: calc(24px + env(safe-area-inset-bottom));
-  right: calc(24px + env(safe-area-inset-right));
+  bottom: calc(24px + var(--sa-bottom));
+  right: calc(24px + var(--sa-right));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -376,5 +381,5 @@ label {
 .toast-error   { background: var(--raised); border: 1px solid rgba(255,107,107,.4); color: var(--danger); }
 .toast-info    { background: var(--raised); border: 1px solid var(--hair-2); color: var(--text); }
 
-.offline-state { flex-direction: column; text-align: center; padding: calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left)); }
+.offline-state { flex-direction: column; text-align: center; padding: calc(24px + var(--sa-top)) calc(24px + var(--sa-right)) calc(24px + var(--sa-bottom)) calc(24px + var(--sa-left)); }
 .offline-state h1 { font-size: 24px; }

@@ -144,10 +144,11 @@ test('B5: the top bar, both bottom bars and the rail are opaque; only the overla
   for (const selector of ['.m-topbar', '.m-bottomnav', '.m-rail.is-labelled', '.m-rail-pill']) {
     expect(OPAQUE, `${selector} background`).toContain(backgroundOf(selector))
   }
-  for (const { selector, body } of rules) {
-    if (!/\.m-(topbar|bottomnav|rail)/.test(selector) || selector.includes('is-overlay') || /:hover|:focus/.test(selector)) continue
-    expect(body, selector).not.toMatch(/background(-color)?\s*:\s*(rgba\(|transparent)/)
-  }
+  // Every rule whose subject is one of the bars themselves (not an item inside one).
+  const isBar = part => /^\.m-(topbar|bottomnav|rail|rail-pill)(\.[\w-]+|\[[^\]]+\])*$/.test(part.trim().split(/\s+/).pop())
+  const bars = rules.filter(({ selector }) => selector.split(',').some(isBar) && !selector.includes('is-overlay') && !/:hover|:focus/.test(selector))
+  expect(bars.length).toBeGreaterThan(5)
+  for (const { selector, body } of bars) expect(body, selector).not.toMatch(/background(-color)?\s*:\s*(rgba\(|transparent)/)
   expect(backgroundOf('.m-topbar.is-overlay')).toMatch(/rgba\(/)
 })
 test('Modern CSS reads the safe areas only through --sa-* (criterion 1)', () => {
