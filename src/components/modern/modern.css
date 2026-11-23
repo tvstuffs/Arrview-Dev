@@ -479,9 +479,11 @@
 .m-shell[data-height="short"] .m-title { font-size: 21px; margin-bottom: 6px; }
 .m-pageheader.is-condensed { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-bottom: 10px; }
 .m-titlerow { display: flex; align-items: center; gap: 4px 8px; min-width: 0; }
-/* Below 360 px wide (a 320 px phone) the title and the page actions cannot share one row: the actions wrap under the title
-   instead of widening the page. */
-@media (max-width: 359px) { .m-titlerow { flex-wrap: wrap; } }
+/* When the header is narrower than 340 px (a 320 px phone, or a rail beside a column) the title and the page actions cannot
+   share one row: the actions wrap under the title instead of widening the page. The header's own width decides, not the
+   viewport's. */
+.m-pageheader.is-condensed { container: m-header / inline-size; }
+@container m-header (max-width: 339px) { .m-titlerow { flex-wrap: wrap; } }
 .m-titlerow h1 { flex: none; font-size: 21px; }
 .m-titlerow .m-meta { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; font-size: 13px; }
 .m-titlerow .m-pageheader-actions { flex: none; gap: 4px; margin-left: auto; }
