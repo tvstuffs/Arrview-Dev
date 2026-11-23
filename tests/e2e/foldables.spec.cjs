@@ -670,6 +670,11 @@ function anchorsIn(page, { rows = false } = {}) {
       .sort((a, b) => Math.round(a.r.top) - Math.round(b.r.top) || a.r.left - b.r.left).map(a => rows ? { key: a.key, top: a.r.top } : a.key)
   }, rows)
 }
+// The fully visible anchors that share the top of the first fully visible one (the first fully visible row), left to right.
+async function firstRowIn(page) {
+  const all = await anchorsIn(page, { rows: true })
+  return all.length ? all.filter(a => Math.abs(a.top - all[0].top) < 2).map(a => a.key) : []
+}
 async function scrollToItem(page, selector, n) {
   await page.evaluate(({ selector, n }) => {
     const el = document.querySelectorAll(selector)[n - 1]
@@ -724,13 +729,13 @@ const ROWS = [
     },
     act: async page => { await page.getByRole('button', { name: 'Load more' }).click(); await expect(page.locator('li.m-dl-row.is-history')).toHaveCount(18) },
     state: async (page, size) => ({ history: await page.locator('li.m-dl-row.is-history').count(), expectHistory: (size.width < 640 ? 3 : 5) + 15 }) },
-  { id: 'C2', name: 'TV Shows, large posters: search, filter, sort, view, the 10th tile', hash: '/shows', wait: '.m-grid li', anchor: { selector: '.m-main [data-m-anchor^="show:"]', n: 10 }, enlarge: true,
+  { id: 'C2', name: 'TV Shows, large posters: search, filter, sort, view, the 10th tile', hash: '/shows', wait: '.m-grid li', anchor: { selector: '.m-main [data-m-anchor^="show:"]', n: 10, row: true }, enlarge: true,
     act: async page => libraryState(page, 'Search shows', 'Fold', 'Continuing', 'year'),
     state: async page => readLibrary(page, 'Search shows') },
   { id: 'C3', name: 'TV Shows, list view: search, filter, sort, view, the 10th row', hash: '/shows', wait: '.m-grid li', anchor: { selector: '.m-main [data-m-anchor^="show:"]', n: 10 }, enlarge: true,
     act: async page => { await libraryState(page, 'Search shows', 'Fold', 'Continuing', 'year'); await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'List' }).click(); await expect(page.locator('.m-list li').first()).toBeVisible() },
     state: async page => readLibrary(page, 'Search shows') },
-  { id: 'C4', name: 'Movies, large posters: search, filter, sort, view, the 10th tile', hash: '/movies', wait: '.m-grid li', anchor: { selector: '.m-main [data-m-anchor^="movie:"]', n: 10 }, enlarge: true,
+  { id: 'C4', name: 'Movies, large posters: search, filter, sort, view, the 10th tile', hash: '/movies', wait: '.m-grid li', anchor: { selector: '.m-main [data-m-anchor^="movie:"]', n: 10, row: true }, enlarge: true,
     act: async page => libraryState(page, 'Search movies', 'Fold', 'Monitored', 'added'),
     state: async page => readLibrary(page, 'Search movies') },
   { id: 'C5', name: 'Movies, list view: search, filter, sort, view, the 10th row', hash: '/movies', wait: '.m-grid li', anchor: { selector: '.m-main [data-m-anchor^="movie:"]', n: 10 }, enlarge: true,
@@ -818,9 +823,19 @@ async function runFold(browser, row, order) {
     expect(await page.locator(row.anchor.selector).count(), `${row.id}: the page carries data-m-anchor items`).toBeGreaterThanOrEqual(row.anchor.n)
     await scrollToItem(page, row.anchor.selector, row.anchor.n)
     const first = await anchorsIn(page)
-    // Criterion 32b: the stated item is scrolled to be the first fully visible anchor, and its key is the one remembered.
-    key = await page.locator(row.anchor.selector).nth(row.anchor.n - 1).getAttribute('data-m-anchor')
-    expect.soft(first[0], `${row.id} at ${sequence[0].id}: the stated item ${key} is the first fully visible anchor (got ${first.slice(0, 4).join(', ')})`).toBe(key)
+    const stated = await page.locator(row.anchor.selector).nth(row.anchor.n - 1).getAttribute('data-m-anchor')
+    if (row.anchor.row) {
+      // D66 (maintainer amendment to 32b, C2 and C4 only): the stated tile's row is the first fully visible row, and the key
+      // remembered is that row's first tile (the tile the scroll-anchor helper keeps; the 7th at 951 x 669, the 10th itself at 461).
+      const firstRow = await firstRowIn(page)
+      expect.soft(firstRow, `${row.id} at ${sequence[0].id}: the stated item ${stated} is in the first fully visible row (got ${firstRow.join(', ')})`).toContain(stated)
+      key = firstRow[0]
+      test.info().annotations.push({ type: 'anchor', description: `${sequence[0].id}: stated ${stated}, remembered ${key} (tile ${(await page.locator(row.anchor.selector).evaluateAll((els, k) => els.findIndex(el => el.getAttribute('data-m-anchor') === k), key)) + 1})` })
+    } else {
+      // Criterion 32b: the stated item is scrolled to be the first fully visible anchor, and its key is the one remembered.
+      key = stated
+      expect.soft(first[0], `${row.id} at ${sequence[0].id}: the stated item ${key} is the first fully visible anchor (got ${first.slice(0, 4).join(', ')})`).toBe(key)
+    }
   }
   for (const size of sequence.slice(1)) {
     await foldTo(page, size)
@@ -829,7 +844,11 @@ async function runFold(browser, row, order) {
     const now = await row.state(page, size)
     if (row.id === 'C1') { expect.soft(now.history, `${row.id} at ${size.id}: history rows`).toBe(now.expectHistory) }
     else expect.soft(now, `${row.id} at ${size.id}: page state`).toEqual(state)
-    if (key) {
+    if (key && row.anchor.row) {
+      // D66: the remembered tile is fully inside the visible content band and in the first fully visible row.
+      const firstRow = await firstRowIn(page)
+      expect.soft(firstRow, `${row.id} at ${size.id}: ${key} is fully visible in the first fully visible row (got ${firstRow.join(', ')})`).toContain(key)
+    } else if (key) {
       // Criterion 32b as written: the remembered item is fully visible and is the first or second fully visible anchor.
       const visible = await anchorsIn(page)
       expect.soft(visible.slice(0, 2), `${row.id} at ${size.id}: ${key} is the first or second fully visible anchor (got ${visible.slice(0, 4).join(', ')})`).toContain(key)
@@ -838,16 +857,11 @@ async function runFold(browser, row, order) {
   }
   await context.close()
 }
-// Known failures, kept failing on purpose (maintainer decision pending): in the six-column large-poster grid at 951 x 669 the
-// 10th tile is the 4th tile of its row, so the three tiles before it in the same row are always fully visible with it and it
-// cannot be the first or second fully visible anchor (criterion 32b as written). Only the 32b assertions fail in these tests.
-const ANCHOR_32B_GRID = new Set(['C2', 'C4'])
-const KNOWN_32B = 'criterion 32b cannot hold as written for the 10th tile of a six-column grid; maintainer decision pending'
 test.describe('foldables: fold and unfold keep the page (continuity matrix)', () => {
   for (const row of ROWS) {
-    test(`${row.id} ${row.name}${row.anchor ? '' : ''}: 461 > 951 > 461`, async ({ browser }) => { test.fail(ANCHOR_32B_GRID.has(row.id), KNOWN_32B); test.setTimeout(90000); await runFold(browser, row, 'forward') })
+    test(`${row.id} ${row.name}${row.anchor ? '' : ''}: 461 > 951 > 461`, async ({ browser }) => { test.setTimeout(90000); await runFold(browser, row, 'forward') })
     if (['C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'].includes(row.id)) {
-      test(`${row.id} ${row.name}: reversed, 951 > 461 > 951`, async ({ browser }) => { test.fail(ANCHOR_32B_GRID.has(row.id), KNOWN_32B); test.setTimeout(90000); await runFold(browser, row, 'reverse') })
+      test(`${row.id} ${row.name}: reversed, 951 > 461 > 951`, async ({ browser }) => { test.setTimeout(90000); await runFold(browser, row, 'reverse') })
     }
   }
 })
