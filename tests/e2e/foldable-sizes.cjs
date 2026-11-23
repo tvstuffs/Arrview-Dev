@@ -51,8 +51,8 @@ const REGRESSION = [
 // the large height on the Duo (Phase 0), only the visual viewport, so each entry runs twice: once with the whole viewport cut
 // down to the size (the spec's literal emulation) and once at `full` with window.visualViewport reporting the size.
 const KEYBOARD = [
-  { id: 'duo-cover-keyboard', width: 461, height: 356, full: { width: 461, height: 678 }, insets: { right: 84 }, fullInsets: { right: 84, bottom: 34 }, touch: true, source: 'provisional', what: 'Duo cover, Home Screen, keyboard up (IMG_0057)' },
-  { id: 'duo-inner-keyboard', width: 951, height: 366, full: { width: 951, height: 669 }, insets: { right: 84 }, fullInsets: { right: 84, bottom: 34 }, touch: true, source: 'provisional', what: 'Duo inner in landscape, Home Screen, keyboard up (IMG_0059)' },
+  { id: 'duo-cover-keyboard', width: 461, height: 356, full: { width: 461, height: 678 }, insets: { right: 84 }, fullInsets: { right: 84, bottom: 34 }, touch: true, source: 'provisional', what: 'Duo cover, Home Screen, keyboard up' },
+  { id: 'duo-inner-keyboard', width: 951, height: 366, full: { width: 951, height: 669 }, insets: { right: 84 }, fullInsets: { right: 84, bottom: 34 }, touch: true, source: 'provisional', what: 'Duo inner in landscape, Home Screen, keyboard up' },
   { id: 'duo-cover-safari-keyboard', width: 377, height: 311, full: { width: 377, height: 580 }, insets: {}, fullInsets: {}, touch: true, source: 'measured', what: 'Duo cover upright, Safari, keyboard up' },
   { id: 'duo-inner-safari-keyboard', width: 951, height: 307, full: { width: 951, height: 537 }, insets: {}, fullInsets: { bottom: 34 }, touch: true, source: 'measured', what: 'Duo inner open wide, Safari, keyboard up' },
   // Home Screen, measured (maintainer note 3): with a sheet's field focused iOS also scrolls the visual viewport (offsetTop).

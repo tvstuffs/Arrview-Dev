@@ -34,6 +34,8 @@ function useKeyboardFit(dialog) {
     const later = () => setTimeout(fit, 0)
     vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit)
     el.addEventListener('focusin', fit); el.addEventListener('focusout', later)
+    // The sheet focuses its initial field before these listeners exist; a keyboard already up must be fitted now.
+    fit()
     return () => {
       vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit)
       el.removeEventListener('focusin', fit); el.removeEventListener('focusout', later)

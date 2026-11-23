@@ -818,10 +818,9 @@ async function runFold(browser, row, order) {
     expect(await page.locator(row.anchor.selector).count(), `${row.id}: the page carries data-m-anchor items`).toBeGreaterThanOrEqual(row.anchor.n)
     await scrollToItem(page, row.anchor.selector, row.anchor.n)
     const first = await anchorsIn(page)
-    key = first[0]
-    const stated = await page.locator(row.anchor.selector).nth(row.anchor.n - 1).getAttribute('data-m-anchor')
-    // In a six-column row the stated tile is not the leftmost; the first fully visible anchor of its row is recorded.
-    if (sequence[0].width < 640) expect(key, `${row.id}: the stated item is the first fully visible anchor`).toBe(stated)
+    // Criterion 32b: the stated item is scrolled to be the first fully visible anchor, and its key is the one remembered.
+    key = await page.locator(row.anchor.selector).nth(row.anchor.n - 1).getAttribute('data-m-anchor')
+    expect.soft(first[0], `${row.id} at ${sequence[0].id}: the stated item ${key} is the first fully visible anchor (got ${first.slice(0, 4).join(', ')})`).toBe(key)
   }
   for (const size of sequence.slice(1)) {
     await foldTo(page, size)
@@ -831,22 +830,24 @@ async function runFold(browser, row, order) {
     if (row.id === 'C1') { expect.soft(now.history, `${row.id} at ${size.id}: history rows`).toBe(now.expectHistory) }
     else expect.soft(now, `${row.id} at ${size.id}: page state`).toEqual(state)
     if (key) {
-      // First or second fully visible anchor; in a grid row of three or six the remembered tile need not be leftmost, so
-      // a tile in the first fully visible row counts as well (spec 32b read for multi-column grids; see build.md).
-      const visible = await anchorsIn(page, { rows: true })
-      const found = visible.find(item => item.key === key)
-      const ok = Boolean(found) && (visible.slice(0, 2).some(item => item.key === key) || Math.abs(found.top - visible[0].top) < 2)
-      expect.soft(ok, `${row.id} at ${size.id}: ${key} is the first or second fully visible item, or in the first fully visible row (got ${visible.slice(0, 3).map(v => v.key).join(', ')})`).toBe(true)
+      // Criterion 32b as written: the remembered item is fully visible and is the first or second fully visible anchor.
+      const visible = await anchorsIn(page)
+      expect.soft(visible.slice(0, 2), `${row.id} at ${size.id}: ${key} is the first or second fully visible anchor (got ${visible.slice(0, 4).join(', ')})`).toContain(key)
     }
     if (row.report) test.info().annotations.push({ type: 'section', description: `${size.id}: ${await row.report(page)}` })
   }
   await context.close()
 }
+// Known failures, kept failing on purpose (maintainer decision pending): in the six-column large-poster grid at 951 x 669 the
+// 10th tile is the 4th tile of its row, so the three tiles before it in the same row are always fully visible with it and it
+// cannot be the first or second fully visible anchor (criterion 32b as written). Only the 32b assertions fail in these tests.
+const ANCHOR_32B_GRID = new Set(['C2', 'C4'])
+const KNOWN_32B = 'criterion 32b cannot hold as written for the 10th tile of a six-column grid; maintainer decision pending'
 test.describe('foldables: fold and unfold keep the page (continuity matrix)', () => {
   for (const row of ROWS) {
-    test(`${row.id} ${row.name}${row.anchor ? '' : ''}: 461 > 951 > 461`, async ({ browser }) => { test.setTimeout(90000); await runFold(browser, row, 'forward') })
+    test(`${row.id} ${row.name}${row.anchor ? '' : ''}: 461 > 951 > 461`, async ({ browser }) => { test.fail(ANCHOR_32B_GRID.has(row.id), KNOWN_32B); test.setTimeout(90000); await runFold(browser, row, 'forward') })
     if (['C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'].includes(row.id)) {
-      test(`${row.id} ${row.name}: reversed, 951 > 461 > 951`, async ({ browser }) => { test.setTimeout(90000); await runFold(browser, row, 'reverse') })
+      test(`${row.id} ${row.name}: reversed, 951 > 461 > 951`, async ({ browser }) => { test.fail(ANCHOR_32B_GRID.has(row.id), KNOWN_32B); test.setTimeout(90000); await runFold(browser, row, 'reverse') })
     }
   }
 })

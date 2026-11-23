@@ -147,3 +147,25 @@ test('B4: the four search fields carry enterkeyhint="search" and blur on Enter, 
   check(nzb)
   await waitFor(() => expect(fetchMock.calls.some(call => call.url.startsWith('/api/nzbhydra/search?q=fixture'))).toBe(true))
 })
+
+// B3 keyboard (criterion 11): a sheet that opens with its initial field focused while the keyboard is already up is fitted
+// to the visual viewport at once, without waiting for another focus or viewport event.
+function Prefocused() {
+  const field = React.useRef(null)
+  return <Sheet title="Typing" onClose={() => {}} initialFocus={field}><input ref={field} type="text" aria-label="Field" /></Sheet>
+}
+test('B3: a sheet opened with the keyboard already up is fitted to the visual viewport on open (criterion 11)', () => {
+  const vv = Object.assign(new EventTarget(), { width: window.innerWidth, height: window.innerHeight - 300, offsetTop: 40 })
+  vi.stubGlobal('visualViewport', vv)
+  render(<Prefocused />)
+  const dialog = document.querySelector('dialog.sheet')
+  expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Field' }))
+  expect(dialog.classList.contains('is-keyboard')).toBe(true)
+  expect(dialog.style.getPropertyValue('--kb-height')).toBe(`${window.innerHeight - 300}px`)
+  expect(dialog.style.getPropertyValue('--kb-top')).toBe('40px')
+})
+test('B3: a sheet opened with the visual viewport at full height is not fitted on open', () => {
+  vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), { width: window.innerWidth, height: window.innerHeight, offsetTop: 0 }))
+  render(<Prefocused />)
+  expect(document.querySelector('dialog.sheet').classList.contains('is-keyboard')).toBe(false)
+})
