@@ -1,10 +1,12 @@
 import React from 'react'
 import { test, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import Dashboard from '../../src/components/Dashboard'
 import { config, stubFetch, stubMedia, resetEnvironment, future, series } from './modern-helpers'
 
 // Spec criterion 32c: data-m-anchor on exactly the anchor families, with stable keys (never an index); none elsewhere.
+// The TV Shows and Movies pages show their heading while the library still loads, so each check waits for the tiles
+// themselves, not the heading (on a slow runner the heading came first and the check saw no tiles).
 let restoreMedia
 beforeEach(() => { resetEnvironment(); restoreMedia = stubMedia({ phone: false }); window.scrollTo = vi.fn() })
 afterEach(() => { restoreMedia(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
@@ -25,26 +27,27 @@ async function at(hash, { view, data = {} } = {}) {
 test('show tiles and show rows carry show:<id>', async () => {
   const { container, unmount } = await at('#/shows')
   await screen.findByRole('heading', { level: 1, name: 'TV Shows' })
-  expect(keys(container)).toEqual(['show:1', 'show:2', 'show:3'])
+  await waitFor(() => expect(keys(container)).toEqual(['show:1', 'show:2', 'show:3']))
   for (const el of anchors(container)) expect(el.tagName).toBe('LI')
   expect(anchors(container)).toHaveLength(container.querySelectorAll('.m-grid > li').length)
   unmount()
   const list = await at('#/shows', { view: { 'shows.view': 'list' } })
   await screen.findByRole('heading', { level: 1, name: 'TV Shows' })
-  expect(keys(list.container)).toEqual(['show:1', 'show:2', 'show:3'])
+  await waitFor(() => expect(keys(list.container)).toEqual(['show:1', 'show:2', 'show:3']))
   expect(anchors(list.container)).toHaveLength(list.container.querySelectorAll('.m-list > li').length)
 })
 test('movie tiles and movie rows carry movie:<id>; the movie page carries none', async () => {
   const { container, unmount } = await at('#/movies')
   await screen.findByRole('heading', { level: 1, name: 'Movies' })
-  expect(keys(container).sort()).toEqual(['movie:11', 'movie:12', 'movie:13', 'movie:14'])
+  await waitFor(() => expect(keys(container).sort()).toEqual(['movie:11', 'movie:12', 'movie:13', 'movie:14']))
   unmount()
   const list = await at('#/movies', { view: { 'movies.view': 'small' } })
   await screen.findByRole('heading', { level: 1, name: 'Movies' })
-  expect(keys(list.container)).toHaveLength(4)
+  await waitFor(() => expect(keys(list.container)).toHaveLength(4))
   list.unmount()
   const rows = await at('#/movies', { view: { 'movies.view': 'list' } })
   await screen.findByRole('heading', { level: 1, name: 'Movies' })
+  await waitFor(() => expect(keys(rows.container)).toHaveLength(4))
   for (const key of keys(rows.container)) expect(key).toMatch(/^movie:\d+$/)
   expect(keys(rows.container)).toHaveLength(rows.container.querySelectorAll('.m-list > li').length)
   rows.unmount()

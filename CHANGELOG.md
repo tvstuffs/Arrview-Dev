@@ -26,22 +26,24 @@
   home does not.
 - **Settings:** the Security card no longer says "The ArrView iOS and tvOS apps can't sign in yet." It was a placeholder from
   testing.
-- **Tests:** server 299/299 (299 at 1.9A21), web (vitest) 619/619 (612), e2e 297/297 and 22 skipped in Microsoft Edge on
-  macOS (295; the 22 are the screenshot tests; CI repeats them in real Chromium). New: `tests/web/service-links.test.jsx`, 7
-  tests: the address rule (set up and http(s) only, a base path kept, no doubled slash, no login details); each page's link
-  and its address; on a phone the order Open, Add, gear; the short-screen header putting the link at the start of its
-  second row, or in the title row without one; none for an address that is not http(s) and none on Upcoming; the movie
-  page's Radarr link, and none without a slug; Settings' link at the saved address, none while a saved row is closed and none
-  for a service not saved. In e2e, at 1280 and 402 px: the four page links at the saved addresses, opening in a new tab,
-  nothing scrolling sideways, none on Upcoming, the movie's link to Radarr, a click on "Open Sonarr" opening a new tab at
-  Sonarr's address while the page stays, and Settings' link. Changed: the Security card test checks that the line is gone;
-  the show and movie focus-order test now lists "Open in Radarr" before "Delete…"; the e2e fixture's movie has a
-  `titleSlug`. **Failing first**, on the 1.9A21 code: the new unit tests could not load (no `src/serviceLinks.js`), the
-  Security card test failed on the line, and in Edge the two new e2e tests failed at the TV Shows page (no link) and the
-  two focus-order tests failed on the movie page. The first build also failed six existing tests, which the final one
-  passes: the icon in the title row made the condensed header scroll sideways at 375 × 667, 377 × 580 and 385 × 571 (and so
-  widened the compact bottom bar), made the header of a 1280 × 600 window 5 px taller than the first-content rule allows,
-  and the Downloads one had no background like its neighbours.
+- **Tests:** server 299/299 (299 at 1.9A21), web (vitest) 619/619 (612), e2e 297/297 and 22 skipped in Microsoft Edge on macOS
+  (295; the 22 are the screenshot tests; CI repeats them in real Chromium). New: `tests/web/service-links.test.jsx`, 7 tests: the
+  address rule (set up and http(s) only, a base path kept, no doubled slash, no login details); each page's link and its address;
+  on a phone the order Open, Add, gear; the short-screen header putting the link at the start of its second row, or in the title
+  row without one; none for an address that is not http(s) and none on Upcoming; the movie page's Radarr link, and none without a
+  slug; Settings' link at the saved address, none while a saved row is closed and none for a service not saved. In e2e, at 1280
+  and 402 px: the four page links at the saved addresses, opening in a new tab, nothing scrolling sideways, none on Upcoming, the
+  movie's link to Radarr, a click on "Open Sonarr" opening a new tab at Sonarr's address while the page stays, and Settings' link.
+  Changed: the Security card test checks that the line is gone; the show and movie focus-order test now lists "Open in Radarr"
+  before "Delete…"; the e2e fixture's movie has a `titleSlug`. The scroll-anchor wiring test (from 1.9A21) now waits for the TV
+  Shows and Movies tiles, not for the heading, which those pages show while the library still loads: CI's first run of 1.9A22
+  found no tiles there, and with the library's answer delayed 150 ms the old test fails the same way while the new one passes.
+  **Failing first**, on the 1.9A21 code: the new unit tests could not load (no `src/serviceLinks.js`), the Security card test
+  failed on the line, and in Edge the two new e2e tests failed at the TV Shows page (no link) and the two focus-order tests failed
+  on the movie page. The first build also failed six existing tests, which the final one passes: the icon in the title row made
+  the condensed header scroll sideways at 375 × 667, 377 × 580 and 385 × 571 (and so widened the compact bottom bar), made the
+  header of a 1280 × 600 window 5 px taller than the first-content rule allows, and the Downloads one had no background like its
+  neighbours.
 - **Checked in a browser** (Microsoft Edge driven by Playwright, against the test server): screenshots at 1280 × 800,
   402 × 874, and 461 × 678 and 951 × 669 with the Duo's 84 px column emulated, of TV Shows, Downloads, a movie, Search and
   Settings. No page scrolls sideways, every link is 44 × 44 on the touch sizes, and none sits in the column.
