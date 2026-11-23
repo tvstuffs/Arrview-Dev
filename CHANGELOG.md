@@ -1,5 +1,69 @@
 # ArrView server development changelog
 
+## 1.9A22 (unreleased) — Modern: open Sonarr, Radarr, SABnzbd and NZBHydra from the pages that show them; a placeholder line leaves Settings
+
+- **Version 1.9A22.** Two changes to the web pages on top of 1.9A21, from the maintainer's review of 1.9A21 on the iPhone Duo. In
+  `server.js` only this version number moves; no route, request, config key, file format, dependency, `package.json` or
+  Dockerfile changes.
+- **Open the apps behind ArrView (Modern).** Classic's status pills have always opened each service's own web page in a new tab;
+  Modern only had the show page's "Open in Sonarr". Now:
+  - **Each page links to the app it shows,** with a small arrow-out-of-a-box icon named after the app, at the start of the page's
+    actions: TV Shows opens Sonarr, Movies opens Radarr and Search opens NZBHydra. On Downloads, whose title row is not always
+    shown, "Open SABnzbd" leads the Queue heading's buttons. Upcoming, which shows both Sonarr and Radarr, has none.
+  - **In a short-screen header** (1.9A21's condensed header) the icon leads the second row, the one with the search field and
+    the filters, which scrolls sideways; the title row has no room to spare on a 375 px phone. Without a second row (Search) it
+    stays in the title row. It is never taller than the controls beside it, so no header grows, and it is 44 px on touch
+    screens.
+  - **The movie page** has "Open in Radarr" between Monitored and Delete…, which opens that movie's page in Radarr
+    (`/movie/<titleSlug>`, Radarr's own route), as the show page's "Open in Sonarr" opens the series (`/series/<titleSlug>`).
+    A movie or a show without a slug has no such link.
+  - **Settings → Services:** the panel of every saved service has "Open Sonarr" (and so on) under its key, in both layouts. It
+    opens the saved address, not an unsaved edit in the field.
+- **Which address.** Every link opens the address saved in Settings, as Classic's pills do, in a new tab
+  (`rel="noopener noreferrer"`), with any login details in the address left out. A service that is not set up, or whose
+  address is not http(s), has no link. The browser opens that address itself, so it has to be one this browser can reach: a
+  LAN address works at home, while a name only Docker resolves (`http://sonarr:8989`) or a LAN address seen from outside the
+  home does not.
+- **Settings:** the Security card no longer says "The ArrView iOS and tvOS apps can't sign in yet." It was a placeholder from
+  testing.
+- **Tests:** server 299/299 (299 at 1.9A21), web (vitest) 619/619 (612), e2e 297/297 and 22 skipped in Microsoft Edge on
+  macOS (295; the 22 are the screenshot tests; CI repeats them in real Chromium). New: `tests/web/service-links.test.jsx`, 7
+  tests: the address rule (set up and http(s) only, a base path kept, no doubled slash, no login details); each page's link
+  and its address; on a phone the order Open, Add, gear; the short-screen header putting the link at the start of its
+  second row, or in the title row without one; none for an address that is not http(s) and none on Upcoming; the movie
+  page's Radarr link, and none without a slug; Settings' link at the saved address, none while a saved row is closed and none
+  for a service not saved. In e2e, at 1280 and 402 px: the four page links at the saved addresses, opening in a new tab,
+  nothing scrolling sideways, none on Upcoming, the movie's link to Radarr, a click on "Open Sonarr" opening a new tab at
+  Sonarr's address while the page stays, and Settings' link. Changed: the Security card test checks that the line is gone;
+  the show and movie focus-order test now lists "Open in Radarr" before "Delete…"; the e2e fixture's movie has a
+  `titleSlug`. **Failing first**, on the 1.9A21 code: the new unit tests could not load (no `src/serviceLinks.js`), the
+  Security card test failed on the line, and in Edge the two new e2e tests failed at the TV Shows page (no link) and the
+  two focus-order tests failed on the movie page. The first build also failed six existing tests, which the final one
+  passes: the icon in the title row made the condensed header scroll sideways at 375 × 667, 377 × 580 and 385 × 571 (and so
+  widened the compact bottom bar), made the header of a 1280 × 600 window 5 px taller than the first-content rule allows,
+  and the Downloads one had no background like its neighbours.
+- **Checked in a browser** (Microsoft Edge driven by Playwright, against the test server): screenshots at 1280 × 800,
+  402 × 874, and 461 × 678 and 951 × 669 with the Duo's 84 px column emulated, of TV Shows, Downloads, a movie, Search and
+  Settings. No page scrolls sideways, every link is 44 × 44 on the touch sizes, and none sits in the column.
+- **Not verified:** a real Sonarr, Radarr, SABnzbd or NZBHydra opened from the links (the test server's stand-ins answered);
+  Radarr's movie page route is taken from Radarr's own source, not opened in a real Radarr; a service under a URL base or
+  behind a reverse proxy; Safari, Firefox and the Duo; a screen reader.
+- **Human test plan** (on a real install after the upgrade; a Home Screen app keeps the old pages until it is fully closed):
+  1. Modern on a computer: TV Shows has a small arrow-out-of-a-box icon left of "Add Show" ("Open Sonarr" on hover). Click it:
+     Sonarr opens in a new tab and ArrView stays where it was. Movies opens Radarr, Search opens NZBHydra, and on Downloads the
+     icon left of "Search NZBs" in the Queue heading opens SABnzbd. Upcoming has none.
+  2. A show page: "Open in Sonarr" opens that series in Sonarr. A movie page: the icon between the bookmark (Monitored) and
+     "Delete…" ("Open in Radarr") opens that movie in Radarr.
+  3. On a phone: the icon sits before + and the gear. On the Duo (Home Screen app and Safari, cover and inner screen): on
+     TV Shows and Movies the icon leads the row with the search and the filters; on Search it is at the top right; nothing
+     scrolls sideways, nothing is in the column but the rail, and the headers are as tall as in 1.9A21.
+  4. Settings → Services: open a saved service's row: "Open Sonarr" (and so on) under the API key opens it. A service that is
+     not set up has no link. Classic's Settings has the same links, and Classic's status pills still open the services.
+  5. Settings → Security with a password set: the line about the iOS and tvOS apps is gone.
+  6. Reached from outside the home network, the links still point at the addresses saved in Settings, which may not open
+     from there; that is expected.
+  7. Roll back to the 1.9A21 image: nothing to migrate.
+
 ## 1.9A21 (unreleased) — Foldables and short screens: the rail in the column, sheets inside the safe areas, and the page kept across a fold
 
 - **Version 1.9A21.** Foldable phones and short screens, on top of 1.9A20: factory job 011, merged with `--no-ff`. Only the web
