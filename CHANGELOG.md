@@ -38,12 +38,13 @@
   before "Delete…"; the e2e fixture's movie has a `titleSlug`. The scroll-anchor wiring test (from 1.9A21) now waits for the TV
   Shows and Movies tiles, not for the heading, which those pages show while the library still loads: CI's first run of 1.9A22
   found no tiles there, and with the library's answer delayed 150 ms the old test fails the same way while the new one passes.
-  **Failing first**, on the 1.9A21 code: the new unit tests could not load (no `src/serviceLinks.js`), the Security card test
-  failed on the line, and in Edge the two new e2e tests failed at the TV Shows page (no link) and the two focus-order tests failed
-  on the movie page. The first build also failed six existing tests, which the final one passes: the icon in the title row made
-  the condensed header scroll sideways at 375 × 667, 377 × 580 and 385 × 571 (and so widened the compact bottom bar), made the
-  header of a 1280 × 600 window 5 px taller than the first-content rule allows, and the Downloads one had no background like its
-  neighbours.
+  Likewise the phone test of the Modern shell now waits for the Downloads gear: that page shows only a placeholder heading while
+  its data loads, and CI's second run found the heading before the gear. **Failing first**, on the 1.9A21 code: the new unit tests
+  could not load (no `src/serviceLinks.js`), the Security card test failed on the line, and in Edge the two new e2e tests failed
+  at the TV Shows page (no link) and the two focus-order tests failed on the movie page. The first build also failed six existing
+  tests, which the final one passes: the icon in the title row made the condensed header scroll sideways at 375 × 667, 377 × 580
+  and 385 × 571 (and so widened the compact bottom bar), made the header of a 1280 × 600 window 5 px taller than the first-content
+  rule allows, and the Downloads one had no background like its neighbours.
 - **Checked in a browser** (Microsoft Edge driven by Playwright, against the test server): screenshots at 1280 × 800,
   402 × 874, and 461 × 678 and 951 × 669 with the Duo's 84 px column emulated, of TV Shows, Downloads, a movie, Search and
   Settings. No page scrolls sideways, every link is 44 × 44 on the touch sizes, and none sits in the column.

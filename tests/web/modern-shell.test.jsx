@@ -165,8 +165,9 @@ test('phones: bottom nav without Settings, header + and gear, gear row on Downlo
   go('#/movies'); await screen.findByRole('button', { name: 'Add Movie' })
   go('#/search'); await screen.findByRole('heading', { level: 1, name: 'Search' })
   expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument()
+  // Downloads shows only a placeholder heading while its data loads; the gear row comes with the page itself.
   go('#/downloads'); await screen.findByRole('heading', { level: 1, name: 'Downloads' })
-  expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument()
+  expect(await screen.findByRole('link', { name: 'Settings' })).toBeInTheDocument()
   go('#/settings'); await screen.findByRole('heading', { level: 1, name: 'Settings' })
   expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull()
 })
