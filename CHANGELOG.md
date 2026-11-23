@@ -55,12 +55,13 @@
   951 × 307, 678 × 200 (offsetTop 94) and 469 × 360 / 469 × 323 (offsetTop 121); the status cluster and the keep-out ratio.
   **Provisional or estimated:** the keyboard on the cover upright (461 × 356) and open wide (951 × 366); the inner screen turned
   the other way round (Split View with the column on the left); 466 × 678; the iPhone and Galaxy Z Fold8 sizes.
-- **Tests:** server 299/299 (299 at 1.9A20), web (vitest) 612/612 (572), e2e 295 as expected and 22 skipped in Microsoft Edge on macOS
-  (183; the 22 skipped are the screenshot tests, which run only with `ARRVIEW_SHOTS_DIR` set; with it set, 317/317 before the
-  last test change, not re-run since). Of the 295, **4 are known failures marked with `test.fail`**: the continuity rows C2 and
-  C4 (large posters, both directions) fail only the scroll-anchor check as the spec words it (the kept tile is the first or
-  second fully visible tile). In the six-column grid at 951 × 669 the 10th tile is the 4th of its row, so it cannot be;
-  the page, its state and the tile's row are kept. This awaits a maintainer decision. New: `tests/web/screen-class.test.js`,
+- **Tests:** server 299/299 (299 at 1.9A20), web (vitest) 612/612 (572), e2e 295/295 and 22 skipped in Microsoft Edge on macOS
+  (183; the 22 skipped are the screenshot tests, which run only with `ARRVIEW_SHOTS_DIR` set; with it set, 317/317). No test is
+  marked as an expected failure. The continuity rows C2 and C4 (large posters, both directions) check the kept tile by row, as
+  the maintainer decided: in the six-column grid at 951 × 669 the 10th tile is the 4th of its row, so the tile kept is the first
+  of that row (the 7th), and after each fold it must be fully visible in the first fully visible row. With the scroll restore
+  switched off, those 4 tests fail. Every other row keeps the spec's check (the kept item is the first or second fully visible
+  one). New: `tests/web/screen-class.test.js`,
   `screen-class-hook.test.jsx`, `scroll-anchor.test.js`, `scroll-anchor-wiring.test.jsx`, `sheet-foldables.test.jsx`, additions to
   `modern-css.test.js`; `tests/e2e/foldables.spec.cjs` (the size matrix, the rail, the bars, the condensed headers, B1 to B5, the
   keyboard viewports, the continuity matrix C1 to C12 with reversed runs, and the screenshot test) with `foldable-sizes.cjs`.
