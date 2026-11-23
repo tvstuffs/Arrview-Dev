@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Icon from '../Icon.jsx'
 import AddMediaModal from '../AddMediaModal.jsx'
 import { MonitorToggle } from '../MediaControls'
-import PageHeader from './PageHeader.jsx'
+import PageHeader, { SearchField } from './PageHeader.jsx'
 import ViewToggle, { VIEW_VALUES } from './ViewToggle.jsx'
 import FilterChips from './FilterChips.jsx'
 import ArtImage from './ArtImage.jsx'
@@ -21,7 +21,7 @@ function ShowTile({ show, small }) {
   const unmonitored = !show.monitored
   const meta = unmonitored ? 'Unmonitored' : missing > 0 ? `${missing} missing` : [show.network, show.year].filter(Boolean).join(' · ')
   const metaId = `show-meta-${show.id}`
-  return <li>
+  return <li data-m-anchor={`show:${show.id}`}>
     <a className="m-tile" href={`#/shows/${show.id}`} aria-label={show.title} title={small ? show.title : undefined} aria-describedby={small ? undefined : metaId}>
       <span className={`m-poster${unmonitored ? ' is-grey' : ''}`}>
         <ArtImage srcs={[artUrl(show, 'poster', 'grid')]} className="m-art-poster" width="200" height="300" icon="television-simple" />
@@ -39,7 +39,7 @@ function ShowRow({ show, actions, onToast, refresh }) {
   const { onDisk, wanted, missing, pct } = mainSeasonCounts(show)
   const [searching, setSearching] = useState(false)
   async function search() { setSearching(true); try { await actions.searchSeries(show) } finally { setSearching(false) } }
-  return <li className="m-row">
+  return <li className="m-row" data-m-anchor={`show:${show.id}`}>
     <a className="m-row-link" href={`#/shows/${show.id}`}>
       <ArtImage srcs={[artUrl(show, 'poster', 'grid')]} className="m-art-poster m-thumb" width="64" height="96" icon="television-simple" />
       <span className="m-row-text">
@@ -69,7 +69,7 @@ export default function ShowsPage({ phone, onToast }) {
   const [view, setView] = usePreference('shows.view', 'posters', oneOf(VIEW_VALUES))
   const [adding, setAdding] = useState(false)
   const actions = useMediaActions(onToast)
-  const header = <PageHeader title="TV Shows" phone={phone} addLabel="Add Show" onAdd={() => setAdding(true)} gear />
+  let controls = {}
 
   let body
   if (loading) body = <div className="empty-state" role="status"><span className="spinner" /><span>Loading shows…</span></div>
@@ -91,24 +91,23 @@ export default function ShowsPage({ phone, onToast }) {
     if (sort === 'alpha') filtered.sort((a, b) => a.title.localeCompare(b.title))
     else if (sort === 'missing') filtered.sort((a, b) => mainSeasonCounts(b).missing - mainSeasonCounts(a).missing)
     else if (sort === 'year') filtered.sort((a, b) => (b.year || 0) - (a.year || 0))
-    body = <>
-      <p className="m-meta">
+    controls = {
+      meta: <>
         <span>{plural(series.length, 'show', 'shows')}</span>
         {totalMissing > 0 && <> <span aria-hidden="true">·</span> <button className="m-missing-link" onClick={() => setFilter('missing')}>{plural(totalMissing, 'missing episode', 'missing episodes')}</button></>}
-      </p>
-      <div className="m-controls">
-        <div className="m-search">
-          <Icon name="magnifying-glass" />
-          <input type="text" aria-label="Search shows" placeholder="Search shows…" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
+      </>,
+      search: <SearchField label="Search shows" placeholder="Search shows…" value={search} onChange={setSearch} />,
+      toolbar: <>
         <FilterChips options={FILTERS} value={filter} onChange={setFilter} />
         <select className="m-select" aria-label="Sort results" value={sort} onChange={e => setSort(e.target.value)}>
           <option value="alpha">A–Z</option>
           <option value="missing">Most Missing</option>
           <option value="year">Newest First</option>
         </select>
-        <ViewToggle value={view} onChange={setView} />
-      </div>
+      </>,
+      view: <ViewToggle value={view} onChange={setView} />,
+    }
+    body = <>
       {filtered.length === 0
         ? <div className="empty-state">
           <div className="empty-state-icon"><Icon name="television-simple" /></div>
@@ -120,7 +119,7 @@ export default function ShowsPage({ phone, onToast }) {
     </>
   }
   return <div className="m-page">
-    {header}
+    <PageHeader title="TV Shows" phone={phone} addLabel="Add Show" onAdd={() => setAdding(true)} gear {...controls} />
     {body}
     {adding && <AddMediaModal type="show" library={series} onClose={() => setAdding(false)} onAdded={refresh} onToast={onToast} />}
   </div>

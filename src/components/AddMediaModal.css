@@ -48,7 +48,8 @@
 .add-footer .btn { min-height: 44px; }
 .sheet:has(.add-footer) .sheet-content { padding-bottom: 0; }
 @media (max-width: 639px) {
-  .add-footer { padding: 12px max(12px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  /* The sheet sits between the side insets (Sheet.css), so the footer keeps its buttons max(12px, inset) from the screen edge. */
+  .add-footer { padding: 12px max(0px, calc(12px - var(--sa-right))) calc(12px + var(--sa-bottom)) max(0px, calc(12px - var(--sa-left))); }
   .add-footer-buttons .btn { flex: 1; }
   .modal-results { padding: 6px 12px 12px; }
   .selected-poster { width: 72px; height: 108px; }

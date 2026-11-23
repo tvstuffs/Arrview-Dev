@@ -1,5 +1,97 @@
 # ArrView server development changelog
 
+## Unreleased — Foldables and short screens: the rail in the column, sheets inside the safe areas, and the page kept across a fold
+
+- **What and why.** On a foldable phone with a column at the screen edge (the iPhone Duo's cover and inner screen, its Split
+  View windows) and on any short screen, the Modern layout lost most of the first screen to its bars and headers, its sheets ran
+  under the column, and folding lost the page's place. This build classifies the screen by width *and* height, moves navigation
+  into the column as a rail where there is one, condenses the page headers on short screens, keeps every sheet inside the safe
+  areas, and keeps the page, its controls and the scroll position across a fold or unfold. Decisions D57, D58 and D59 (and D63:
+  the rail inside a column uses the iOS style). No route, request, config key or file format changes; the version is not changed
+  here (`APP_VERSION` and `package.json` are as they were); the maintainer sets it at merge.
+- **The screen class.** Width: compact below 640 px. Height: short below 700 px of the *large* viewport height (read from a
+  hidden `100lvh` probe, falling back to `innerHeight`), so Safari's toolbar showing and hiding during a scroll never flips the
+  layout, and the keyboard never changes it. The safe-area insets are read through four custom properties (`--sa-top`,
+  `--sa-right`, `--sa-bottom`, `--sa-left`) that every stylesheet now uses; a column is an inset of 72 px or more on one side.
+  The result is written to `<html data-screen-height>` from startup, so the shared sheets follow it in both layouts. Nothing reads
+  `screen.width`/`screen.height` (on the Duo's inner screen Safari still reports the cover's size), nothing sniffs the device,
+  and no `svh` is used anywhere (it went stale in the Home Screen app after a fold).
+- **Navigation (Modern).** Short with a column: a rail inside the column. In the default iOS style it is two opaque pills centred
+  in the column: the five tabs as icons (each named, 44 px or larger, the selected one on a raised circle, the live download
+  ring kept on Downloads), its bottom 24 px above the screen's bottom; and above it, at the status keep-out, Back (show and movie
+  pages) over Settings. In this mode the hero's round Back and Settings buttons and the header gear are not shown, so there is one
+  Settings link. The keep-out is 38% of the large height, shrunk so the pills fit but never below 90 px. Short, coarse pointer, no
+  column, wider than tall (the Duo's cover sideways in Safari, a phone in landscape): a labelled rail at the left. Short and
+  compact otherwise: a compact bottom bar (48 px plus the bottom inset, icons over small labels, Settings stays the header gear).
+  A short desktop window keeps its top bar. Regular-height screens keep exactly today's bars.
+- **Short-screen pages (Modern).** Condensed headers: one title row (title, the meta line inline, the page actions and the view
+  toggle) and one toolbar row that never wraps and scrolls sideways; on a compact width the search starts as an icon button named
+  like the field. **Below 520 px of height the page title row and the toolbar share one row**: the same title and the same
+  toolbar controls, constrained to one line; nothing is dropped. A header narrower than 340 px (a 320 px phone) lets the page
+  actions wrap under the title instead of widening the page. Grids are sized by height (3 columns on the compact cover, 6 on the
+  inner screen, 4 below 800 px wide), the Downloads hero takes at most 40% of the height, the show and movie heroes at most 55%,
+  and Upcoming shows at least two full tiles on the cover and four on the inner screen. Toasts sit over the content, clear of the
+  column. Backdrop art may run under the column; nothing interactive does apart from the rail.
+- **Bug fixes, both layouts where the code is shared.** B1: the Downloads hero's fanart had a zero-size box on phones; it shows
+  again. B2: sheets lay under the column (the Add sheet ran to x 925 of 951 with an 84 px column); every sheet now sits between
+  the insets and its Close button is never in a column. B3: on short screens a sheet with a primary action puts it in its header
+  (Close, the title, then "Add Show"/"Add Movie", with the same busy text and disabled rules), the footer is not rendered and an
+  error shows at the top of the content; while the keyboard is up the sheet fits the visual viewport (its height and `offsetTop`),
+  so the field, Close and the action stay above the keyboard. B4 (the keyboard's form bar left up after a sheet closes): a sheet
+  blurs its focused text field before it closes, a route change blurs one before focusing the heading, and the four search fields
+  carry `enterkeyhint="search"` and let go of focus on Enter. B4 is **not** known to be fixed: on the device the bar was seen to
+  stay up with no field focused, which these changes do not address. B5: the bars and the rail are opaque.
+- **Continuity (D59).** Folding or unfolding is a resize, and the page stays: the route, the page itself (not remounted), the
+  search text, filters, sort, view, an open season, an open sheet with its query, results, selection and switches, an unsaved
+  Settings field. Long lists keep the item that was first on screen (`data-m-anchor` keys and `src/scrollAnchor.js`, as Safari
+  has no CSS scroll anchoring).
+- **Values and where they live.** Thresholds, the keep-out ratio and minimum, the rail sizes and the three switches
+  (`railPlacement` `"inside"`/`"beside"`, `railAnchor` `"bottom"`/`"top"`, `railStyle` `"ios"`/`"labelled"`) are in
+  `src/screenClass.json`. The size matrix is `tests/e2e/foldable-sizes.cjs`, each size tagged `measured`, `estimate` or
+  `provisional`. **Measured** on the device (Safari and the Home Screen app): the cover upright 461 × 678 (right 84, bottom 34)
+  and in Safari 377 × 580; the cover sideways 678 × 461 with the column left or right (bottom 34) and in Safari 594 × 363; open
+  wide 951 × 669 (right 84, bottom 34) and in Safari 951 × 537; open tall 669 × 951 (top 82, bottom 34) and in Safari 669 × 819;
+  Split View 469 × 669 beside the column (right 84) and away from it, and 385 × 571 in Safari; the keyboard viewports 377 × 311,
+  951 × 307, 678 × 200 (offsetTop 94) and 469 × 360 / 469 × 323 (offsetTop 121); the status cluster and the keep-out ratio.
+  **Provisional or estimated:** the keyboard on the cover upright (461 × 356) and open wide (951 × 366); the inner screen turned
+  the other way round (Split View with the column on the left); 466 × 678; the iPhone and Galaxy Z Fold8 sizes.
+- **Tests:** server 299/299 (299 at 1.9A20), web (vitest) 612/612 (572), e2e 295/295 and 22 skipped in Microsoft Edge on macOS
+  (183; the 22 skipped are the screenshot tests, which run only with `ARRVIEW_SHOTS_DIR` set; with it set, 317/317). No test is
+  marked as an expected failure. The continuity rows C2 and C4 (large posters, both directions) check the kept tile by row, as
+  the maintainer decided: in the six-column grid at 951 × 669 the 10th tile is the 4th of its row, so the tile kept is the first
+  of that row (the 7th), and after each fold it must be fully visible in the first fully visible row. With the scroll restore
+  switched off, those 4 tests fail. Every other row keeps the spec's check (the kept item is the first or second fully visible
+  one). New: `tests/web/screen-class.test.js`,
+  `screen-class-hook.test.jsx`, `scroll-anchor.test.js`, `scroll-anchor-wiring.test.jsx`, `sheet-foldables.test.jsx`, additions to
+  `modern-css.test.js`; `tests/e2e/foldables.spec.cjs` (the size matrix, the rail, the bars, the condensed headers, B1 to B5, the
+  keyboard viewports, the continuity matrix C1 to C12 with reversed runs, and the screenshot test) with `foldable-sizes.cjs`.
+  Changed: the 320 × 568 case in `tests/e2e/add-flow.spec.cjs`, which is now a short screen, checks Close and Add Show in the
+  header instead of the footer's Cancel and Add. **Failing first**, on the 1.9A20 code with the new tests: web 13 failed and 3
+  new test files could not load their module (574 passed); the foldables group 79 of 132 failed, and the 53 that passed are the
+  regression guards, the sheet checks that the old layout already met, and the screenshot tests.
+- **Checked in a browser** (Microsoft Edge driven by Playwright, with the insets emulated through `--sa-*`): every size of the
+  matrix and the regression sizes, every page, both sheets with the keyboard emulated, the fold sequences, both values of each
+  rail switch, and before/after screenshots of every page at every Duo size with the effective insets measured first.
+- **Not verified:** every check on a real Duo: the rail, the sheets, the keyboard, B4, and coming back from the background; B4
+  on a real Duo in particular (the bar was seen to stay up with no field focused, so the blur added here may not cure it);
+  `pointer: coarse` and the keyboard's viewport behaviour on iOS, which were not observed in this build; the inner screen turned
+  the other way round (angle 90), and the keyboard on the cover upright and open wide, none of which were measured; the size
+  matrix's `estimate` entries, which are estimates; the Galaxy Z Fold8 (estimated sizes only, no device); posture and segments
+  (not built); Safari and Firefox on a desktop; a screen reader.
+- **Human test plan.**
+  1. On the Duo as a Home Screen app, then in Safari, in every pose: the cover upright and sideways (both directions), the inner
+     screen open wide and open tall, Split View on both sides. On every page (Downloads, TV Shows, Movies, Upcoming, a show, a
+     movie, Search, Settings): the rail is inside the column (or the bars are where described above), nothing is under the
+     column apart from backdrop art, nothing scrolls sideways, and the status cluster never covers a control.
+  2. Tap every rail item inside the column, including Back on a show and a movie page and Settings in the top pill.
+  3. The Add sheet and Search, with the keyboard up and with it minimized: the field, Close and Add Show stay visible; close the
+     sheet by Close, by Add, and with Enter in the field, then change page: check whether the keyboard's form bar stays up.
+  4. Fold and unfold on each page, once with a search typed and once with a sheet open: the same page, the same text, the same
+     place in the list, the sheet still open with its selection.
+  5. Leave ArrView in the background for a while, go back to it, and check that the rail is inside the column.
+  6. A regular iPhone in portrait (as before) and in landscape (the new rail at the left); an iPad; desktop Edge at 1280 × 800
+     (as before) and in a short window (the top bar, condensed headers; below 520 px tall the title and toolbar share one row).
+
 ## 1.9A20 (unreleased) — Shows: every season of a show can be monitored in one press
 
 - **Version 1.9A20.** One feature on top of 1.9A19, from the maintainer's wish after trying the per-season control: on a show of many

@@ -1,4 +1,5 @@
-.sheet { color: var(--text); background: var(--raised); border: 1px solid var(--hair); border-radius: 14px; padding: 0; margin: auto; width: min(900px, calc(100% - 48px)); max-width: none; max-height: calc(100dvh - 48px); overflow: hidden; }
+/* Sheets sit inside the safe areas at every width (B2): the dialog is centred in the box the insets leave. */
+.sheet { color: var(--text); background: var(--raised); border: 1px solid var(--hair); border-radius: 14px; padding: 0; margin: auto; inset: var(--sa-top) var(--sa-right) var(--sa-bottom) var(--sa-left); width: min(900px, calc(100% - 48px - var(--sa-left) - var(--sa-right))); max-width: none; max-height: calc(100dvh - 48px - var(--sa-top) - var(--sa-bottom)); overflow: hidden; }
 .sheet[open] { display: flex; flex-direction: column; }
 .sheet::backdrop { background: rgba(0,0,0,.65); }
 .sheet-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; flex: none; border-bottom: 1px solid var(--hair); background: var(--raised); }
@@ -10,7 +11,23 @@
 .confirm-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-wrap: anywhere; }
 .confirm-body .btn { justify-content: center; min-height: 44px; white-space: normal; }
 @media (max-width: 639px) {
-  .sheet { width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top)); margin: auto 0 0; border-radius: 16px 16px 0 0; }
-  .sheet-header { padding: 12px max(12px, env(safe-area-inset-right)) 12px max(12px, env(safe-area-inset-left)); }
-  .sheet-content { padding-bottom: env(safe-area-inset-bottom); }
+  /* A bottom sheet between the side insets; the header keeps its content max(12px, inset) from the screen edge. */
+  .sheet { inset: var(--sa-top) var(--sa-right) 0 var(--sa-left); width: auto; max-width: none; max-height: calc(100dvh - var(--sa-top)); margin: auto 0 0; border-radius: 16px 16px 0 0; }
+  .sheet-header { padding: 12px max(0px, calc(12px - var(--sa-right))) 12px max(0px, calc(12px - var(--sa-left))); }
+  .sheet-content { padding-bottom: var(--sa-bottom); }
 }
+/* Short screens (the screen class on <html>, both layouts): the full visible height, and the primary action in the header
+   after Close and the title (B3). */
+html[data-screen-height="short"] .sheet { max-height: calc(100dvh - 16px - var(--sa-top) - var(--sa-bottom)); }
+html[data-screen-height="short"] .sheet.has-action { height: calc(100dvh - 16px - var(--sa-top) - var(--sa-bottom)); }
+html[data-screen-height="short"] .sheet.has-action .sheet-header { gap: 8px; padding-top: 6px; padding-bottom: 6px; }
+html[data-screen-height="short"] .sheet.has-action .sheet-header h2 { flex: 1; font-size: 17px; }
+html[data-screen-height="short"] .sheet.has-action .sheet-header .btn-primary { padding-left: 16px; padding-right: 16px; }
+.sheet-notice { padding: 12px 20px 0; }
+@media (max-width: 639px) {
+  html[data-screen-height="short"] .sheet { max-height: calc(100dvh - var(--sa-top)); }
+  html[data-screen-height="short"] .sheet.has-action { height: calc(100dvh - var(--sa-top)); }
+  .sheet-notice { padding: 12px 12px 0; }
+}
+/* The keyboard is up and a field in the sheet has focus: the sheet fits the visual viewport (Sheet.jsx sets --kb-*). */
+.sheet.sheet.is-keyboard[open] { top: max(var(--sa-top), var(--kb-top)); bottom: auto; margin-top: 0; margin-bottom: 0; height: calc(var(--kb-top) + var(--kb-height) - max(var(--sa-top), var(--kb-top))); max-height: none; }

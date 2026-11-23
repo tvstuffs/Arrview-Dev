@@ -3,7 +3,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: calc(48px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(80px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
+  padding: calc(48px + var(--sa-top)) calc(24px + var(--sa-right)) calc(80px + var(--sa-bottom)) calc(24px + var(--sa-left));
   background: var(--canvas);
 }
 

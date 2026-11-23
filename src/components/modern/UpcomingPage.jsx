@@ -120,7 +120,7 @@ function Agenda({ days }) {
           <span aria-hidden="true" className="m-agenda-weekday">{day.date.toLocaleDateString(undefined, { weekday: 'short' })}</span>
           <span aria-hidden="true" className="m-agenda-rel">{RELATIVE[day.relative] || ''}</span>
         </h2>
-        <ul className="m-agenda-tiles">{day.entries.map(entry => <li key={entry.key}><Tile entry={entry} /></li>)}</ul>
+        <ul className="m-agenda-tiles">{day.entries.map(entry => <li key={entry.key} data-m-anchor={`upcoming:${entry.key}`}><Tile entry={entry} /></li>)}</ul>
       </section>
     })}
   </div>
@@ -132,7 +132,7 @@ function List({ days }) {
       const date = day.date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
       return <section key={day.dayKey}>
         <h2 className="m-ulist-day">{day.relative ? `${RELATIVE[day.relative]} ` : ''}{date}</h2>
-        <ul className="m-ulist-rows">{day.entries.map(entry => <li key={entry.key}><Row entry={entry} /></li>)}</ul>
+        <ul className="m-ulist-rows">{day.entries.map(entry => <li key={entry.key} data-m-anchor={`upcoming:${entry.key}`}><Row entry={entry} /></li>)}</ul>
       </section>
     })}
   </div>
@@ -151,10 +151,6 @@ export default function UpcomingPage({ config, phone }) {
   let body
   if (loading) body = <div className="empty-state" role="status"><span className="spinner" /><span>Loading upcoming…</span></div>
   else body = <>
-    <div className="m-controls">
-      {both && <FilterChips options={FILTERS} value={filter} onChange={setFilter} label="Show" />}
-      <ViewToggle value={view} onChange={setView} options={VIEWS} />
-    </div>
     {failed.map(([id, label]) => <div className="empty-state m-uerror" role="alert" key={id}>
       <div className="empty-state-icon"><Icon name="warning" /></div>
       <strong>{errors[id]}</strong>
@@ -168,8 +164,9 @@ export default function UpcomingPage({ config, phone }) {
       : view === 'list' ? <List days={days} /> : <Agenda days={days} />}
   </>
   return <div className="m-page m-upcoming">
-    <PageHeader title="Upcoming" phone={phone} gear />
-    <p className="m-meta">Yesterday through the next 14 days · local time</p>
+    <PageHeader title="Upcoming" phone={phone} gear meta="Yesterday through the next 14 days · local time"
+      toolbar={!loading && both ? <FilterChips options={FILTERS} value={filter} onChange={setFilter} label="Show" /> : null}
+      view={loading ? null : <ViewToggle value={view} onChange={setView} options={VIEWS} />} />
     {body}
   </div>
 }

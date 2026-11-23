@@ -63,16 +63,23 @@ export function stubFetch(overrides = {}, data = {}) {
   return fn
 }
 
-// Per-query matchMedia: phone (max-width: 639px) and hover capability.
+// Per-query matchMedia: phone (max-width: 639px) and hover capability. The layout viewport follows (job 011: the screen
+// class reads innerWidth/innerHeight): a 402 x 874 phone or a 1280 x 900 window, both regular height.
 export function stubMedia({ phone = false, hover = true } = {}) {
   const original = window.matchMedia
+  const [width, height] = [window.innerWidth, window.innerHeight]
+  const viewport = (w, h) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: w })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: h })
+  }
+  viewport(phone ? 402 : 1280, phone ? 874 : 900)
   window.matchMedia = query => {
     const target = new EventTarget()
     target.media = query
     target.matches = /max-width:\s*639px/.test(query) ? phone : /hover:\s*hover/.test(query) ? hover : false
     return target
   }
-  return () => { window.matchMedia = original }
+  return () => { window.matchMedia = original; viewport(width, height) }
 }
 
 export function resetEnvironment() {

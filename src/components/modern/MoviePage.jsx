@@ -3,6 +3,7 @@ import ArtImage from './ArtImage.jsx'
 import NotFound from './NotFound.jsx'
 import MovieActions from './MovieActions.jsx'
 import { SettingsLink } from './PageHeader.jsx'
+import { useScreen } from './ScreenContext.js'
 import { DownloadBar, MovieLiveText } from './DownloadStatus.jsx'
 import { useMovies } from './LibraryProvider.jsx'
 import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
@@ -22,6 +23,7 @@ function statusLine(movie, now = Date.now()) {
 
 export default function MoviePage({ id, phone, onToast }) {
   const { movies, loading, error, refresh, identity } = useMovies()
+  const { settingsInRail, backInRail } = useScreen()
   const actions = useMediaActions(onToast)
   const numeric = /^\d+$/.test(id) ? Number(id) : NaN
   useDownloadNeeds({ sab: true, radarr: { movieId: Number.isSafeInteger(numeric) ? numeric : null } })
@@ -43,10 +45,10 @@ export default function MoviePage({ id, phone, onToast }) {
   return <article className="m-detail m-movie">
     <ArtImage ambient srcs={[artUrl(movie, 'fanart', 'backdrop'), artUrl(movie, 'poster', 'detail')]} />
     <section className="m-hero">
-      <div className="m-hero-nav">
+      {!backInRail && <div className="m-hero-nav">
         <a className="m-back" href="#/movies" aria-label="Back to Movies"><Icon name="caret-left" /><span>Movies</span></a>
-        {phone && <SettingsLink className="m-iconbtn m-roundbtn" />}
-      </div>
+        {phone && !settingsInRail && <SettingsLink className="m-iconbtn m-roundbtn" />}
+      </div>}
       <div className={`m-movie-poster${live ? ' has-live' : ''}`}>
         <ArtImage srcs={[artUrl(movie, 'poster', 'detail')]} className="m-art-poster" width="300" height="450" eager />
         {live && <DownloadBar pct={live.pct} tone={live.status === 'paused' ? 'attn' : 'live'} overlay />}

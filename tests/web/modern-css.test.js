@@ -134,3 +134,24 @@ test('Upcoming tiles use flat colours: no borders, shadows or gradients, and the
   expect(rules.some(r => r.selector === '.m-utile.is-drop .m-utile-stack::before')).toBe(true)
   expect(rules.some(r => r.selector === '.m-utile.is-drop .m-utile-stack::after')).toBe(true)
 })
+// Job 011: B5 and the safe areas (spec criteria 1 and 13; maintainer note 2 for the ios rail's pills).
+const OPAQUE = ['var(--canvas)', 'var(--raised)', 'var(--raised-2)']
+const backgroundOf = selector => {
+  const rule = rules.find(r => r.selector.split(',').map(s => s.trim().replace(/\s+/g, ' ')).includes(selector) && /background(-color)?\s*:/.test(r.body))
+  return rule ? /background(?:-color)?\s*:\s*([^;]+)/.exec(rule.body)[1].trim() : null
+}
+test('B5: the top bar, both bottom bars and the rail are opaque; only the overlay top bar over heroes is translucent (criterion 13)', () => {
+  for (const selector of ['.m-topbar', '.m-bottomnav', '.m-rail.is-labelled', '.m-rail-pill']) {
+    expect(OPAQUE, `${selector} background`).toContain(backgroundOf(selector))
+  }
+  // Every rule whose subject is one of the bars themselves (not an item inside one).
+  const isBar = part => /^\.m-(topbar|bottomnav|rail|rail-pill)(\.[\w-]+|\[[^\]]+\])*$/.test(part.trim().split(/\s+/).pop())
+  const bars = rules.filter(({ selector }) => selector.split(',').some(isBar) && !selector.includes('is-overlay') && !/:hover|:focus/.test(selector))
+  expect(bars.length).toBeGreaterThan(5)
+  for (const { selector, body } of bars) expect(body, selector).not.toMatch(/background(-color)?\s*:\s*(rgba\(|transparent)/)
+  expect(backgroundOf('.m-topbar.is-overlay')).toMatch(/rgba\(/)
+})
+test('Modern CSS reads the safe areas only through --sa-* (criterion 1)', () => {
+  expect(css).not.toMatch(/env\(/)
+  expect(css).toMatch(/var\(--sa-top\)/)
+})

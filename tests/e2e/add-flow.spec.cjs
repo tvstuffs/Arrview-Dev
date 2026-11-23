@@ -169,15 +169,20 @@ for (const layout of LAYOUTS) {
       expect(bar.y - sheet.y).toBeLessThan(110)
       await quality(page).click()
       await expect(dialogOf(page).getByRole('listbox', { name: 'Quality Profile' })).toBeVisible()
-      await expect(dialogOf(page).getByRole('button', { name: 'Cancel' })).toBeInViewport()
+      // 568 px is a short screen (below 700, maintainer note 1): Add Show moves into the sheet's header after Close and the
+      // footer, with its Cancel, is not rendered (B3, spec criterion 10). Taller phones keep the footer exactly as before.
+      const short = viewport.height < 700
+      const first = short ? dialogOf(page).getByRole('button', { name: 'Close dialog' }) : dialogOf(page).getByRole('button', { name: 'Cancel' })
+      if (short) await expect(dialogOf(page).locator('.add-footer')).toHaveCount(0)
+      await expect(first).toBeInViewport()
       await expect(addButton(page, 'show')).toBeInViewport()
-      // The content scrolls; the footer does not move.
-      const footer = dialogOf(page).locator('.add-footer')
-      const before = await footer.boundingBox()
+      // The content scrolls; the footer (the header on a short screen) does not move.
+      const fixed = dialogOf(page).locator(short ? '.sheet-header' : '.add-footer')
+      const before = await fixed.boundingBox()
       await page.locator('.sheet-content').evaluate(el => { el.scrollTop = el.scrollHeight })
-      expect(await footer.boundingBox()).toEqual(before)
+      expect(await fixed.boundingBox()).toEqual(before)
       await expect(addButton(page, 'show')).toBeInViewport()
-      for (const button of [dialogOf(page).getByRole('button', { name: 'Cancel' }), addButton(page, 'show')]) expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(43.9)
+      for (const button of [first, addButton(page, 'show')]) expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(43.9)
       expect(await noOverflow(page)).toBe(true)
       // The result row scrolls inside the sheet instead of widening the page.
       if (viewport.width <= 360) expect(await dialogOf(page).locator('.modal-results').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)

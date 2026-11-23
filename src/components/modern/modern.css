@@ -2,10 +2,12 @@
    Neutral chrome: no borders or shadows on tiles, rows, bars or cards; only scrims over artwork fade to black. */
 
 .m-shell {
-  --m-bar: calc(56px + env(safe-area-inset-top));
-  --m-bottom: calc(60px + env(safe-area-inset-bottom));
-  --m-pad-l: max(24px, env(safe-area-inset-left));
-  --m-pad-r: max(24px, env(safe-area-inset-right));
+  --m-bar: calc(56px + var(--sa-top));
+  --m-bottom: calc(60px + var(--sa-bottom));
+  --m-pad-l: max(24px, var(--sa-left));
+  --m-pad-r: max(24px, var(--sa-right));
+  --m-gap: 24px;
+  --m-rail-off: 0px;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -29,9 +31,9 @@
 .m-topbar {
   position: sticky; top: 0; z-index: 50;
   height: var(--m-bar);
-  padding: env(safe-area-inset-top) var(--m-pad-r) 0 var(--m-pad-l);
+  padding: var(--sa-top) var(--m-pad-r) 0 var(--m-pad-l);
   display: flex; align-items: center; gap: 24px;
-  background: rgba(11, 11, 12, .96);
+  background: var(--canvas);
   transition: background-color .2s;
 }
 .m-topbar.is-overlay { background: rgba(11, 11, 12, .7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
@@ -55,8 +57,8 @@
 .m-bottomnav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
   display: flex;
-  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  background: rgba(11, 11, 12, .96);
+  padding: 0 var(--sa-right) var(--sa-bottom) var(--sa-left);
+  background: var(--canvas);
 }
 .m-bottomnav .m-navlink {
   flex: 1 1 0; min-width: 0; flex-direction: column; gap: 2px;
@@ -356,7 +358,7 @@
 /* -- Phones ----------------------------------------------------------------- */
 @media (max-width: 639px) {
   .m-dl-hero, .m-dl-hero.is-poster, .m-dl-hero.is-glyph { display: flex; flex-direction: column; align-items: stretch; min-height: 0; }
-  .m-dl-hero .m-hero-art { order: -1; }
+  .m-dl-hero .m-hero-art { order: -1; align-self: stretch; }
   .m-dl-hero-poster { order: -1; width: 55%; max-width: 200px; margin: 0 auto 12px; }
   .m-dl-hero-body { padding: 0 0 8px; }
   .m-dl-row { grid-template-columns: 48px minmax(0, 1fr); }
@@ -364,16 +366,16 @@
   .m-dl-row-side, .m-dl-row-actions { grid-column: 2; }
   .m-dl-row-side { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 2px 10px; text-align: left; }
   .m-live-ep { align-items: flex-start; }
-  .m-shell { --m-pad-l: max(12px, env(safe-area-inset-left)); --m-pad-r: max(12px, env(safe-area-inset-right)); }
-  .m-main { padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: calc(var(--m-bottom) + 20px); }
+  .m-shell { --m-pad-l: max(12px, var(--sa-left)); --m-pad-r: max(12px, var(--sa-right)); }
+  .m-main { padding-top: calc(12px + var(--sa-top)); padding-bottom: calc(var(--m-bottom) + 20px); }
   .m-main.is-hero { padding: 0 0 calc(var(--m-bottom) + 20px); }
-  .m-banner { padding-top: calc(10px + env(safe-area-inset-top)); }
+  .m-banner { padding-top: calc(10px + var(--sa-top)); }
   .m-pageheader h1, .m-title { font-size: 24px; }
   .m-grid.is-large { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px; }
   .m-grid.is-small { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 8px; }
   .m-viewtoggle { margin-left: 0; }
   .m-hero { display: block; min-height: 0; padding: 0; }
-  .m-hero-nav { position: absolute; left: var(--m-pad-l); right: var(--m-pad-r); top: calc(env(safe-area-inset-top) + 10px); z-index: 3; justify-content: space-between; padding: 0; }
+  .m-hero-nav { position: absolute; left: var(--m-pad-l); right: var(--m-pad-r); top: calc(var(--sa-top) + 10px); z-index: 3; justify-content: space-between; padding: 0; }
   .m-back { padding: 0; width: 40px; height: 40px; justify-content: center; border-radius: 50%; background: rgba(11, 11, 12, .6); color: var(--text); }
   .m-back span { display: none; }
   .m-roundbtn { background: rgba(11, 11, 12, .6); color: var(--text); }
@@ -385,7 +387,7 @@
   }
   .m-hero-art .m-art { aspect-ratio: 4 / 3; }
   .m-hero-body { margin-top: -56px; padding: 0 var(--m-pad-r) 16px var(--m-pad-l); }
-  .m-movie .m-hero { display: block; padding: calc(env(safe-area-inset-top) + 64px) 0 0; }
+  .m-movie .m-hero { display: block; padding: calc(var(--sa-top) + 64px) 0 0; }
   .m-movie-poster { width: 55%; max-width: 240px; margin: 0 auto 16px; }
   .m-movie .m-hero-body { margin-top: 0; padding: 0 var(--m-pad-r) 16px var(--m-pad-l); }
   .m-ep { grid-template-columns: 112px minmax(0, 1fr); gap: 4px 12px; }
@@ -410,6 +412,146 @@
   .m-shell .m-missing-link { min-height: 44px; }
   .m-bottomnav .m-navlink { min-height: 56px; }
 }
+
+/* -- Short screens (job 011). The shell carries the screen class from useScreenClass as data attributes; nothing here
+   keys off a height media query, so the class (on the large viewport height) decides alone. ------------------------- */
+.m-shell[data-width="compact"] { --m-gap: 12px; }
+
+/* The rail: inside a side-controls column it is as wide as the column (--m-rail-w, set by the shell); beside it, or with
+   no column at the left, it is railWidth wide after the inset (--m-rail-off). The content keeps clear of both. */
+.m-shell[data-nav="rail"] { --m-bar: var(--sa-top); --m-bottom: var(--sa-bottom); }
+.m-shell[data-nav="rail"][data-rail-placement="beside"][data-rail-side="right"] { --m-rail-off: var(--sa-right); }
+.m-shell[data-nav="rail"][data-rail-placement="beside"][data-rail-side="left"] { --m-rail-off: var(--sa-left); }
+.m-shell[data-nav="rail"][data-rail-side="right"] { --m-pad-r: calc(var(--m-rail-off) + var(--m-rail-w) + var(--m-gap)); }
+.m-shell[data-nav="rail"][data-rail-side="left"] { --m-pad-l: calc(var(--m-rail-off) + var(--m-rail-w) + var(--m-gap)); }
+.m-rail { position: fixed; top: 0; bottom: 0; z-index: 50; width: var(--m-rail-w); }
+.m-shell[data-rail-side="right"] .m-rail { right: var(--m-rail-off); }
+.m-shell[data-rail-side="left"] .m-rail { left: var(--m-rail-off); }
+/* labelled: one opaque group, icon over label, Settings last, anchored to the bottom above --sa-bottom */
+.m-rail.is-labelled { display: flex; flex-direction: column; justify-content: flex-end; padding: var(--sa-top) 0 calc(var(--sa-bottom) + var(--m-rail-pad)); background: var(--canvas); overflow-y: auto; scrollbar-width: none; }
+.m-shell[data-rail-anchor="top"] .m-rail.is-labelled { justify-content: flex-start; padding-top: calc(var(--sa-top) + var(--m-rail-pad)); }
+.m-shell[data-rail-anchor="top"][data-rail-placement="inside"] .m-rail.is-labelled { padding-top: var(--m-keepout); }
+.m-rail-nav { display: flex; flex-direction: column; gap: var(--m-rail-gap); }
+.m-raillink {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex: none;
+  height: var(--m-rail-item); min-width: 44px; margin: 0 4px; padding: 4px 2px; border-radius: 10px;
+  color: var(--text-2); font-size: 10.5px; font-weight: 500; line-height: 1.2; text-align: center; text-decoration: none;
+}
+.m-raillink:hover { color: var(--text); }
+.m-raillink.is-active { color: var(--text); background: var(--raised-2); }
+.m-raillink svg { font-size: 22px; }
+.m-rail-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; }
+.m-rail-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ios (inside a column only): the column stays clear; two opaque pills centred in it take the touches */
+.m-rail.is-ios { pointer-events: none; }
+.m-rail-pill {
+  position: absolute; left: 50%; width: var(--m-pill-w); margin-left: calc(var(--m-pill-w) / -2);
+  display: flex; flex-direction: column; align-items: center; padding: var(--m-pill-pad) 0; border-radius: calc(var(--m-pill-w) / 2);
+  background: var(--raised); pointer-events: auto;
+}
+.m-rail-pill.is-top { top: var(--m-keepout); }
+.m-rail-pill.is-tabs { bottom: var(--m-pill-bottom); }
+.m-shell[data-rail-anchor="top"] .m-rail-pill.is-tabs { bottom: auto; top: var(--m-tabs-top); }
+.m-pilltab { display: flex; align-items: center; justify-content: center; flex: none; width: 44px; height: var(--m-pitch); color: var(--text-2); font-size: 22px; text-decoration: none; }
+.m-pilltab:hover { color: var(--text); }
+.m-pilltab.is-active { color: var(--text); }
+.m-pilltab-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; }
+.m-pilltab.is-active .m-pilltab-icon { background: var(--raised-2); }
+.m-rail .m-live-ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+.m-rail .m-live-ring svg { display: block; }
+
+/* The compact bottom bar: 48 px plus the bottom inset, a 9-10 px label under each icon. */
+.m-shell[data-nav="bottom-compact"] { --m-bottom: calc(48px + var(--sa-bottom)); }
+.m-shell[data-nav="bottom-compact"] .m-bottomnav .m-navlink { min-height: 48px; padding: 4px 1px; gap: 1px; font-size: 9.5px; }
+.m-shell[data-nav="bottom-compact"] .m-bottomnav .m-navlink svg { font-size: 20px; }
+
+/* Toasts sit over the content, clear of the rail and the column. */
+.m-shell[data-nav="rail"] .toast-container { right: var(--m-pad-r); bottom: calc(16px + var(--sa-bottom)); }
+.m-shell[data-nav="rail"][data-width="compact"] .toast-container { left: var(--m-pad-l); }
+
+/* The page keeps the item on screen itself across a fold (scrollAnchor.js), as Safari has no CSS scroll anchoring; the
+   browser's own anchoring would fight it in Chromium. */
+.m-shell[data-height="short"] .m-main { overflow-anchor: none; }
+
+/* Less space above the first content: the main padding, condensed headers, smaller heroes. */
+.m-shell[data-height="short"] .m-main:not(.is-hero) { padding-top: 12px; }
+.m-shell[data-height="short"]:not([data-nav="top"]) .m-main:not(.is-hero) { padding-top: calc(12px + var(--sa-top)); }
+.m-shell[data-height="short"] .m-title { font-size: 21px; margin-bottom: 6px; }
+.m-pageheader.is-condensed { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-bottom: 10px; }
+.m-titlerow { display: flex; align-items: center; gap: 4px 8px; min-width: 0; }
+/* When the header is narrower than 340 px (a 320 px phone, or a rail beside a column) the title and the page actions cannot
+   share one row: the actions wrap under the title instead of widening the page. The header's own width decides, not the
+   viewport's. */
+.m-pageheader.is-condensed { container: m-header / inline-size; }
+@container m-header (max-width: 339px) { .m-titlerow { flex-wrap: wrap; } }
+.m-titlerow h1 { flex: none; font-size: 21px; }
+.m-titlerow .m-meta { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; font-size: 13px; }
+.m-titlerow .m-pageheader-actions { flex: none; gap: 4px; margin-left: auto; }
+.m-titlerow .m-viewtoggle { margin-left: 0; }
+.m-toolbar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.m-toolbar > * { flex: none; }
+.m-toolbar .m-search { flex: 0 1 260px; min-width: 160px; }
+.m-toolbar .m-chips { flex-wrap: nowrap; }
+.m-toolbar .m-chips button { white-space: nowrap; }
+.m-toolbar .m-quiet-attn { white-space: nowrap; }
+.m-shell[data-header-rows="one"] .m-pageheader.is-condensed { flex-direction: row; align-items: center; gap: 12px; }
+.m-shell[data-header-rows="one"] .m-titlerow { flex: 0 1 auto; }
+.m-shell[data-header-rows="one"] .m-titlerow .m-meta { display: none; }
+.m-shell[data-header-rows="one"] .m-toolbar { flex: 1 1 0; }
+@media (pointer: fine) {
+  .m-pageheader.is-condensed .m-viewtoggle { padding: 2px; }
+  .m-pageheader.is-condensed .m-viewtoggle button { width: 28px; height: 28px; font-size: 16px; }
+  .m-toolbar .m-search input { padding-top: 6px; padding-bottom: 6px; }
+  .m-toolbar .m-select { padding-top: 6px; padding-bottom: 6px; }
+}
+.m-shell[data-height="short"] .m-gear-row { position: absolute; top: 0; right: 0; z-index: 3; margin: 0; }
+.m-shell[data-height="short"] .m-dl { position: relative; gap: 20px; }
+
+/* Downloads hero on short screens: at most 40% of the height; the art beside the text (regular width) or a banner behind
+   the title under the art's own fade (compact width). */
+.m-shell[data-height="short"] .m-dl-hero { min-height: 0; max-height: 40dvh; }
+.m-shell[data-height="short"] .m-dl-title { font-size: clamp(20px, 4.5dvh, 32px); }
+.m-shell[data-height="short"] .m-dl-hero .m-hero-art { max-height: 40dvh; overflow: hidden; }
+.m-shell[data-height="short"] .m-dl-progress { margin-top: 10px; }
+.m-shell[data-height="short"] .m-dl-actions { margin-top: 10px; }
+.m-shell[data-height="short"] .m-dl-hero.is-poster, .m-shell[data-height="short"] .m-dl-hero.is-glyph { display: grid; grid-template-columns: min(120px, 28%) minmax(0, 1fr); column-gap: 16px; align-items: center; }
+.m-shell[data-height="short"] .m-dl-hero.is-poster .m-dl-hero-poster, .m-shell[data-height="short"] .m-dl-hero.is-glyph .m-dl-hero-poster { grid-column: 1; grid-row: 1; width: 100%; margin: 0; }
+.m-shell[data-height="short"] .m-dl-hero.is-poster .m-dl-hero-body, .m-shell[data-height="short"] .m-dl-hero.is-glyph .m-dl-hero-body { grid-column: 2; grid-row: 1; padding: 0; }
+.m-shell[data-height="short"][data-width="compact"] .m-dl-hero.is-fanart { display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; overflow: hidden; border-radius: 12px; }
+.m-shell[data-height="short"][data-width="compact"] .m-dl-hero.is-fanart .m-hero-art { grid-column: 1; grid-row: 1; align-self: stretch; height: 100%; max-height: none; }
+.m-shell[data-height="short"][data-width="compact"] .m-dl-hero.is-fanart .m-hero-art .m-art { height: 100%; aspect-ratio: auto; }
+.m-shell[data-height="short"][data-width="compact"] .m-dl-hero.is-fanart .m-dl-hero-body { grid-column: 1; grid-row: 1; position: relative; z-index: 1; padding: 56px 12px 12px; }
+
+/* Grids sized by height: 3 large posters across compact, 6 across regular (4 below 800 px). */
+.m-shell[data-height="short"][data-width="compact"] .m-grid.is-large { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 10px; }
+.m-shell[data-height="short"][data-width="regular"] .m-grid.is-large { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px 14px; }
+@media (max-width: 799px) {
+  .m-shell[data-height="short"][data-width="regular"] .m-grid.is-large { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.m-shell[data-height="short"] .m-tile { gap: 4px; }
+.m-shell[data-height="short"] .m-tile-title { font-size: 13px; }
+.m-shell[data-height="short"] .m-agenda { gap: 20px 24px; }
+.m-shell[data-height="short"] .m-agenda-tiles { gap: 14px; }
+
+/* Show and movie pages: the hero at most 55% of the height; the season bar and first episodes on the first screen. */
+.m-shell[data-height="short"][data-width="regular"] .m-hero { min-height: min(440px, 55dvh); padding-bottom: 16px; }
+.m-shell[data-height="short"] .m-overview { -webkit-line-clamp: 2; margin: 8px 0; }
+.m-shell[data-header-rows="one"] .m-overview { display: none; }
+.m-shell[data-height="short"] .m-hero-body h1 { font-size: clamp(20px, 4dvh, 32px); }
+.m-shell[data-height="short"] .m-hero-meta { margin-top: 4px; }
+.m-shell[data-height="short"] .m-hero-nav { padding-bottom: 4px; }
+.m-shell[data-height="short"] .m-hero-actions { margin-top: 10px; }
+.m-shell[data-height="short"] .m-seasons-head { margin: 8px 0; }
+.m-shell[data-height="short"] .m-season-bar { margin: 8px 0; }
+.m-shell[data-height="short"][data-width="compact"] .m-hero-art .m-art { aspect-ratio: auto; height: min(56.25vw, 30dvh); }
+.m-shell[data-height="short"][data-width="compact"] .m-show .m-overview { display: none; }
+.m-shell[data-height="short"] .m-movie .m-hero { display: grid; grid-template-columns: min(160px, 30%) minmax(0, 1fr); grid-template-rows: auto; column-gap: 16px; align-items: start; }
+.m-shell[data-height="short"][data-width="compact"] .m-movie .m-hero { padding: calc(var(--sa-top) + 64px) var(--m-pad-r) 16px var(--m-pad-l); }
+.m-shell[data-height="short"][data-rail-style="ios"][data-width="compact"] .m-movie .m-hero { padding-top: calc(var(--sa-top) + 16px); }
+.m-shell[data-height="short"] .m-movie .m-movie-poster { grid-column: 1; grid-row: 1; width: 100%; max-width: none; margin: 0; }
+.m-shell[data-height="short"] .m-movie .m-hero-body { grid-column: 2; grid-row: 1; margin: 0; padding: 0; }
+.m-shell[data-height="short"][data-width="regular"] .m-movie .m-hero-nav { grid-column: 1 / -1; grid-row: 1; }
+.m-shell[data-height="short"][data-width="regular"] .m-movie .m-hero-nav ~ .m-movie-poster, .m-shell[data-height="short"][data-width="regular"] .m-movie .m-hero-nav ~ .m-hero-body { grid-row: 2; }
 
 @media (prefers-reduced-motion: reduce) {
   .m-shell, .m-shell *, .m-shell *::before, .m-shell *::after { transition-duration: 0s !important; animation-duration: 0s !important; scroll-behavior: auto !important; }

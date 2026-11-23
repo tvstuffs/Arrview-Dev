@@ -195,23 +195,28 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
 
   const label = type === 'show' ? 'Show' : 'Movie'
 
+  const error = addError && <div className="error-banner" role="alert">{addError}</div>
+  const addButton = (
+    <button type="button" className="btn btn-primary" onClick={handleAdd} disabled={!canAdd || adding}>
+      {adding
+        ? <><span className="spinner" style={{width:14,height:14}} /> Adding…</>
+        : `Add ${label}`
+      }
+    </button>
+  )
   const footer = (
     <div className="add-footer">
-      {addError && <div className="error-banner" role="alert">{addError}</div>}
+      {error}
       <div className="add-footer-buttons">
         <button type="button" className="btn btn-secondary" disabled={adding} onClick={onClose}>Cancel</button>
-        <button type="button" className="btn btn-primary" onClick={handleAdd} disabled={!canAdd || adding}>
-          {adding
-            ? <><span className="spinner" style={{width:14,height:14}} /> Adding…</>
-            : `Add ${label}`
-          }
-        </button>
+        {addButton}
       </div>
     </div>
   )
 
+  // Short screens: Add moves into the sheet's header and the error to the top of the content (Sheet's `action`, B3).
   return (
-    <Sheet title={`Add ${label}`} onClose={onClose} busy={adding} footer={footer} initialFocus={inputRef}>
+    <Sheet title={`Add ${label}`} onClose={onClose} busy={adding} footer={footer} initialFocus={inputRef} action={addButton} notice={error || null}>
       <div className="modal-panel" onClick={e => e.stopPropagation()}>
         <div className="add-grabber" aria-hidden="true" />
 
@@ -223,7 +228,9 @@ export default function AddMediaModal({ type, library, onClose, onAdded, onToast
             aria-label={`Search for a ${type === 'show' ? 'show' : 'movie'}`}
             placeholder={`Search for a ${type === 'show' ? 'tv show' : 'movie'}…`}
             value={query}
+            enterKeyHint="search"
             onChange={e => { setQuery(e.target.value); setSelected(null); setAddError(null) }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur() }}
           />
           {searching && <span className="spinner modal-search-spinner" />}
         </div>
