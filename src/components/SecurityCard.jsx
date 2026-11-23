@@ -203,7 +203,6 @@ export default function SecurityCard() {
           <button className="btn btn-secondary" disabled={busy} onClick={() => setConfirm('remove-all-keys')}><Icon name="trash" /> Remove all keys</button>
         </div>}
       </div>}
-      {on && <p className="text-muted text-sm">The ArrView iOS and tvOS apps can’t sign in yet.</p>}
 
       {confirm && confirm.removeKey && <ConfirmSheet title={`Remove key ${confirm.removeKey.name}?`} description="The app or script using it will stop working at once."
         onClose={() => setConfirm(null)} actions={[{ label: 'Remove key', run: async () => { await call('/api/auth/keys/remove', { body: { id: confirm.removeKey.id } }); await loadKeys() } }]} />}

@@ -255,6 +255,40 @@ test('hero layout on phones: art on top, text below (criterion 17)', async ({ pa
   await expect(page.getByRole('link', { name: 'Back to TV Shows' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Settings', exact: true })).toBeVisible()
 })
+// The apps behind ArrView open from Modern, as Classic's status pills open them: every link goes to the address saved in Settings,
+// in a new tab. The fixture saves each service at its stand-in's address, so a click opens that address.
+for (const [width, phone] of [[1280, false], [402, true]]) {
+  test(`the apps behind ArrView open from Modern in a new tab: the page links, the movie in Radarr and Settings (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const saved = await (await page.request.get('/api/config')).json()
+    for (const [hash, name, service] of [['/shows', 'Open Sonarr', 'sonarr'], ['/movies', 'Open Radarr', 'radarr'],
+      ['/downloads', 'Open SABnzbd', 'sabnzbd'], ['/search', 'Open NZBHydra', 'nzbhydra']]) {
+      await open(page, hash)
+      const link = page.getByRole('link', { name, exact: true })
+      await expect(link, hash).toHaveAttribute('href', saved[service].url.replace(/\/+$/, ''))
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      await expect(link).toBeVisible()
+      expect(await fits(page), hash).toBe(true)
+    }
+    await open(page, '/upcoming')
+    await expect(page.locator('main').getByRole('link', { name: /^Open / })).toHaveCount(0)
+    await open(page, '/movies/2')
+    const movie = page.getByRole('link', { name: 'Open in Radarr' })
+    await expect(movie).toHaveAttribute('href', `${saved.radarr.url.replace(/\/+$/, '')}/movie/fixture-movie-with-a-long-descriptive-title-2`)
+    await expect(movie).toHaveAttribute('target', '_blank')
+    await open(page, '/shows')
+    const [popup] = await Promise.all([page.waitForEvent('popup'), page.getByRole('link', { name: 'Open Sonarr', exact: true }).click()])
+    await popup.waitForLoadState('domcontentloaded').catch(() => {})
+    expect(popup.url()).toBe(new URL(saved.sonarr.url).href)
+    await popup.close()
+    await expect(heading(page)).toHaveText('TV Shows')
+    await open(page, '/settings')
+    await page.getByRole('button', { name: 'Sonarr', exact: true }).click()
+    await expect(page.getByRole('link', { name: 'Open Sonarr', exact: true })).toHaveAttribute('href', saved.sonarr.url.replace(/\/+$/, ''))
+  })
+}
+
 test('show page actions: Search Missing, Monitored, Open in Sonarr, More sheet with Cancel making no request (criterion 18)', async ({ page, request }) => {
   await open(page, '/shows/1')
   await request.post('/__fixture/reset-requests')
@@ -437,7 +471,7 @@ for (const [width, phone] of [[1024, false], [402, true]]) {
     const tabbed = ['Back to TV Shows', ...(await walk(page, expected.length - 1)).map(item => item.name)]
     expect(tabbed).toEqual(expected)
     await open(page, '/movies/2')
-    const movie = ['Back to Movies', ...(phone ? ['Settings'] : []), 'Download', 'Interactive Search', 'Monitored: ' + MOVIE, 'Delete…']
+    const movie = ['Back to Movies', ...(phone ? ['Settings'] : []), 'Download', 'Interactive Search', 'Monitored: ' + MOVIE, 'Open in Radarr', 'Delete…']
     expect(await mainFocusables(page)).toEqual(movie)
     await page.getByRole('link', { name: 'Back to Movies' }).focus()
     expect(['Back to Movies', ...(await walk(page, movie.length - 1)).map(item => item.name)]).toEqual(movie)

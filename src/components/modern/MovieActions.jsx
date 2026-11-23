@@ -20,9 +20,10 @@ export function useHoverCapable() {
   return capable
 }
 
-// Download, Interactive Search, Monitored and Delete for one movie.
+// Download, Interactive Search, Monitored and Delete for one movie, and with `openHref` (the movie page) a link to the movie
+// in Radarr before Delete, as the show page has for Sonarr.
 // variant: 'page' (text buttons), 'row' (icons, Download with text), 'overlay' (as row), 'overlay-small' (icons only).
-export default function MovieActions({ movie, actions, identity, onChanged, onToast, onRemoved, variant = 'row' }) {
+export default function MovieActions({ movie, actions, identity, onChanged, onToast, onRemoved, variant = 'row', openHref = null }) {
   const [searching, setSearching] = useState(false)
   const [interactive, setInteractive] = useState(false)
   const [confirm, setConfirm] = useState(false)
@@ -38,6 +39,8 @@ export default function MovieActions({ movie, actions, identity, onChanged, onTo
       ? <button className="btn btn-secondary btn-sm" onClick={() => setInteractive(true)}><Icon name="magnifying-glass" /> Interactive Search</button>
       : <button className="btn btn-icon" aria-label="Interactive Search" title="Interactive Search" onClick={() => setInteractive(true)}><Icon name="magnifying-glass" /></button>}
     <MonitorToggle media={movie} service="radarr" onChanged={onChanged} onToast={onToast} />
+    {openHref && <a className="btn btn-icon" href={openHref} target="_blank" rel="noopener noreferrer" title="Open in Radarr" aria-label="Open in Radarr">
+      <Icon name="arrow-square-out" /></a>}
     {text
       ? <button className="btn btn-secondary btn-sm" onClick={() => setConfirm(true)}><Icon name="trash" /> Delete…</button>
       : <button className="btn btn-icon btn-icon-danger" aria-label={`Delete ${movie.title}`} title={`Delete ${movie.title}`} onClick={() => setConfirm(true)}><Icon name="trash" /></button>}

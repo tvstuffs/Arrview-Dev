@@ -54,6 +54,16 @@
   background: transparent; color: var(--text-2); font-size: 20px; text-decoration: none;
 }
 .m-iconbtn:hover { color: var(--text); background: var(--raised-2); }
+/* The link to the app behind a page (Open Sonarr, say): a round icon no taller than the controls beside it, so no header row
+   grows; 44 px on touch screens. */
+.m-openlink {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 32px; height: 32px; border-radius: 50%; color: var(--text-2); font-size: 18px; text-decoration: none;
+}
+.m-openlink:hover, .m-openlink:focus-visible { color: var(--text); background: var(--raised-2); }
+/* Open SABnzbd in the Queue heading: a filled small button like its neighbours; the 16 px icon overflows into the padding,
+   so the button keeps their height. */
+.m-dl-open .icon { font-size: 16px; margin: -2px 0; }
 .m-bottomnav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
   display: flex;
@@ -408,6 +418,7 @@
   .m-shell .m-upcoming .m-chips button, .m-shell .m-uerror .btn { min-height: 44px; }
   .m-shell .m-navlink, .m-shell .m-iconbtn, .m-shell .m-back, .m-shell .m-banner-btn, .m-shell .m-textlink, .m-shell .m-row-link { min-height: 44px; min-width: 44px; }
   .m-shell .m-roundbtn, .m-shell .m-iconbtn { width: 44px; height: 44px; }
+  .m-shell .m-openlink { width: 44px; height: 44px; }
   .m-shell .m-viewtoggle button { width: 44px; height: 44px; }
   .m-shell .m-missing-link { min-height: 44px; }
   .m-bottomnav .m-navlink { min-height: 56px; }
@@ -501,6 +512,7 @@
 @media (pointer: fine) {
   .m-pageheader.is-condensed .m-viewtoggle { padding: 2px; }
   .m-pageheader.is-condensed .m-viewtoggle button { width: 28px; height: 28px; font-size: 16px; }
+  .m-pageheader.is-condensed .m-openlink { width: 28px; height: 28px; font-size: 16px; }
   .m-toolbar .m-search input { padding-top: 6px; padding-bottom: 6px; }
   .m-toolbar .m-select { padding-top: 6px; padding-bottom: 6px; }
 }

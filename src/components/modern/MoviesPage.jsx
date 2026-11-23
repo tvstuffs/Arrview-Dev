@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import Icon from '../Icon.jsx'
 import AddMediaModal from '../AddMediaModal.jsx'
-import PageHeader, { SearchField } from './PageHeader.jsx'
+import PageHeader, { SearchField, OpenServiceLink } from './PageHeader.jsx'
 import ViewToggle, { VIEW_VALUES } from './ViewToggle.jsx'
 import FilterChips from './FilterChips.jsx'
 import ArtImage from './ArtImage.jsx'
@@ -65,7 +65,7 @@ function MovieRow({ movie, live, ...rest }) {
 
 const goToMovies = () => { window.location.hash = '/movies' }
 
-export default function MoviesPage({ phone, onToast }) {
+export default function MoviesPage({ phone, onToast, config }) {
   const { movies, loading, error, refresh, identity } = useMovies()
   const [search, setSearch] = usePreference('movies.search', '', textPreference)
   const [filter, setFilter] = usePreference('movies.filter', 'all', oneOf(FILTERS.map(([v]) => v)))
@@ -132,7 +132,8 @@ export default function MoviesPage({ phone, onToast }) {
     </>
   }
   return <div className="m-page">
-    <PageHeader title="Movies" phone={phone} addLabel="Add Movie" onAdd={() => setAdding(true)} gear {...controls} />
+    <PageHeader title="Movies" phone={phone} addLabel="Add Movie" onAdd={() => setAdding(true)} gear {...controls}
+      open={<OpenServiceLink config={config} service="radarr" />} />
     {body}
     {adding && <AddMediaModal type="movie" library={movies} onClose={() => setAdding(false)} onAdded={refresh} onToast={onToast} />}
   </div>

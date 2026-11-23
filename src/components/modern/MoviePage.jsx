@@ -8,6 +8,7 @@ import { DownloadBar, MovieLiveText } from './DownloadStatus.jsx'
 import { useMovies } from './LibraryProvider.jsx'
 import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
 import { useMediaActions } from '../../hooks/useMediaActions'
+import { serviceHref } from '../../serviceLinks'
 import { artUrl, futureReleases, releaseLabel, movieFileLine, getMovieStatus, MOVIE_STATUS } from '../../media'
 
 const goToMovies = () => { window.location.hash = '/movies' }
@@ -21,7 +22,7 @@ function statusLine(movie, now = Date.now()) {
   return { text: dates.length ? dates.map(release => releaseLabel(release, now)).join(' · ') : (MOVIE_STATUS[getMovieStatus(movie)]?.label || getMovieStatus(movie)), attn: false }
 }
 
-export default function MoviePage({ id, phone, onToast }) {
+export default function MoviePage({ id, phone, onToast, config }) {
   const { movies, loading, error, refresh, identity } = useMovies()
   const { settingsInRail, backInRail } = useScreen()
   const actions = useMediaActions(onToast)
@@ -42,6 +43,7 @@ export default function MoviePage({ id, phone, onToast }) {
   const status = statusLine(movie)
   const live = downloads.byMovie(movie.id)
   const meta = [movie.year, movie.studio].filter(Boolean).join(' · ')
+  const radarrHref = movie.titleSlug ? serviceHref(config, 'radarr', `movie/${encodeURIComponent(movie.titleSlug)}`) : null
   return <article className="m-detail m-movie">
     <ArtImage ambient srcs={[artUrl(movie, 'fanart', 'backdrop'), artUrl(movie, 'poster', 'detail')]} />
     <section className="m-hero">
@@ -59,7 +61,8 @@ export default function MoviePage({ id, phone, onToast }) {
         {movie.overview && <p className="m-overview">{movie.overview}</p>}
         <p className={`m-statusline${status.attn && !live ? ' m-attn' : ''}`}>{live ? <MovieLiveText item={live} /> : status.text}</p>
         <div className="m-hero-actions">
-          <MovieActions movie={movie} actions={actions} identity={identity} onChanged={refresh} onToast={onToast} onRemoved={goToMovies} variant="page" />
+          <MovieActions movie={movie} actions={actions} identity={identity} onChanged={refresh} onToast={onToast} onRemoved={goToMovies} variant="page"
+            openHref={radarrHref} />
         </div>
       </div>
     </section>

@@ -13,6 +13,7 @@ import { useSeries } from './LibraryProvider.jsx'
 import { useDownloads, useDownloadNeeds } from '../../hooks/useDownloads.jsx'
 import { useMediaActions } from '../../hooks/useMediaActions'
 import { useVisiblePolling, useServerEvents } from '../../hooks/lifecycle'
+import { serviceHref } from '../../serviceLinks'
 import { artUrl, completenessTone, episodeState, mainSeasonCounts, seasonMonitoring, seasonSearchPlan, showMonitoring, unmonitoredMissing } from '../../media'
 
 const capitalise = text => text ? text.charAt(0).toUpperCase() + text.slice(1) : ''
@@ -70,7 +71,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
   const { onDisk, wanted, missing, pct } = mainSeasonCounts(show)
   const fanart = artUrl(show, 'fanart', 'backdrop')
   const poster = artUrl(show, 'poster', 'detail')
-  const sonarrUrl = config.sonarr?.url
+  const sonarrHref = show.titleSlug ? serviceHref(config, 'sonarr', `series/${encodeURIComponent(show.titleSlug)}`) : null
   const meta = [show.year, show.network, ...(show.genres || []).slice(0, 3), capitalise(show.status)].filter(Boolean).join(' · ')
 
   const seasonMap = new Map()
@@ -117,7 +118,7 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
             {searching ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <Icon name="download-simple" />} Search Missing
           </button>}
           <MonitorToggle media={show} service="sonarr" onChanged={refresh} onToast={onToast} />
-          {sonarrUrl && show.titleSlug && <a className="btn btn-icon" href={`${sonarrUrl}/series/${show.titleSlug}`} target="_blank" rel="noopener noreferrer"
+          {sonarrHref && <a className="btn btn-icon" href={sonarrHref} target="_blank" rel="noopener noreferrer"
             title="Open in Sonarr" aria-label="Open in Sonarr"><Icon name="arrow-square-out" /></a>}
           <button className="btn btn-icon btn-icon-danger" aria-label={`Remove ${show.title} from Sonarr`} title={`Remove ${show.title} from Sonarr`} onClick={() => setConfirmRemove(true)}><Icon name="trash" /></button>
         </div>

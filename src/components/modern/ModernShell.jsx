@@ -5,7 +5,7 @@ import NzbSearchModal from '../NzbSearchModal.jsx'
 import { SheetClassContext, isTextField } from '../Sheet.jsx'
 import { LibraryProvider } from './LibraryProvider.jsx'
 import ServiceBanner from './ServiceBanner.jsx'
-import PageHeader, { SettingsLink } from './PageHeader.jsx'
+import PageHeader, { SettingsLink, OpenServiceLink } from './PageHeader.jsx'
 import ShowsPage from './ShowsPage.jsx'
 import ShowPage from './ShowPage.jsx'
 import MoviesPage from './MoviesPage.jsx'
@@ -146,7 +146,7 @@ export default function ModernShell({ config, onConfigSaved, layout, onLayoutCha
   if (section === 'downloads') page = <DownloadsPage config={config} phone={phone} onToast={addToast} canSearch={Boolean(config.nzbhydra)} />
   else if (section === 'upcoming') page = <UpcomingPage config={config} phone={phone} />
   else if (section === 'search') page = <>
-    <PageHeader title="Search" phone={phone} gear />
+    <PageHeader title="Search" phone={phone} gear open={<OpenServiceLink config={config} service="nzbhydra" />} />
     <NzbSearchModal embedded onToast={addToast} canDownload={Boolean(config.sabnzbd)} />
   </>
   else if (section === 'settings') page = <>

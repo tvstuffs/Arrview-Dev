@@ -70,6 +70,11 @@
 .service-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 12px; }
 .service-field label { margin: 0; font-size: 13px; color: var(--text-2); }
 .service-note { grid-column: 2; margin: -6px 0 0; }
+/* The saved service's own web page, opened in a new tab; lined up with the fields (96 px labels + 12 px gap). */
+.service-open { margin: -4px 0 0 108px; font-size: 13px; }
+.service-open a { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
+.service-open a:hover, .service-open a:focus-visible { color: var(--text); }
+@media (pointer: coarse) { .service-open a { min-height: 44px; } }
 .service-panel .input-group .btn { flex: none; }
 /* The Test button keeps the width of its label while it shows a spinner, a check or an X, so the field beside it stays put.
    The label stays in the grid cell, covered, and the spinner or icon is centred over it. */
@@ -86,6 +91,7 @@
   .service-desc { display: none; }
   .service-panel { padding: 0 14px 16px; }
   .service-field { grid-template-columns: 1fr; gap: 6px; }
+  .service-open { margin-left: 0; }
   .service-note { grid-column: 1; margin: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .service-caret { transition: none; } }

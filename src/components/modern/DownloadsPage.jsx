@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Icon from '../Icon.jsx'
 import ConfirmSheet from '../ConfirmSheet.jsx'
 import ArtImage from './ArtImage.jsx'
-import PageHeader, { SettingsLink } from './PageHeader.jsx'
+import PageHeader, { SettingsLink, OpenServiceLink } from './PageHeader.jsx'
 import { useScreen } from './ScreenContext.js'
 import { DownloadBar } from './DownloadStatus.jsx'
 import { useLibraryOnce } from './LibraryProvider.jsx'
@@ -248,6 +248,7 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
             <p className="m-dl-count">{plural(items.length, 'item', 'items')}{left && ` · ${left}`}</p>
           </div>
           <div className="m-dl-head-actions">
+            <OpenServiceLink config={config} service="sabnzbd" className="btn btn-secondary btn-sm m-dl-open" />
             {canSearch && <a className="btn btn-secondary btn-sm m-dl-search" href="#/search"><Icon name="magnifying-glass" /> Search NZBs</a>}
             {!idle && (downloading
               ? <button className="btn btn-secondary btn-sm" onClick={() => post('pause')}><Icon name="pause" weight="fill" /> Pause All</button>

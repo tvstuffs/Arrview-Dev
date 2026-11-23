@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Icon from '../Icon.jsx'
 import AddMediaModal from '../AddMediaModal.jsx'
 import { MonitorToggle } from '../MediaControls'
-import PageHeader, { SearchField } from './PageHeader.jsx'
+import PageHeader, { SearchField, OpenServiceLink } from './PageHeader.jsx'
 import ViewToggle, { VIEW_VALUES } from './ViewToggle.jsx'
 import FilterChips from './FilterChips.jsx'
 import ArtImage from './ArtImage.jsx'
@@ -61,7 +61,7 @@ function ShowRow({ show, actions, onToast, refresh }) {
   </li>
 }
 
-export default function ShowsPage({ phone, onToast }) {
+export default function ShowsPage({ phone, onToast, config }) {
   const { series, loading, error, refresh } = useSeries()
   const [search, setSearch] = usePreference('shows.search', '', textPreference)
   const [filter, setFilter] = usePreference('shows.filter', 'all', oneOf(FILTERS.map(([v]) => v)))
@@ -119,7 +119,8 @@ export default function ShowsPage({ phone, onToast }) {
     </>
   }
   return <div className="m-page">
-    <PageHeader title="TV Shows" phone={phone} addLabel="Add Show" onAdd={() => setAdding(true)} gear {...controls} />
+    <PageHeader title="TV Shows" phone={phone} addLabel="Add Show" onAdd={() => setAdding(true)} gear {...controls}
+      open={<OpenServiceLink config={config} service="sonarr" />} />
     {body}
     {adding && <AddMediaModal type="show" library={series} onClose={() => setAdding(false)} onAdded={refresh} onToast={onToast} />}
   </div>

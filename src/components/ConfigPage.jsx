@@ -9,6 +9,7 @@ import { normalizeAddress } from '../webhooks'
 import { addressProblem } from '../serviceUrl'
 import { useWebhookActivity } from '../hooks/useWebhookActivity'
 import { useServiceStatus } from '../hooks/useServiceStatus'
+import { serviceHref } from '../serviceLinks'
 import { apiFetch } from '../api'
 
 const SERVICES = [
@@ -70,7 +71,8 @@ function connectionOf({ saved, ping, testResult }) {
 // A saved service starts closed, one that is not set up starts open. Closed fields stay in the page (hidden).
 // `problem` is what the address rule says about the address in the field (an http:// address must name its port); it is shown once the
 // field has been left, or on a Test or a Save, so it does not appear while the address is still being typed.
-function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged = false, keyHint = false, problem = null, showProblem = false }) {
+// openHref: the saved address of a saved service, opened in a new tab from the panel (the field may hold an unsaved edit).
+function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged = false, keyHint = false, problem = null, showProblem = false, openHref = null }) {
   const [open, setOpen] = useState(!saved)
   const [touched, setTouched] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -185,6 +187,12 @@ function ServiceRow({ service, values, saved, ping, onChange, onTest, envManaged
 
         {keyHint && !envManaged && (
           <div id={hintId} className="text-sm text-muted">Re-enter the API key for the new address.</div>
+        )}
+
+        {openHref && (
+          <p className="service-open">
+            <a href={openHref} target="_blank" rel="noopener noreferrer"><Icon name="arrow-square-out" /> Open {service.name}</a>
+          </p>
         )}
 
         <span className="visually-hidden" role="status">{announcement}</span>
@@ -370,6 +378,7 @@ export default function ConfigPage({ initialConfig = {}, onSave, onBack, layout,
                 keyHint={Boolean(keyHints[service.id])}
                 problem={addressProblems[service.id]}
                 showProblem={showProblems}
+                openHref={savedService(service.id) ? serviceHref(initialConfig, service.id) : null}
               />
             ))}
           </ul>

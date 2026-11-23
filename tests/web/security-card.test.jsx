@@ -83,7 +83,7 @@ test('a server error is shown in the card', async () => {
 test('on (Settings): change sends currentPassword, remove asks to confirm first, sign out posts logout', async () => {
   const { container } = await mountOn(ON)
   expect(screen.getByText(/Password protection is on\. This browser stays signed in for 30 days of use\./)).toBeVisible()
-  expect(screen.getByText(/iOS and tvOS apps can’t sign in yet/)).toBeVisible()
+  expect(screen.queryByText(/iOS and tvOS apps/)).toBeNull()
   expect(container.querySelector('h2 svg')).not.toBeNull()
   click('Change password')
   fireEvent.change(passwordFormField('Current password'), { target: { value: 'old password!' } })
