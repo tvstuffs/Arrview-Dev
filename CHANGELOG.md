@@ -1,5 +1,54 @@
 # ArrView server development changelog
 
+## 1.9A23 (unreleased) — Settings: SABnzbd's and NZBHydra's Test and status prove the API key; NZBHydra's Test shows its version
+
+- **Version 1.9A23.** One fix on top of 1.9A22, from the maintainer's test round of 1.9A22: SABnzbd and NZBHydra tested Connected
+  with a made-up API key (R1.4), and NZBHydra's Test showed no version (R1.3). Only `server.js` and the README change; no route,
+  request, config key, file format, dependency, `package.json`, Dockerfile or web page changes.
+- **What was wrong.** SABnzbd answers `mode=version` for any API key or none. The Test and the status asked only that, so a wrong
+  key tested Connected and the status stayed up while every SABnzbd page failed with 403. NZBHydra answers a wrong key with
+  HTTP 200 and `{"code": "100", "description": "Wrong api key"}` in the body. Its status already read the body, but the Test
+  counted any 200 as Connected.
+- **Now:**
+  - SABnzbd's Test and status also ask `mode=server_stats`, which needs the key: SABnzbd answers it 403 for a wrong key. The
+    Test says "SABnzbd refused this API key — use the API key from Config → General in SABnzbd" (SABnzbd's own log points
+    there), and the status shows SABnzbd as not connected.
+  - NZBHydra's Test reads the answer. A refused key says "NZBHydra refused this API key — use the API key from Config → Main
+    in NZBHydra". An answer that is not NZBHydra's capabilities says "That address answered, but not like NZBHydra — check
+    the address and port". The right key tests Connected with NZBHydra's version, from the `appversion` of its capabilities
+    (a Newznab indexer's own `version` there is the API's version, so it is not shown).
+- **Checked against the real apps:** SABnzbd 5.1.3 and NZBHydra 2 9.3.3, in containers on the test machine, not on any
+  network. With a made-up key, 1.9A22's Test said Connected for both and SABnzbd's status stayed up. This version's Test
+  refuses both keys with the sentences above, and both statuses go down. With the right keys, both test Connected with their
+  versions (5.1.3 and 9.3.3) and both statuses are up.
+- **Tests:** server 303/303 (299 at 1.9A22), web (vitest) 619/619 (619), e2e 297/297 and 22 skipped in Microsoft Edge on
+  macOS (297; CI repeats them in real Chromium). New: `tests/service-keys.test.js`, 4 tests with stand-ins that answer as the
+  real apps did:
+  - SABnzbd's Test refuses a refused key and passes the right one with its version;
+  - a saved wrong key makes SABnzbd's status unavailable, and the right one available;
+  - NZBHydra's Test refuses a refused key and reports the version with the right one;
+  - capabilities without a version still pass, without one, and an answer that is not capabilities is not NZBHydra.
+
+  Changed: the web-foundation contract lists SABnzbd's ping as `version` then `server_stats`, both with the key, and a
+  SABnzbd found at `/api` gets one more request (the key check). **Failing first**, on the 1.9A22 code: all 4 new tests
+  failed.
+- **Also from the test round** (no code change):
+  - B4 is fixed on the Duo: after a sheet closes, the keyboard's form bar goes away (R5.10), so 1.9A21's blur changes cured
+    it after all.
+  - In Split View, the window beside iOS's column shows the tabs in the column and the other window has a bottom bar
+    (R5.1). The maintainer keeps that.
+- **Not verified:** other SABnzbd and NZBHydra versions, for example an older SABnzbd that answers `server_stats` differently;
+  a Newznab indexer other than NZBHydra in the NZBHydra row, whose Test now needs a JSON capabilities answer, as its status
+  already did; the Duo.
+- **Human test plan** (on a real install after the upgrade):
+  1. Settings → Services → SABnzbd: type a made-up API key and press Test: a red X and "SABnzbd refused this API key — use
+     the API key from Config → General in SABnzbd". Reload without saving.
+  2. The same in the NZBHydra row: "NZBHydra refused this API key — use the API key from Config → Main in NZBHydra". Reload.
+  3. Test both as saved: Connected, SABnzbd with its version, and now NZBHydra with its version too.
+  4. Optional: save a made-up key for SABnzbd. Within a minute its row says "Can't connect" and Downloads shows "Can't reach
+     SABnzbd". Put the right key back and Save: Connected again.
+  5. Roll back to the 1.9A22 image: nothing to migrate.
+
 ## 1.9A22 (unreleased) — Modern: open Sonarr, Radarr, SABnzbd and NZBHydra from the pages that show them; a placeholder line leaves Settings
 
 - **Version 1.9A22.** Two changes to the web pages on top of 1.9A21, from the maintainer's review of 1.9A21 on the iPhone Duo. In
