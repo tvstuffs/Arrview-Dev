@@ -1542,6 +1542,16 @@ app.post('/api/sabnzbd/action', async (req, res) => {
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
+// ── Ids and query values sent upstream ───────────────────────────────────────
+// A path parameter that goes into an upstream URL or query is 1 to 10 digits, checked before any request: an encoded `/` or `?` in
+// it would otherwise reach another endpoint of the app with the stored key. A query value passed on is one string (Express turns
+// `a=1&a=2` into an array and `a[x]=1` into an object), and the ids among them are digits too.
+const UPSTREAM_ID = /^\d{1,10}$/;
+const isUpstreamId = value => typeof value === 'string' && UPSTREAM_ID.test(value);
+const singleOrAbsent = value => value === undefined || typeof value === 'string';
+const invalidId = res => res.status(400).json({ error: 'Invalid id' });
+const invalidQuery = res => res.status(400).json({ error: 'Invalid query' });
+
 // ── Sonarr ────────────────────────────────────────────────────────────────────
 
 function sonarrHeaders() {
@@ -1680,6 +1690,7 @@ app.get('/api/sonarr/calendar', async (req, res) => {
 });
 
 app.get('/api/sonarr/series/:id/episodes', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/episode`, {
@@ -1703,6 +1714,7 @@ app.post('/api/sonarr/command', async (req, res) => {
 });
 
 app.get('/api/sonarr/command/:id', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/command/${req.params.id}`, { headers, timeout: 10000 });
@@ -1756,6 +1768,8 @@ async function hydraDirectSearch(q) {
 
 app.get('/api/sonarr/release', async (req, res) => {
   const { episodeId, seriesTitle, season, episode } = req.query;
+  if (episodeId !== undefined && !isUpstreamId(episodeId)) return invalidId(res);
+  if (![seriesTitle, season, episode].every(singleOrAbsent)) return invalidQuery(res);
   try {
     // 1. Ask Sonarr (it queries all its configured indexers)
     const { baseUrl, headers } = sonarrHeaders();
@@ -1792,6 +1806,7 @@ app.post('/api/sonarr/release', async (req, res) => {
 
 // Delete an episode file from disk
 app.delete('/api/sonarr/episodefile/:id', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     await axios.delete(`${baseUrl}/api/v3/episodefile/${req.params.id}`, { headers, timeout: 15000 });
@@ -1815,6 +1830,7 @@ app.put('/api/sonarr/episode/monitor', async (req, res) => {
 });
 
 app.get('/api/sonarr/lookup', async (req, res) => {
+  if (!singleOrAbsent(req.query.term)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/series/lookup`, {
@@ -1856,7 +1872,7 @@ app.post('/api/sonarr/series', async (req, res) => {
 
 // Read the current resource so changing monitoring preserves Sonarr metadata.
 app.put('/api/sonarr/series/:id', async (req, res) => {
-  if (!/^\d+$/.test(req.params.id) || typeof req.body.monitored !== 'boolean')
+  if (!isUpstreamId(req.params.id) || typeof req.body.monitored !== 'boolean')
     return res.status(400).json({ error: 'A numeric series id and boolean monitored are required' });
   try {
     const { baseUrl, headers } = sonarrHeaders();
@@ -1873,7 +1889,7 @@ app.put('/api/sonarr/series/:id', async (req, res) => {
 app.put('/api/sonarr/series/:id/season/:season', async (req, res) => {
   const { id, season } = req.params;
   const monitored = req.body.monitored;
-  if (!/^\d+$/.test(id) || !/^\d+$/.test(season) || typeof monitored !== 'boolean')
+  if (!isUpstreamId(id) || !isUpstreamId(season) || typeof monitored !== 'boolean')
     return res.status(400).json({ error: 'A numeric series id, a season number and boolean monitored are required' });
   const seasonNumber = Number(season);
   let flagSet = false;
@@ -1916,7 +1932,7 @@ app.put('/api/sonarr/series/:id/season/:season', async (req, res) => {
 app.put('/api/sonarr/series/:id/seasons', async (req, res) => {
   const { id } = req.params;
   const monitored = req.body.monitored;
-  if (!/^\d+$/.test(id) || typeof monitored !== 'boolean')
+  if (!isUpstreamId(id) || typeof monitored !== 'boolean')
     return res.status(400).json({ error: 'A numeric series id and boolean monitored are required' });
   const hasFrom = Object.prototype.hasOwnProperty.call(req.body, 'fromSeason');
   const from = req.body.fromSeason;
@@ -1962,6 +1978,7 @@ app.put('/api/sonarr/series/:id/seasons', async (req, res) => {
 });
 
 app.delete('/api/sonarr/series/:id', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const deleteFiles = req.query.deleteFiles === 'true';
@@ -2131,6 +2148,8 @@ app.post('/api/radarr/command', async (req, res) => {
 // NZBHydra fallback — mirrors /api/sonarr/release.
 app.get('/api/radarr/release', async (req, res) => {
   const { movieId, title, year } = req.query;
+  if (movieId !== undefined && !isUpstreamId(movieId)) return invalidId(res);
+  if (![title, year].every(singleOrAbsent)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     const radarrRes = await axios.get(`${baseUrl}/api/v3/release`, {
@@ -2163,6 +2182,7 @@ app.post('/api/radarr/release', async (req, res) => {
 
 // Delete a movie file from disk
 app.delete('/api/radarr/moviefile/:id', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     await axios.delete(`${baseUrl}/api/v3/moviefile/${req.params.id}`, { headers, timeout: 15000 });
@@ -2177,7 +2197,7 @@ app.delete('/api/radarr/moviefile/:id', async (req, res) => {
 // Radarr spells the exclusion flag addImportExclusion — Sonarr's
 // addImportListExclusion is silently ignored here, so don't copy the series route.
 app.delete('/api/radarr/movie/:id', async (req, res) => {
-  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid movie id' });
+  if (!isUpstreamId(req.params.id)) return res.status(400).json({ error: 'Invalid movie id' });
   try {
     const { baseUrl, headers } = radarrHeaders();
     const deleteFiles = req.query.deleteFiles === 'true';
@@ -2206,6 +2226,7 @@ app.put('/api/radarr/movie/monitor', async (req, res) => {
 });
 
 app.get('/api/radarr/lookup', async (req, res) => {
+  if (!singleOrAbsent(req.query.term)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/movie/lookup`, {
@@ -2250,6 +2271,7 @@ app.get('/api/nzbhydra/search', async (req, res) => {
   const { url, apikey } = config.nzbhydra || {};
   if (!url || !apikey) return res.status(503).json({ error: 'NZBHydra not configured' });
   const { q, cat } = req.query;
+  if (![q, cat].every(singleOrAbsent)) return invalidQuery(res);
   if (!q) return res.status(400).json({ error: 'Missing query parameter q' });
   try {
     const params = { t: 'search', q, o: 'json', apikey };

@@ -43,6 +43,11 @@ send `Content-Type: application/json` with a body, otherwise the server answers 
 `{"error":"Invalid JSON"}`. `curl -d` therefore needs `-H 'Content-Type: application/json'`. Requests from a signed-in
 browser also send `X-Requested-With: ArrView`.
 
+**Ids.** An id in a route's path that is passed on to Sonarr or Radarr (`:id`, `:season`) must be 1 to 10 digits, and so
+must `episodeId` and `movieId` on the release searches; anything else gets 400 `{"error":"Invalid id"}` and nothing is
+sent. A query value that is passed on must be given once, as plain text; a repeated or bracketed value gets 400
+`{"error":"Invalid query"}`.
+
 **Live updates.** `GET /api/events` is a server-sent events stream that tells clients when to refresh (for example
 after a webhook from Sonarr or Radarr). The server sends a five-second retry hint. Removing a session or an app key
 ends its open stream.

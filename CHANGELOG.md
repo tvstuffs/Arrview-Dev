@@ -7,6 +7,9 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
 - **One request can no longer end the server.** The SABnzbd history route checks its `limit` as text before using it,
   every route's unexpected error is answered with a plain `500 {"error":"Internal error"}` and one log line, and a
   rejection nobody handled is logged instead of stopping the process.
+- **Only numbers in the ids passed on to Sonarr and Radarr.** Every id that goes into an upstream address is 1 to 10
+  digits, or the request is refused with 400 `Invalid id` before anything is sent; query values passed on must be
+  single values (400 `Invalid query`).
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
