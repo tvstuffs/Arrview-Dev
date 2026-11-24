@@ -27,6 +27,11 @@ export default defineConfig({
   })],
   server: {
     port: 5173,
+    // The project folder is also the default data folder. Setting deny replaces Vite's own list, so its defaults come first,
+    // then the files the server writes there (settings, the login, and their temporary files while saving).
+    fs: {
+      deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', 'config.json', 'auth.json', '.config.json.*.tmp', '.auth.json.*.tmp'],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:7777',

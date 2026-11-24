@@ -20,6 +20,8 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
   ignored); each app refreshes the open pages at most once a second, with the events of that second merged; an event
   carries at most 200 episode ids; titles lose their control characters; and the webhook log line is limited to one a
   second.
+- **The Vite dev server does not serve the data files.** `npm run dev` refuses `config.json`, `auth.json` and their
+  temporary files, as well as Vite's own defaults.
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
