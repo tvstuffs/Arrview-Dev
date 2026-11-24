@@ -7,6 +7,42 @@ const crypto = require('crypto');
 const { URL: NodeURL } = require('url');
 
 const app = express();
+
+// ── One request never ends the process ───────────────────────────────────────
+// Express 4 catches a route handler's synchronous throw but not an async handler's rejection, which used to be unhandled and end
+// the process. Every route method is wrapped once, so any handler registered on `app` (here or later) passes a throw or rejection to
+// next(err); the final error handler at the end of the file answers it with a plain JSON 500. app.get(name) stays the settings getter.
+const ROUTES_WRAPPED = Symbol.for('arrview.routesWrapped');
+function safeHandler(fn) {
+  if (typeof fn !== 'function' || fn.length > 3) return fn;
+  return function safeRouteHandler(req, res, next) {
+    try {
+      const out = fn.call(this, req, res, next);
+      if (out && typeof out.then === 'function') out.then(undefined, err => next(err || new Error('Rejected')));
+      return out;
+    } catch (err) {
+      return next(err);
+    }
+  };
+}
+if (!app[ROUTES_WRAPPED]) {
+  app[ROUTES_WRAPPED] = true;
+  for (const method of ['get', 'post', 'put', 'delete', 'patch', 'all']) {
+    const original = app[method];
+    app[method] = function (...args) {
+      if (method === 'get' && args.length === 1) return original.apply(this, args);
+      return original.apply(this, args.map(arg => (Array.isArray(arg) ? arg.map(safeHandler) : safeHandler(arg))));
+    };
+  }
+}
+// The last resort: a rejection nobody handled is logged (its kind only, never a stack or message) and the server keeps running. The
+// test harness runs this file with a process stub that has no `on`, hence the guard.
+if (typeof process.on === 'function') {
+  process.on('unhandledRejection', reason => {
+    console.log(`[server] unhandled rejection (${(reason && (reason.code || reason.name)) || typeof reason})`);
+  });
+}
+
 const PORT = process.env.PORT || 7777;
 const CONFIG_DIR = process.env.CONFIG_DIR || __dirname;
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -1481,7 +1517,9 @@ app.get('/api/sabnzbd/queue', async (req, res) => {
 });
 
 app.get('/api/sabnzbd/history', async (req, res) => {
-  const limit = req.query.limit === undefined ? 15 : Number(req.query.limit);
+  // Checked as text first: a query value can be an array or an object, and Number() of an object can throw.
+  const raw = req.query.limit;
+  const limit = raw === undefined ? 15 : (typeof raw === 'string' && /^\d{1,4}$/.test(raw) ? Number(raw) : NaN);
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) return res.status(400).json({ error: 'limit must be an integer from 1 to 1000' });
   try { res.json(await sabRequest({ mode: 'history', limit })); }
   catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
@@ -2687,6 +2725,19 @@ app.get('*', (req, res) => {
   } else {
     res.status(404).send('Run `npm run build` first, or use `npm run dev` for development.');
   }
+});
+
+// ── The final error handler ──────────────────────────────────────────────────
+// Whatever a route threw or rejected with (see safeHandler at the top) ends here as a plain JSON 500, logged with the method, the
+// route pattern and the error's kind: never a stack, the message, the raw URL or the query. An error that carries its own 4xx status
+// (body-parser's 413, say) keeps Express's handling, as before.
+app.use((err, req, res, next) => {
+  const status = err && (err.status || err.statusCode);
+  if (Number.isInteger(status) && status >= 400 && status < 500) return next(err);
+  console.log(`[server] request failed: ${req.method} ${req.route?.path || 'request'} (${(err && (err.code || err.name)) || 'error'})`);
+  if (res.headersSent) return res.end();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(500).json({ error: 'Internal error' });
 });
 
 // ── Login start-up ────────────────────────────────────────────────────────────

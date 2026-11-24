@@ -30,7 +30,8 @@ async function startUpstream() {
 //   clock (fn -> ms; the server's Date.now() returns it),
 //   root (an existing directory to reuse, so a second startServer is a restart: dist is kept and not deleted),
 //   startTimeoutMs (default 15000; startServer rejects instead of hanging when the server never listens),
-//   handle (an object filled at once with { logs, listenCalls }, so a test can look while start-up is still running) }
+//   handle (an object filled at once with { logs, listenCalls }, so a test can look while start-up is still running),
+//   processExtras (an object merged into the sandbox's process stub, for example { on }; without it the stub holds only env) }
 async function startServer(t, options = {}) {
   const reuse = Boolean(options.root);
   const root = options.root || fs.mkdtempSync(path.join(os.tmpdir(), 'arrview-env-'));
@@ -70,7 +71,7 @@ async function startServer(t, options = {}) {
       if (name === 'crypto' && options.wrapCrypto) return options.wrapCrypto(require('crypto'));
       return name === 'express' ? factory : name === 'fs' ? fsModule : require(name);
     },
-    __dirname: root, process: { env: { PORT: '0', ...(options.env || {}) } },
+    __dirname: root, process: { env: { PORT: '0', ...(options.env || {}) }, ...(options.processExtras || {}) },
     console: { log: (...args) => logs.push(args.join(' ')) },
     setInterval, clearInterval, setTimeout, clearTimeout,
   };

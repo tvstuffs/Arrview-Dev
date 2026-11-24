@@ -1,5 +1,13 @@
 # ArrView server development changelog
 
+## Unreleased
+
+Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays `2.0`.
+
+- **One request can no longer end the server.** The SABnzbd history route checks its `limit` as text before using it,
+  every route's unexpected error is answered with a plain `500 {"error":"Internal error"}` and one log line, and a
+  rejection nobody handled is logged instead of stopping the process.
+
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
 - **Version 2.0.** Only the label changes: `APP_VERSION` is `2.0`. The code is 1.9A24's, which had already gone out as
