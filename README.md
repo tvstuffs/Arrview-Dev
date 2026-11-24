@@ -104,8 +104,6 @@ is off, which it is unless you turn it on.
   <img src="docs/screenshots/phone-downloads.jpg" alt="Downloads on a phone" width="30%">
 </p>
 
-The screenshots show a demo library of well-known shows and movies.
-
 ## Quick start
 
 ArrView needs Docker, and the addresses and API keys of the apps you use: any of Sonarr, Radarr, SABnzbd and NZBHydra.
