@@ -52,6 +52,9 @@ if (typeof process.on === 'function') {
 // once per axios module (a marker on it), since the tests evaluate this file many times over the same module. An axios.create()
 // instance would NOT be covered: use the default export for upstream calls. (Some tests hand in a stand-in axios without
 // interceptors; there is nothing to install on it.)
+// The hop is judged by its logical URL (`options.href`, set by follow-redirects from the Location header), never by
+// options.hostname/protocol: axios's own proxy hook runs first and, for a plain-http target behind a forward proxy (config or
+// HTTP_PROXY), rewrites those to the proxy's address. A hop without a readable href is refused.
 const REDIRECT_GUARD = Symbol.for('arrview.redirectGuard');
 const REDIRECT_REFUSED_TEXT = "The service redirected ArrView to another address, so the request was stopped. Use the service's own address in Settings.";
 if (!axios[REDIRECT_GUARD] && axios.interceptors) {
@@ -71,9 +74,9 @@ if (!axios[REDIRECT_GUARD] && axios.interceptors) {
     const prior = config.beforeRedirect;
     let last = original;
     config.beforeRedirect = (options, responseDetails, requestDetails) => {
-      const hop = { protocol: options.protocol, hostname: options.hostname || options.host };
+      const hop = options && typeof options.href === 'string' ? place(options.href) : null;
       const from = (requestDetails && requestDetails.url && place(requestDetails.url)) || last;
-      if (!allowed(original, hop) || !allowed(from, hop)) {
+      if (!hop || !allowed(original, hop) || !allowed(from, hop)) {
         throw Object.assign(new Error('Redirect refused'), { code: 'ARRVIEW_REDIRECT_REFUSED' });
       }
       last = hop;
