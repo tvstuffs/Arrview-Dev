@@ -10,6 +10,9 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
 - **Only numbers in the ids passed on to Sonarr and Radarr.** Every id that goes into an upstream address is 1 to 10
   digits, or the request is refused with 400 `Invalid id` before anything is sent; query values passed on must be
   single values (400 `Invalid query`).
+- **Only the commands the web app sends.** The Sonarr and Radarr command routes and the SABnzbd action route pass on
+  only the searches and queue actions the web app uses, rebuilt from their own fields, with one SABnzbd item at a time;
+  anything else is refused with 400 and never reaches the app.
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 

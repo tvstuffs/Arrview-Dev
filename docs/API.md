@@ -48,6 +48,13 @@ must `episodeId` and `movieId` on the release searches; anything else gets 400 `
 sent. A query value that is passed on must be given once, as plain text; a repeated or bracketed value gets 400
 `{"error":"Invalid query"}`.
 
+**Commands.** `POST /api/sonarr/command` takes only `SeriesSearch` (`seriesId`), `SeasonSearch` (`seriesId`,
+`seasonNumber`) and `EpisodeSearch` (`episodeIds`, 1 to 10000 ids); `POST /api/radarr/command` only `MoviesSearch`
+(`movieIds`, 1 to 10000 ids). Ids are JSON numbers above 0, and other fields are dropped. `POST /api/sabnzbd/action`
+takes only `{"mode":"pause"}` or `{"mode":"resume"}`, the same with one `nzo_id`, and
+`{"mode":"queue","name":"delete","value":"<nzo id>"}`, where an nzo id is one token of up to 64 letters, digits, `_`
+or `-`, never `all`. Anything else gets 400 `{"error":"That command is not supported"}` and nothing is sent.
+
 **Live updates.** `GET /api/events` is a server-sent events stream that tells clients when to refresh (for example
 after a webhook from Sonarr or Radarr). The server sends a five-second retry hint. Removing a session or an app key
 ends its open stream.

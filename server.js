@@ -1525,19 +1525,28 @@ app.get('/api/sabnzbd/history', async (req, res) => {
   catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
+// Only what the web app sends: pause or resume the whole queue, pause, resume or delete one item. One item is one nzo id: a single
+// token of letters, digits, `_` and `-` (real ids are UUIDs; older SABnzbd's `SABnzbd_nzo_...` also fits), never `all` in any case,
+// which SABnzbd's queue delete takes as "everything", and never a comma list. The request sent is rebuilt from those fields only,
+// and the check runs before sabRequest, so a refused action does not start the path detection.
+const COMMAND_REFUSED = { error: 'That command is not supported' };
+const isNzoId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value) && !/^all$/i.test(value);
+function sabActionParams(body) {
+  if (!isPlainObject(body)) return null;
+  const { mode } = body;
+  if (mode === 'pause' || mode === 'resume') {
+    if (!Object.prototype.hasOwnProperty.call(body, 'nzo_id')) return { mode };
+    // Per-item pause/resume uses mode=queue&name=pause/resume&value=<id>
+    return isNzoId(body.nzo_id) ? { mode: 'queue', name: mode, value: body.nzo_id } : null;
+  }
+  if (mode === 'queue' && body.name === 'delete' && isNzoId(body.value)) return { mode: 'queue', name: 'delete', value: body.value };
+  return null;
+}
+
 app.post('/api/sabnzbd/action', async (req, res) => {
-  const { mode, nzo_id, name, value } = req.body;
+  const params = sabActionParams(req.body);
+  if (!params) return res.status(400).json(COMMAND_REFUSED);
   try {
-    let params;
-    if (nzo_id && (mode === 'pause' || mode === 'resume')) {
-      // Per-item pause/resume uses mode=queue&name=pause/resume&value=<id>
-      params = { mode: 'queue', name: mode, value: nzo_id };
-    } else {
-      params = { mode };
-      if (name)  params.name  = name;
-      if (value) params.value = value;
-      if (nzo_id && !value) params.value = nzo_id;
-    }
     res.json(await sabRequest(params));
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
@@ -1702,10 +1711,33 @@ app.get('/api/sonarr/series/:id/episodes', async (req, res) => {
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
+// The Sonarr and Radarr commands the web app sends, and nothing else: the body sent is rebuilt from `name` and the listed fields, in
+// that order. Ids are JSON numbers (safe integers above 0); a list holds 1 to 10000 of them, so "search every missing movie" keeps
+// working on a large library, and the 100 kB body limit stays the real bound on size.
+const isPositiveId = value => Number.isSafeInteger(value) && value > 0;
+const isIdList = value => Array.isArray(value) && value.length >= 1 && value.length <= 10000 && value.every(isPositiveId);
+function sonarrCommand(body) {
+  if (!isPlainObject(body)) return null;
+  const { name, seriesId, seasonNumber, episodeIds } = body;
+  if (name === 'SeriesSearch' && isPositiveId(seriesId)) return { name, seriesId };
+  if (name === 'SeasonSearch' && isPositiveId(seriesId) && Number.isSafeInteger(seasonNumber) && seasonNumber >= 0) {
+    return { name, seriesId, seasonNumber };
+  }
+  if (name === 'EpisodeSearch' && isIdList(episodeIds)) return { name, episodeIds };
+  return null;
+}
+function radarrCommand(body) {
+  if (!isPlainObject(body)) return null;
+  const { name, movieIds } = body;
+  return name === 'MoviesSearch' && isIdList(movieIds) ? { name, movieIds } : null;
+}
+
 app.post('/api/sonarr/command', async (req, res) => {
+  const command = sonarrCommand(req.body);
+  if (!command) return res.status(400).json(COMMAND_REFUSED);
   try {
     const { baseUrl, headers } = sonarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/command`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/command`, command, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2134,9 +2166,11 @@ app.get('/api/radarr/history/recent-imports', async (req, res) => {
 });
 
 app.post('/api/radarr/command', async (req, res) => {
+  const command = radarrCommand(req.body);
+  if (!command) return res.status(400).json(COMMAND_REFUSED);
   try {
     const { baseUrl, headers } = radarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/command`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/command`, command, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
