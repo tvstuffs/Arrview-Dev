@@ -761,7 +761,10 @@ ArrView does not check who calls a webhook, so anyone who can reach its address
 can make it refresh. This stays true when the password login is on: the two
 receivers, `POST /api/webhooks/sonarr` and `/radarr`, are the only data routes that
 stay open, so Sonarr and Radarr keep working without edits. Keep ArrView off the
-public internet unless something in front of it asks for a login.
+public internet unless something in front of it asks for a login. To limit what such
+calls can do, a webhook refreshes the open pages at most once a second per app (events
+that arrive closer together are merged into one refresh), and a malformed event is
+refused.
 
 ## The iPhone and iPad app, and auto-discovery
 

@@ -172,6 +172,13 @@ be changed, the answer is an error that says which part was done.
 `POST /api/webhooks/sonarr` and `POST /api/webhooks/radarr` receive Sonarr's and Radarr's webhooks. They stay open
 when the password login is on. Each event refreshes the clients that are open (through `/api/events`).
 
+An event must be a JSON object whose `eventType` is 1 to 40 plain letters, and `episodes`, when present, must be a list;
+anything else gets 400 `{"error":"Invalid webhook event"}` and changes nothing. Per app, the first event after a quiet
+second is sent to the clients at once; events in the following second are merged and sent once when it ends. A merged
+Sonarr event joins the `episodeIds`; `seriesId` (Radarr: `movieId`) and the title are kept only when every merged event
+named the same one, and are `null` otherwise. An event carries at most 200 `episodeIds`, and titles lose their control
+characters and are cut to 200 characters.
+
 `GET /api/webhooks/last` is what Settings reads. It answers with the seconds since ArrView started and, for each app,
 the last `event` and the last `test`, each as `{ "eventType": "Download", "ageSeconds": 125 }` or `null`:
 

@@ -16,6 +16,10 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
 - **Redirects stay on the same host name.** When an app answers with a redirect, ArrView follows it only to the same
   host name and never from https to http, so a stored key is never sent to another address; the Test and the pages say
   the service redirected to another address.
+- **Webhooks stay open, and are bounded.** A malformed event is now refused with 400 (before, it was answered 200 and
+  ignored); each app refreshes the open pages at most once a second, with the events of that second merged; an event
+  carries at most 200 episode ids; titles lose their control characters; and the webhook log line is limited to one a
+  second.
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 

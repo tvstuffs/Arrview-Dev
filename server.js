@@ -2450,6 +2450,86 @@ app.get('/api/webhooks/last', (req, res) => {
   res.json({ uptimeSeconds: age(STARTED_AT), sonarr: service('sonarr'), radarr: service('radarr') });
 });
 
+// ── Webhook limits (D95) ───────────────────────────────────────────────────────────
+// The receivers stay open (no secret, no login), so they are bounded instead. An event is checked before it is answered: a body
+// that is not an object, an event type that is not 1 to 40 plain letters, or an `episodes` that is not a list is a 400 and changes
+// nothing. Per service, the first event after a quiet second reaches the open pages at once and opens a one-second window; events
+// inside it are merged (ids joined in arrival order, at most 200; the series or movie kept only when they all agree, else null; the
+// later type wins) and sent once when it ends, which opens the next one. Titles lose their control characters and are cut to 200.
+// The event log line follows the windows (one a second, the merged one with a count); refusals have their own one-a-second line.
+const WEBHOOK_MAX_IDS = 200;
+const WEBHOOK_WINDOW_MS = 1000;
+const webhookEventValid = body => isPlainObject(body) && typeof body.eventType === 'string' &&
+  /^[A-Za-z]{1,40}$/.test(body.eventType) && (body.episodes === undefined || Array.isArray(body.episodes));
+const webhookTitle = title => (typeof title === 'string' ? title.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').slice(0, 200) : null);
+const WEBHOOK_LABEL = { sonarr: 'Sonarr', radarr: 'Radarr' };
+const webhookWindow = { sonarr: { timer: null, pending: null, count: 0 }, radarr: { timer: null, pending: null, count: 0 } };
+const webhookRefusals = { sonarr: { nextAt: 0, hidden: 0 }, radarr: { nextAt: 0, hidden: 0 } };
+const moreText = n => (n > 0 ? ` (and ${n} more in the last second)` : '');
+
+function refuseWebhook(service, res) {
+  const gate = webhookRefusals[service];
+  const now = Date.now();
+  if (now >= gate.nextAt) {
+    console.log(`[${WEBHOOK_LABEL[service]} webhook] refused a malformed event${moreText(gate.hidden)}`);
+    gate.nextAt = now + WEBHOOK_WINDOW_MS;
+    gate.hidden = 0;
+  } else {
+    gate.hidden += 1;
+  }
+  return res.status(400).json({ error: 'Invalid webhook event' });
+}
+
+function logWebhookEvent(service, data, more) {
+  const line = service === 'sonarr' ? `[Sonarr webhook] ${data.eventType} — series: ${data.seriesTitle}`
+    : `[Radarr webhook] ${data.eventType} — movie: ${data.movieTitle}`;
+  console.log(line + moreText(more));
+}
+
+function mergeWebhook(service, into, data) {
+  if (!into) return { ...data, ...(service === 'sonarr' ? { episodeIds: data.episodeIds.slice() } : {}) };
+  const idKey = service === 'sonarr' ? 'seriesId' : 'movieId';
+  const titleKey = service === 'sonarr' ? 'seriesTitle' : 'movieTitle';
+  const same = into[idKey] === data[idKey] && !into.mixed;
+  const merged = { ...into, eventType: data.eventType, [idKey]: same ? data[idKey] : null, [titleKey]: same ? data[titleKey] : null };
+  if (!same) merged.mixed = true;
+  if (service === 'sonarr') {
+    for (const id of data.episodeIds) {
+      if (merged.episodeIds.length >= WEBHOOK_MAX_IDS) break;
+      if (!merged.episodeIds.includes(id)) merged.episodeIds.push(id);
+    }
+  }
+  return merged;
+}
+
+function openWebhookWindow(service) {
+  const w = webhookWindow[service];
+  w.timer = setTimeout(() => {
+    w.timer = null;
+    if (!w.pending) return;
+    const { mixed, ...data } = w.pending;
+    const count = w.count;
+    w.pending = null;
+    w.count = 0;
+    logWebhookEvent(service, data, count - 1);
+    broadcast(service, data);
+    openWebhookWindow(service);
+  }, WEBHOOK_WINDOW_MS);
+  if (typeof w.timer.unref === 'function') w.timer.unref();
+}
+
+function webhookSend(service, data) {
+  const w = webhookWindow[service];
+  if (w.timer) {
+    w.pending = mergeWebhook(service, w.pending, data);
+    w.count += 1;
+    return;
+  }
+  logWebhookEvent(service, data, 0);
+  broadcast(service, data);
+  openWebhookWindow(service);
+}
+
 // ── Sonarr webhook ────────────────────────────────────────────────────────────
 // In Sonarr: Settings → Connect → + → Webhook
 //   URL:    http://<this-server>/api/webhooks/sonarr
@@ -2461,16 +2541,22 @@ app.get('/api/webhooks/last', (req, res) => {
 // refreshes the pages that are open.
 
 app.post('/api/webhooks/sonarr', (req, res) => {
+  if (!webhookEventValid(req.body)) return refuseWebhook('sonarr', res);
   res.sendStatus(200);
   const { eventType, series, episodes } = req.body;
   noteWebhook('sonarr', eventType);
-  if (!eventType || eventType === 'Test') return;
-  console.log(`[Sonarr webhook] ${eventType} — series: ${series?.title}`);
-  broadcast('sonarr', {
+  if (eventType === 'Test') return;
+  const show = isPlainObject(series) ? series : {};
+  const ids = [];
+  for (const e of episodes ?? []) {
+    if (ids.length >= WEBHOOK_MAX_IDS) break;
+    if (isPlainObject(e) && isPositiveId(e.id) && !ids.includes(e.id)) ids.push(e.id);
+  }
+  webhookSend('sonarr', {
     eventType,
-    seriesId:   series?.id   ?? null,
-    seriesTitle: series?.title ?? null,
-    episodeIds: (episodes ?? []).map(e => e.id),
+    seriesId:   isPositiveId(show.id) ? show.id : null,
+    seriesTitle: webhookTitle(show.title),
+    episodeIds: ids,
   });
 });
 
@@ -2483,15 +2569,16 @@ app.post('/api/webhooks/sonarr', (req, res) => {
 // Settings → Webhooks in the web UI shows this URL and these steps, as for Sonarr.
 
 app.post('/api/webhooks/radarr', (req, res) => {
+  if (!webhookEventValid(req.body)) return refuseWebhook('radarr', res);
   res.sendStatus(200);
   const { eventType, movie } = req.body;
   noteWebhook('radarr', eventType);
-  if (!eventType || eventType === 'Test') return;
-  console.log(`[Radarr webhook] ${eventType} — movie: ${movie?.title}`);
-  broadcast('radarr', {
+  if (eventType === 'Test') return;
+  const film = isPlainObject(movie) ? movie : {};
+  webhookSend('radarr', {
     eventType,
-    movieId:    movie?.id    ?? null,
-    movieTitle: movie?.title ?? null,
+    movieId:    isPositiveId(film.id) ? film.id : null,
+    movieTitle: webhookTitle(film.title),
   });
 });
 

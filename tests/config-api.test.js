@@ -110,7 +110,8 @@ test('non-JSON mutating requests get 415 and cannot wipe config (criterion 14)',
   for (const [method, path] of [['POST', '/api/sabnzbd/action'], ['PUT', '/api/sonarr/episode/monitor'], ['PATCH', '/api/config']]) {
     assert.equal((await s.json(method, path, '{}', { 'Content-Type': 'text/plain' })).status, 415, `${method} ${path}`);
   }
-  assert.equal((await s.json('POST', '/api/webhooks/sonarr', 'eventType=Test', { 'Content-Type': 'text/plain' })).status, 200);
+  // D95: a text/plain body leaves {}, which is not an event: refused, and still nothing is written.
+  assert.equal((await s.json('POST', '/api/webhooks/sonarr', 'eventType=Test', { 'Content-Type': 'text/plain' })).status, 400);
   assert.equal(s.readConfigText(), before);
 });
 
@@ -223,7 +224,7 @@ test('/api matching is case-insensitive for the 415 guard and JSON errors', asyn
     assert.equal(bad.status, 400, path);
     assert.deepEqual(await bad.json(), { error: 'Invalid JSON' });
   }
-  assert.equal((await s.json('POST', '/API/webhooks/sonarr', 'x=1', { 'Content-Type': 'text/plain' })).status, 200);
+  assert.equal((await s.json('POST', '/API/webhooks/sonarr', 'x=1', { 'Content-Type': 'text/plain' })).status, 400);
   assert.equal(s.readConfigText(), before);
 });
 

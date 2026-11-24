@@ -75,14 +75,14 @@ test('what was recorded gets older, and so does the server', async t => {
   assert.ok(body.uptimeSeconds >= body.sonarr.event.ageSeconds);
 });
 
-test('only plain-letter event types are kept, and the answer is the same either way', async t => {
+test('only plain-letter event types are kept, and any other is refused (D95)', async t => {
   const s = await startServer(t);
   // Webhook calls are not authenticated, so what is shown in Settings is limited to what no one can abuse.
   const refused = ['<b>x</b>', 'Down load', 'Download1', 'Down-load', 'a'.repeat(41), '', 42, null, true, ['Download'],
     { eventType: 'Download' }, 'Téléchargement', 'Down\nload', '<script>alert(1)</script>'];
   for (const eventType of refused) {
-    assert.equal((await send(s, 'sonarr', { eventType })).status, 200, JSON.stringify(eventType));
-    assert.equal((await send(s, 'radarr', { eventType })).status, 200, JSON.stringify(eventType));
+    assert.equal((await send(s, 'sonarr', { eventType })).status, 400, JSON.stringify(eventType));
+    assert.equal((await send(s, 'radarr', { eventType })).status, 400, JSON.stringify(eventType));
   }
   const body = await last(s);
   assert.deepEqual(body.sonarr, empty);
@@ -97,10 +97,11 @@ test('only plain-letter event types are kept, and the answer is the same either 
 
 test('a body that is not an event, or not JSON, changes nothing', async t => {
   const s = await startServer(t);
-  assert.equal((await send(s, 'sonarr', 'eventType=Download', { 'Content-Type': 'text/plain' })).status, 200);
-  assert.equal((await send(s, 'sonarr', {})).status, 200);
-  assert.equal((await send(s, 'sonarr', [])).status, 200);
-  assert.equal((await send(s, 'radarr', { movie: { id: 1, title: 'No event type' } })).status, 200);
+  // D95: these are refused (400) now; before they were answered 200 and ignored.
+  assert.equal((await send(s, 'sonarr', 'eventType=Download', { 'Content-Type': 'text/plain' })).status, 400);
+  assert.equal((await send(s, 'sonarr', {})).status, 400);
+  assert.equal((await send(s, 'sonarr', [])).status, 400);
+  assert.equal((await send(s, 'radarr', { movie: { id: 1, title: 'No event type' } })).status, 400);
   const broken = await send(s, 'sonarr', '{"eventType": "Download", ', { 'Content-Type': 'application/json' });
   assert.equal(broken.status, 400);
   assert.deepEqual(await broken.json(), { error: 'Invalid JSON' });
