@@ -25,3 +25,4 @@ playwright-report
 tests
 playwright.config.cjs
 vitest.config.mjs
+docs

@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # A push that changes only documentation builds no image (test.yml still runs on it). GitHub does not apply
+    # path filters to tag pushes, so a v* tag always publishes.
+    paths-ignore: ['**.md', 'docs/**']
   workflow_dispatch:
 
 permissions:
