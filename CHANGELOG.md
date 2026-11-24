@@ -13,6 +13,9 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
 - **Only the commands the web app sends.** The Sonarr and Radarr command routes and the SABnzbd action route pass on
   only the searches and queue actions the web app uses, rebuilt from their own fields, with one SABnzbd item at a time;
   anything else is refused with 400 and never reaches the app.
+- **Redirects stay on the same host name.** When an app answers with a redirect, ArrView follows it only to the same
+  host name and never from https to http, so a stored key is never sent to another address; the Test and the pages say
+  the service redirected to another address.
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 

@@ -55,6 +55,9 @@ takes only `{"mode":"pause"}` or `{"mode":"resume"}`, the same with one `nzo_id`
 `{"mode":"queue","name":"delete","value":"<nzo id>"}`, where an nzo id is one token of up to 64 letters, digits, `_`
 or `-`, never `all`. Anything else gets 400 `{"error":"That command is not supported"}` and nothing is sent.
 
+**Redirects.** When an app answers with a redirect, ArrView follows it only to the same host name (another port or path
+is fine) and never from https to http; otherwise the request is stopped and the route answers with its usual error.
+
 **Live updates.** `GET /api/events` is a server-sent events stream that tells clients when to refresh (for example
 after a webhook from Sonarr or Radarr). The server sends a five-second retry hint. Removing a session or an app key
 ends its open stream.

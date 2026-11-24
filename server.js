@@ -43,6 +43,51 @@ if (typeof process.on === 'function') {
   });
 }
 
+// ── Redirects: the same host name only, never https to http (D94) ─────────────────────────────
+// Every upstream call goes through the shared axios default export and carries a stored or typed key, which a redirect to another
+// host would hand over. One request interceptor gives every request a beforeRedirect check (calling any beforeRedirect the request
+// already had afterwards): a hop is followed only to the original URL's host name (case-insensitive, IPv6 brackets ignored; port and
+// path may change) and never from https to http. Otherwise it throws before the hop is requested, and an error interceptor turns
+// that into one plain sentence that never names the other address. Calls with maxRedirects: 0 follow nothing and keep it. Installed
+// once per axios module (a marker on it), since the tests evaluate this file many times over the same module. An axios.create()
+// instance would NOT be covered: use the default export for upstream calls. (Some tests hand in a stand-in axios without
+// interceptors; there is nothing to install on it.)
+const REDIRECT_GUARD = Symbol.for('arrview.redirectGuard');
+const REDIRECT_REFUSED_TEXT = "The service redirected ArrView to another address, so the request was stopped. Use the service's own address in Settings.";
+if (!axios[REDIRECT_GUARD] && axios.interceptors) {
+  const hostOf = value => String(value || '').toLowerCase().replace(/^\[|\]$/g, '');
+  const schemeOf = value => String(value || '').toLowerCase().replace(/:$/, '');
+  // The pure decision: from and to are { protocol, hostname }.
+  const allowed = (from, to) => Boolean(from && to) && hostOf(from.hostname) !== '' &&
+    hostOf(from.hostname) === hostOf(to.hostname) && !(schemeOf(from.protocol) === 'https' && schemeOf(to.protocol) === 'http');
+  const place = text => { try { const u = new NodeURL(text); return { protocol: u.protocol, hostname: u.hostname }; } catch (_) { return null; } };
+  const refusedIn = err => {
+    for (let e = err, depth = 0; e && depth < 5; e = e.cause, depth += 1) if (e.code === 'ARRVIEW_REDIRECT_REFUSED') return true;
+    return false;
+  };
+  axios.interceptors.request.use(config => {
+    let original = null;
+    try { original = place(axios.getUri(config)); } catch (_) {}
+    const prior = config.beforeRedirect;
+    let last = original;
+    config.beforeRedirect = (options, responseDetails, requestDetails) => {
+      const hop = { protocol: options.protocol, hostname: options.hostname || options.host };
+      const from = (requestDetails && requestDetails.url && place(requestDetails.url)) || last;
+      if (!allowed(original, hop) || !allowed(from, hop)) {
+        throw Object.assign(new Error('Redirect refused'), { code: 'ARRVIEW_REDIRECT_REFUSED' });
+      }
+      last = hop;
+      if (typeof prior === 'function') prior(options, responseDetails, requestDetails);
+    };
+    return config;
+  });
+  axios.interceptors.response.use(undefined, err => {
+    if (refusedIn(err)) err.message = REDIRECT_REFUSED_TEXT;
+    return Promise.reject(err);
+  });
+  axios[REDIRECT_GUARD] = { allowed };
+}
+
 const PORT = process.env.PORT || 7777;
 const CONFIG_DIR = process.env.CONFIG_DIR || __dirname;
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
