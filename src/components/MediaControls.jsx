@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { checkedFetch } from '../actions'
+import { latestSeason, latestOnly } from '../media'
 import Icon from './Icon.jsx'
 
 export function Poster({ media }) {
@@ -70,6 +71,30 @@ export function SeasonsMonitorButton({ show, state, onChanged, onToast, size = '
     aria-label={on ? `All seasons monitored for ${show.title}. Press to unmonitor them` : `Monitor all seasons of ${show.title}`}
     title={on ? 'Every season is monitored. Press to unmonitor them all' : 'Monitor every episode of every season'}>
     {pending ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <Icon name="bookmark-simple" weight={on ? 'fill' : 'regular'} />} {on ? 'All seasons monitored' : 'Monitor all seasons'}
+  </button>
+}
+// "Monitor latest season only", for a continuing show with two or more main seasons: the latest season (latestSeason) and any season
+// after it monitored, the earlier seasons unmonitored, their episodes alike, the specials left alone and the show itself monitored.
+// Once that is so it reads "Latest season only" and is disabled: "Monitor all seasons" is the way back.
+export function LatestSeasonButton({ show, episodes, onChanged, onToast, size = 'sm' }) {
+  const [pending, setPending] = useState(false)
+  const latest = latestSeason(show, episodes)
+  if (show.status !== 'continuing' || latest === null) return null
+  const done = latestOnly(show, episodes)
+  async function keepLatest() {
+    setPending(true)
+    try {
+      await checkedFetch(`/api/sonarr/series/${show.id}/seasons`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monitored: true, fromSeason: latest }),
+      })
+      onToast(`Season ${latest} is monitored in Sonarr, and the earlier seasons are not`, 'info')
+    } catch (e) { onToast(`Monitoring failed: ${e.message}`, 'error') }
+    try { await onChanged() } finally { setPending(false) }
+  }
+  return <button className={`btn btn-secondary btn-${size} seasons-latest`} disabled={pending || done} aria-busy={pending || undefined} onClick={keepLatest}
+    aria-label={done ? `Only the latest season of ${show.title} is monitored, season ${latest}` : `Monitor only the latest season of ${show.title}, season ${latest}`}
+    title={done ? `Only season ${latest} is monitored. Monitor all seasons brings the others back` : `Monitor season ${latest} and unmonitor the earlier seasons`}>
+    {pending ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <Icon name="bookmark-simple" weight={done ? 'fill' : 'regular'} />} {done ? 'Latest season only' : 'Monitor latest season only'}
   </button>
 }
 export function supportsMovieRemoval(identity) {

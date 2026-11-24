@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import Icon from '../Icon.jsx'
 import { apiFetch } from '../../api'
-import { MonitorToggle, SeasonMonitorButton, SeasonsMonitorButton } from '../MediaControls'
+import { MonitorToggle, SeasonMonitorButton, SeasonsMonitorButton, LatestSeasonButton } from '../MediaControls'
 import EpisodeSearchModal from '../EpisodeSearchModal.jsx'
 import { RemoveSeriesSheet, SeasonDeleteSheet, EpisodeDeleteSheet } from '../MediaSheets'
 import ArtImage from './ArtImage.jsx'
@@ -128,7 +128,10 @@ function ShowDetail({ show, phone, onToast, config, refresh }) {
     <section className="m-seasons">
       <div className="m-seasons-head">
         <h2>Episodes</h2>
-        {seasons.length > 1 && <SeasonsMonitorButton show={show} state={showMonitoring(show, episodes)} onChanged={seasonChanged} onToast={onToast} />}
+        {seasons.length > 1 && <div className="m-seasons-actions">
+          <LatestSeasonButton show={show} episodes={episodes} onChanged={seasonChanged} onToast={onToast} />
+          <SeasonsMonitorButton show={show} state={showMonitoring(show, episodes)} onChanged={seasonChanged} onToast={onToast} />
+        </div>}
       </div>
       {episodes === null
         ? <div className="empty-state" role="status"><span className="spinner" /><span>Loading episodes…</span></div>

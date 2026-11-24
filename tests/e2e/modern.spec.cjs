@@ -848,6 +848,52 @@ test('Shows: every season of a show can be monitored in one press, in Modern and
     await context.close()
   }
 })
+test('Shows: a continuing show can keep only its latest season monitored, in Modern and in Classic', async ({ browser, request }) => {
+  const base = (await (await request.get('/api/sonarr/series')).json())[0]
+  const day = n => new Date(Date.now() + n * 86400000).toISOString()
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+    const page = await context.newPage()
+    // A continuing show with three seasons, all monitored. The stand-in for the server does what the real route does with
+    // fromSeason: that season and later ones on, the earlier ones off, with their episodes.
+    let from = null
+    const sent = []
+    const on = seasonNumber => from === null || seasonNumber >= from
+    const show = () => ({ ...base, status: 'continuing', monitored: true, images: [], seasons: [1, 2, 3].map(seasonNumber =>
+      ({ seasonNumber, monitored: on(seasonNumber), statistics: { totalEpisodeCount: 2, episodeFileCount: 0, episodeCount: on(seasonNumber) ? 2 : 0 } })) })
+    const episodes = () => [1, 2, 3].flatMap(sn => [1, 2].map(n => ({ id: sn * 100 + n, seriesId: base.id, seasonNumber: sn, episodeNumber: n,
+      title: `Latest fixture episode ${sn}.${n}`, hasFile: false, monitored: on(sn), airDateUtc: day(sn * 7 + n - 40) })))
+    await page.route('**/api/sonarr/series', route => route.fulfill({ json: [show()] }))
+    await page.route(`**/api/sonarr/series/${base.id}/episodes`, route => route.fulfill({ json: episodes() }))
+    await page.route(`**/api/sonarr/series/${base.id}/seasons`, route => {
+      const body = route.request().postDataJSON()
+      sent.push({ method: route.request().method(), body })
+      from = body.fromSeason ?? null
+      return route.fulfill({ json: { success: true, monitored: true, seasons: 3, fromSeason: body.fromSeason } })
+    })
+
+    await open(page, `/shows/${base.id}`)
+    const head = page.locator('.m-seasons-head')
+    await head.getByRole('button', { name: `Monitor only the latest season of ${base.title}, season 3` }).click()
+    expect(sent).toEqual([{ method: 'PUT', body: { monitored: true, fromSeason: 3 } }])
+    const done = head.getByRole('button', { name: `Only the latest season of ${base.title} is monitored, season 3` })
+    await expect(done).toBeDisabled()
+    // The all-seasons control follows: two seasons are now off.
+    await expect(head.getByRole('button', { name: `Monitor all seasons of ${base.title}` })).toBeVisible()
+    expect(await fits(page), `the Episodes heading fits at ${width} px`).toBe(true)
+
+    // Classic: the same state above the seasons.
+    await page.evaluate(() => { localStorage.setItem('arrview.ui.v1.layout', '"classic"'); localStorage.setItem('arrview.ui.v1.tab', '"shows"') })
+    await page.goto('/')
+    await page.getByRole('button', { name: `Episodes for ${base.title}` }).click()
+    const classicHead = page.locator('.show-seasons-head')
+    await expect(classicHead.getByRole('button', { name: `Only the latest season of ${base.title} is monitored, season 3` })).toBeDisabled()
+    await expect(classicHead.getByRole('button', { name: `Monitor all seasons of ${base.title}` })).toBeVisible()
+    expect(await fits(page), `the Classic control fits at ${width} px`).toBe(true)
+    await context.close()
+  }
+})
+
 test('Shows: the bar, the caption and the missing count follow what Sonarr wants, in Modern and in Classic', async ({ page, request }) => {
   const OK = 'rgb(126, 226, 160)', DANGER = 'rgb(255, 107, 107)'
   const base = (await (await request.get('/api/sonarr/series')).json())[0]

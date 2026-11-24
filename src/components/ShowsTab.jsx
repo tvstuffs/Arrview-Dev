@@ -1,4 +1,4 @@
-import { Poster, MonitorToggle, SeasonMonitorButton, SeasonsMonitorButton } from './MediaControls'
+import { Poster, MonitorToggle, SeasonMonitorButton, SeasonsMonitorButton, LatestSeasonButton } from './MediaControls'
 import Icon from './Icon.jsx'
 import { useState, useCallback, useEffect } from 'react'
 import './ShowsTab.css'
@@ -213,6 +213,8 @@ function ShowCard({ show, onToast, sonarrUrl, nzbhydraUrl, onRemoved, expanded, 
           ) : (<>
             {seasons.length > 1 && (
               <div className="show-seasons-head">
+                <LatestSeasonButton show={show} episodes={episodes} size="xs" onToast={onToast}
+                  onChanged={async () => { await fetchEpisodes(); await onRemoved() }} />
                 <SeasonsMonitorButton show={show} state={showMonitoring(show, episodes)} size="xs" onToast={onToast}
                   onChanged={async () => { await fetchEpisodes(); await onRemoved() }} />
               </div>

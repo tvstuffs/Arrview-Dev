@@ -222,6 +222,10 @@
 .m-seasons h2 { margin: 16px 0 12px; font-size: 18px; font-weight: 650; }
 .m-seasons-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 16px 0 12px; }
 .m-seasons-head h2 { margin: 0; }
+/* "Monitor latest season only" and "Monitor all seasons": one group, which wraps under the heading on a narrow screen. */
+.m-seasons-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+/* On a phone the group wraps under the heading: start it at the left, in line with the season picker below. */
+@media (max-width: 639px) { .m-seasons-actions { justify-content: flex-start; } }
 .m-season-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 16px 0; }
 .m-season-meta { margin-right: auto; color: var(--text-2); font-size: 13px; }
 /* Season picker: a native select (any number of seasons) with its own caret; 16 px so iOS Safari does not zoom on focus. */

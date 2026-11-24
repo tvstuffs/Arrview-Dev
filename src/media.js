@@ -115,6 +115,30 @@ export function showMonitoring(show, episodes) {
   return states.every(state => state === 'off') ? 'off' : 'mixed'
 }
 
+// The season "Monitor latest season only" keeps: the newest main season that has episodes in Sonarr, so a season Sonarr lists before
+// any of its episodes exist (announced) is passed over; with no episodes known at all, the highest-numbered main season. Null for a
+// show with fewer than two main seasons, where there is nothing to choose.
+export function latestSeason(show, episodes) {
+  const main = (show?.seasons || []).map(season => season?.seasonNumber).filter(n => Number.isSafeInteger(n) && n > 0)
+  if (main.length < 2) return null
+  const withEpisodes = (episodes || []).map(ep => ep?.seasonNumber).filter(n => main.includes(n))
+  return Math.max(...(withEpisodes.length ? withEpisodes : main))
+}
+
+// True when only the latest season is monitored, as "Monitor latest season only" leaves a show: the show itself monitored, the
+// latest season and any season after it 'on', and every earlier main season 'off' (seasonMonitoring). The specials do not count.
+export function latestOnly(show, episodes) {
+  const latest = latestSeason(show, episodes)
+  if (latest === null || show.monitored === false) return false
+  const bySeason = new Map()
+  for (const ep of episodes || []) {
+    if (!bySeason.has(ep.seasonNumber)) bySeason.set(ep.seasonNumber, [])
+    bySeason.get(ep.seasonNumber).push(ep)
+  }
+  return (show.seasons || []).filter(season => season.seasonNumber > 0)
+    .every(season => seasonMonitoring(season, bySeason.get(season.seasonNumber) || []) === (season.seasonNumber >= latest ? 'on' : 'off'))
+}
+
 // How a season's search is sent to Sonarr. When every aired episode of the season is wanted (missing and not unmonitored) and
 // there is more than one, it is Sonarr's own season search: one search that can take a season pack. A search by episode never
 // can, because Sonarr refuses a full-season release in a single-episode search, and a pack is how an older season is usually
