@@ -1,5 +1,74 @@
 # ArrView server development changelog
 
+## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
+
+- **Version 2.0.** Only the label changes: `APP_VERSION` is `2.0`. The code is 1.9A24's, which had already gone out as
+  `latest` under its own label (release commit `11641d8`). No route, capability, config key, file format, dependency,
+  `package.json` or Dockerfile change.
+- **The README is rewritten for the people who run ArrView.** It now covers:
+  - what ArrView is, with screenshots, and what is new since 1.05, with a note on upgrading from it;
+  - a quick start with Compose and with `docker run`, and the first run;
+  - a configuration reference:
+    - every environment variable, each with its default, its meaning and an example;
+    - the container settings;
+    - a complete Compose example and a `docker run` example;
+  - updating, and the image tags;
+  - the features as they are now;
+  - the existing sections, kept and tightened: data, Docker configuration, the password login, webhooks, the iPhone app
+    and auto-discovery, HTTPS and the Home Screen app;
+  - troubleshooting.
+- **Moved out of the README, unchanged in substance:**
+  - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): running from source, the tests, the image, the version label, the
+    icons, the repositories and channels, promotion, and the release checklist;
+  - [docs/API.md](docs/API.md): identify and capabilities, health, ping, the request rules, configuration, a route
+    index, and the detailed route sections (calendars, queues, recent imports, stills, season monitoring with
+    `fromSeason`, webhooks).
+- **Corrected on the way:**
+  - The Modern layout's navigation runs along the top. The old note said a sidebar from 1024 pixels, which is the Classic
+    layout's.
+  - The "what's new" list leaves out webhook receiving and arm64 images, because 1.05 already had both.
+  - The rollback warning names 1.05 too, because 1.05 has no login either.
+- **Screenshots** in `docs/screenshots/`: eight JPEGs, 1.7 MB in total.
+  - The library is a demo, not anyone's. Real Sonarr 4.0.20.3014 and Radarr 6.4.4.10685 supplied the metadata for 18
+    well-known shows and 18 movies; the download state (files, queue, history) is staged.
+  - They were taken in Edge, at 1280 × 800 at 2x and at 390 × 844 at 3x.
+- **Publishing:**
+  - `publish-ghcr.yml` ignores pushes that change only `*.md` files and `docs/`, so a documentation update no longer
+    rebuilds `dev` or `latest`. Tag pushes always publish, because GitHub does not apply path filters to tags.
+  - `test.yml` still runs on every push.
+  - `.dockerignore` leaves out `docs/`.
+- **Tests:** server 314/314 (310 at 1.9A24), web (vitest) 625/625, e2e 298/298 and 22 skipped in Microsoft Edge on macOS
+  (CI repeats them in real Chromium).
+  - New: `tests/docs.test.js`, 4 tests:
+    - every environment variable the server reads (12 found) has a row in the README's reference, with a default, a
+      meaning and an example;
+    - every relative link and image in the README and `docs/` exists;
+    - every in-page link leads to a heading that exists;
+    - the README shows every file in `docs/screenshots/`, each with a description.
+  - Changed: `tests/auth-docs.test.js` accepts the password and data sections as top-level headings; their anchors are
+    unchanged.
+  - **Failing first,** on the 1.9A24 README:
+    - the variables test failed (no reference);
+    - the screenshots test failed (none shown);
+    - the link and anchor tests passed on both READMEs, and failed when one link and one anchor were broken on purpose.
+- **Checked:**
+  - Both Compose examples pass `docker-compose config`.
+  - The complete example was run as written on the published image, in a container on loopback with throwaway
+    secret files. All four apps were set from Docker, the login was on from the password file, the proxy entry was
+    trusted, and Bonjour advertised `arrview.local` at the example address (inside the VM, not on a LAN).
+  - The README and both docs pages were rendered with GitHub's Markdown renderer, and every image loaded.
+- **Not verified:**
+  - GitHub's own page for the repository, until it is pushed;
+  - the `docker run` examples as written;
+  - the iPhone app against 2.0 on a device (its calls were checked against the routes in the source).
+- **Human test plan** (after the release is published):
+  1. On GitHub, open [tvstuffs/ArrView](https://github.com/tvstuffs/ArrView):
+     - the page shows the logo, the screenshots and the contents list;
+     - the contents links jump to their sections;
+     - the tables render, and the links to `docs/API.md` and `docs/DEVELOPMENT.md` open.
+  2. Update your container and check that Settings ends with "ArrView v2.0".
+  3. Optional: on a spare machine, follow Quick start from the README as a new user would, and say where it is unclear.
+
 ## 1.9A24 (unreleased) — Shows: "Monitor latest season only" for a continuing show
 
 - **Version 1.9A24.** One feature on top of 1.9A23, from the maintainer's test round (R3.6, decision D79): a continuing show can
