@@ -1,5 +1,71 @@
 # ArrView server development changelog
 
+## 1.9A24 (unreleased) — Shows: "Monitor latest season only" for a continuing show
+
+- **Version 1.9A24.** One feature on top of 1.9A23, from the maintainer's test round (R3.6, decision D79): a continuing show can
+  keep only its latest season monitored, in one press. The route `PUT /api/sonarr/series/:id/seasons` takes an optional
+  `fromSeason`, and identify adds the capability `seasonMonitorFrom`. No other route, config key, file format, dependency,
+  `package.json` or Dockerfile changes.
+- **The control.** "Monitor latest season only" sits beside "Monitor all seasons" on a continuing show with two or more main
+  seasons: in the heading of the Episodes section in Modern, and above the first season in Classic. On a phone the two wrap
+  under the heading, starting at the left. An ended show, or one with a single main season, has no such button.
+- **What it does:**
+  - The latest season is the newest main season that has episodes in Sonarr. That season is monitored, its flag and every
+    episode, and so is any season Sonarr lists after it before its episodes exist (announced), so the show is still followed.
+  - Every earlier main season is unmonitored, flag and episodes. Season 0, the specials, is left as it is.
+  - The show's own monitoring is turned on when it is off, because Sonarr grabs nothing for an unmonitored show (as "Monitor
+    all seasons" does).
+  - Once that is so, the button reads "Latest season only" and is disabled; "Monitor all seasons" is the way back. The toast
+    says "Season N is monitored in Sonarr, and the earlier seasons are not".
+- **The route.** `PUT /api/sonarr/series/:id/seasons` with `{ "monitored": true, "fromSeason": N }`:
+  - the main seasons from N on are monitored and the earlier ones unmonitored, in at most five requests to Sonarr whatever the
+    number of seasons: the series read, one update for the flags that differ, one read of the episodes, and at most one
+    episode call per direction for the episodes Sonarr did not move with their flag;
+  - `fromSeason` must be a whole season number of 1 or more, sent with `monitored: true` (400 otherwise), and one the show has
+    (404 otherwise);
+  - a failure after the flags were set says so: "Season N on was set to monitored and the earlier seasons to unmonitored, but
+    not all of their episodes: …".
+- **Checked against a real Sonarr** (4.0.20.3014 in a container on loopback only, with South Park added with nothing
+  monitored: 29 main seasons, 337 episodes and 35 specials, season 29 being the latest with episodes). Counts were read from
+  Sonarr itself:
+  - on the unmonitored show, `fromSeason: 29` turned the show on, set only season 29's flag, and monitored its 6 episodes;
+  - after "Monitor all seasons" (seasons 1 to 29, 337 episodes), `fromSeason: 29` again left only season 29 and its 6
+    episodes;
+  - a special monitored through Sonarr's own API stayed monitored;
+  - season 99 answered 404, and `fromSeason` with `monitored: false` answered 400;
+  - the page in Edge at 1280 and 390 px: from every season monitored, one press left season 29 alone monitored in Sonarr, the
+    button read "Latest season only" (disabled) and "Monitor all seasons" was offered, with nothing scrolling sideways.
+- **Tests:** server 310/310 (303 at 1.9A23), web (vitest) 625/625 (619), e2e 298/298 and 22 skipped in Microsoft Edge on
+  macOS (297; CI repeats them in real Chromium). New:
+  - `tests/season-monitor-from.test.js`, 7 tests: the seasons and episodes as asked with the specials alone, and one series
+    update and one call per direction; the show's own flag; nothing written when already so; the refusals before Sonarr is
+    asked; 404 for a season the show lacks; the message after a partial failure; the capability.
+  - `tests/web/latest-season.test.jsx`, 6 tests: the latest season with an announced season passed over; the "latest only"
+    state; the Modern button and the request it sends; the done state; none for an ended or one-season show; Classic.
+  - An e2e test in Modern and Classic at 1280 and 390 px.
+
+  Changed: the identify capability lists in `tests/queue-routes.test.js`, `tests/env-config.test.js` and
+  `tests/e2e/pwa.spec.cjs` gain `seasonMonitorFrom`, before `auth`, which stays last. **Failing first**, on 1.9A23: 6 of the 7
+  server tests, all 6 web tests and the e2e test failed. The seventh server test, on the show's own flag, passed because
+  "Monitor all seasons" also turns it on, so it was made to check the season flags too, and then it failed as well.
+- **Not verified:** Sonarr 3; a real show whose latest season is announced with episodes not yet aired (it then counts as the
+  latest season); anime and daily series; the Duo.
+- **Human test plan** (on a real install after the upgrade):
+  1. A continuing show with several seasons, one whose monitoring you can set again afterwards: the Episodes heading has "Monitor
+     latest season only" beside "Monitor all seasons". Press it. The toast says "Season N is monitored in Sonarr, and the
+     earlier seasons are not", the button reads "Latest season only" and is greyed out, and "Monitor all seasons" is offered.
+     In Sonarr, only season N's bookmark (and that of any announced season after it) is filled, the earlier seasons' episodes
+     are unmonitored, and the Specials are as they were.
+  2. The show's progress line now counts only season N's episodes as wanted.
+  3. Press "Monitor all seasons": every season is monitored again, and "Monitor latest season only" can be pressed again.
+  4. A continuing show that is not monitored itself (an outlined bookmark at the top): "Monitor latest season only" also fills
+     that bookmark.
+  5. An ended show, and a show with one season, have no such button.
+  6. Classic layout: the same button above the first season, beside "Monitor all seasons"; it acts the same.
+  7. On a phone and on the Duo: the two buttons wrap under the Episodes heading, starting at the left, and nothing scrolls
+     sideways.
+  8. Roll back to the 1.9A23 image: nothing to migrate. The button goes, and what is monitored in Sonarr stays as it is.
+
 ## 1.9A23 (unreleased) — Settings: SABnzbd's and NZBHydra's Test and status prove the API key; NZBHydra's Test shows its version
 
 - **Version 1.9A23.** One fix on top of 1.9A22, from the maintainer's test round of 1.9A22: SABnzbd and NZBHydra tested Connected
