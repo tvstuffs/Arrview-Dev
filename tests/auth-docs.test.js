@@ -8,7 +8,9 @@ const readme = read('README.md');
 const changelog = read('CHANGELOG.md');
 
 test('README documents the variables and the app warning', () => {
-  for (const needle of ['ARRVIEW_PASSWORD', 'ARRVIEW_PASSWORD_FILE', 'ARRVIEW_AUTH=off', 'ARRVIEW_TRUSTED_PROXIES', 'cannot sign in yet', '### Password login (optional)']) {
+  // The section may be a top-level one (2.0) or sit under Docker (before 2.0): its anchor is the same either way.
+  assert.match(readme, /^#{2,3} Password login \(optional\)$/m);
+  for (const needle of ['ARRVIEW_PASSWORD', 'ARRVIEW_PASSWORD_FILE', 'ARRVIEW_AUTH=off', 'ARRVIEW_TRUSTED_PROXIES', 'cannot sign in yet']) {
     assert.ok(readme.includes(needle), needle);
   }
   assert.ok(!readme.includes('still has no login'));
@@ -16,8 +18,8 @@ test('README documents the variables and the app warning', () => {
 });
 
 test('README says where the data lives and the three ways to keep it; the compose file offers the same three', () => {
+  assert.match(readme, /^#{2,3} Where ArrView keeps its data$/m);
   for (const needle of [
-    '### Where ArrView keeps its data',
     'ArrView saves everything in one folder: `/data` inside the container',
     '- `config.json`:',
     '- `auth.json`:',
