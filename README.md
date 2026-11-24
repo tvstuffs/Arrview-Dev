@@ -41,7 +41,9 @@ Settings are saved to `config.json` (gitignored). You can re-open them any time 
 
 **Addresses and ports.** An `http://` address is taken to be a local one, so it must name its port: `http://<docker-host-address>:8080` for SABnzbd, `:8989` for Sonarr, `:7878` for Radarr and `:5076` for NZBHydra, or whatever port you mapped. When the port is missing the page says so under the field, and neither Test nor Save goes ahead until it is there. An `https://` address needs no port when the host name already leads to the app, as with a reverse proxy that routes by name; a port you do type is used as written. ArrView adds no port to what you type in Settings. An address that was saved before this rule keeps working and keeps saving; the rule applies when you enter or change one.
 
-SABnzbd's **Test** says Connected only when SABnzbd itself answers with its version. If something else answers at the address (a web page, another app), it says so and suggests checking the address and port.
+SABnzbd's **Test** says Connected only when SABnzbd itself answers with its version. If something else answers at the address (a web page, another app), it says so and suggests checking the address and port. SABnzbd answers its version for any API key, so the Test also asks it something that needs the key: a key SABnzbd refuses tests as "SABnzbd refused this API key", and the status in Settings shows it as not connected.
+
+NZBHydra's **Test** reads NZBHydra's answer, because NZBHydra answers a wrong API key with HTTP 200 and an error inside: that key tests as "NZBHydra refused this API key", and the right one tests Connected with NZBHydra's version.
 
 Sonarr's and Radarr's **Test** also read which app answered. The two share one API, so Sonarr's address and key in the Radarr row (or the other way round) used to test Connected, and the pages of that row then failed. The Test now says "That address is Sonarr, not Radarr", and a web page that answers where the app should be is refused too. The status beside a saved app follows the same check, so such a row reads "Can't connect". An app too old to name itself (Sonarr 3) is accepted as before. Saving still asks nothing of the apps, so a row can be saved while its app is stopped.
 
@@ -768,7 +770,9 @@ lightweight status/version/capabilities APIs. Service names are `sonarr`, `radar
 `sabnzbd`, `nzbhydra`; success is `{"status":"ok"}`, unavailable/unconfigured is
 HTTP 503, and unknown services are HTTP 404. The dashboard polls these for pills.
 Since 1.9A17 a Sonarr or Radarr answer that names the other of the two apps counts as
-unavailable, as the Test button in Settings does.
+unavailable, as the Test button in Settings does. Since 1.9A23 SABnzbd's ping also asks
+`mode=server_stats`, which needs the API key (SABnzbd answers `mode=version` for any key),
+so a wrong key counts as unavailable; NZBHydra's ping already read its answer.
 
 Hashed build assets under `/assets/` are immutable for one year. The HTML shell
 and mutable public files revalidate; API responses are not stored. Reverse proxies

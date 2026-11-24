@@ -74,12 +74,16 @@ test('W0 web foundation contract', async t => {
       if (['sonarr', 'radarr'].includes(service)) {
         assert.equal(hit.url.pathname, `/${service}/api/v3/system/status`);
         assert.equal(hit.key, 'fixture-only-secret');
+      } else if (service === 'sabnzbd') {
+        // SABnzbd answers its version for any key, so its status also asks server_stats, which needs the key (1.9A23).
+        assert.deepEqual(hits.slice(-2).map(h => h.url.searchParams.get('mode')), ['version', 'server_stats']);
+        for (const h of hits.slice(-2)) assert.equal(h.url.searchParams.get('apikey'), 'fixture-only-secret');
       } else {
         assert.equal(hit.url.searchParams.get('apikey'), 'fixture-only-secret');
-        assert.equal(hit.url.searchParams.get(service === 'sabnzbd' ? 'mode' : 't'), service === 'sabnzbd' ? 'version' : 'caps');
+        assert.equal(hit.url.searchParams.get('t'), 'caps');
       }
     }
-    assert.equal(hits.length, 4);
+    assert.equal(hits.length, 5);
   });
   await t.test('upstream rejection and HTTP-200 API errors fail without leaking credentials', async () => {
     for (const service of Object.keys(config)) {

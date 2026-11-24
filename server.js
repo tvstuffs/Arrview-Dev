@@ -890,6 +890,22 @@ app.get('/api/health', (req, res) => {
 });
 
 // Lightweight connectivity checks: never request queues or media libraries.
+// ── NZBHydra: its caps, its key and its version ───────────────────────────────
+// A real NZBHydra 2 (9.3.3) answers /api?t=caps&o=json with HTTP 200 for any key: the caps (server, limits, searching, categories;
+// no `caps` key) for the right one, and {"code": "100", "description": "Wrong api key"} for a wrong one or none. So a 200 proves
+// nothing about the key: the answer has to be read. Its version is server["@attributes"].appversion (`version` there is the Newznab
+// API's own version on other indexers, so it is not shown).
+const HYDRA_KEY_REFUSED = 'NZBHydra refused this API key — use the API key from Config → Main in NZBHydra';
+const isHydraCaps = data => isPlainObject(data) && !Object.prototype.hasOwnProperty.call(data, 'error')
+  && (isPlainObject(data.caps) || isPlainObject(data.server) || isPlainObject(data.searching) || isPlainObject(data.categories));
+const isHydraKeyRefused = data => isPlainObject(data) && String(data.code) === '100';
+function hydraVersion(data) {
+  const server = isPlainObject(data?.caps) ? data.caps.server : data?.server;
+  const attributes = isPlainObject(server?.['@attributes']) ? server['@attributes'] : server;
+  const version = isPlainObject(attributes) ? attributes.appversion : null;
+  return typeof version === 'string' && version.trim() ? version.trim() : null;
+}
+
 app.get('/api/:service/ping', async (req, res) => {
   const { service } = req.params;
   if (!['sonarr', 'radarr', 'sabnzbd', 'nzbhydra'].includes(service)) {
@@ -901,6 +917,9 @@ app.get('/api/:service/ping', async (req, res) => {
     if (service === 'sabnzbd') {
       const data = await sabRequest({ mode: 'version' });
       if (!data?.version || data.status === false) throw new Error('Invalid version response');
+      // SABnzbd answers its version for any key, so the status asks a call that needs the key too (403 for a wrong one).
+      const stats = await sabRequest({ mode: 'server_stats' });
+      if (!isPlainObject(stats) || stats.status === false) throw new Error('Key refused');
     } else {
       const baseUrl = url.replace(/\/+$/, '');
       const isHydra = service === 'nzbhydra';
@@ -910,14 +929,10 @@ app.get('/api/:service/ping', async (req, res) => {
         timeout: 10000,
         maxRedirects: 0,
       });
-      // Some services return a login page or API error with HTTP 200.
+      // Some services return a login page or API error with HTTP 200, NZBHydra a wrong key too (see isHydraCaps).
       const data = response.data;
-      // NZBHydra2 answers caps without a `caps` key (server, limits, searching, categories).
-      const isObject = v => typeof v === 'object' && v !== null && !Array.isArray(v);
-      const hydraOk = isObject(data) && !Object.prototype.hasOwnProperty.call(data, 'error')
-        && (isObject(data.caps) || isObject(data.server) || isObject(data.searching) || isObject(data.categories));
       // Sonarr and Radarr: a status answer with a version, and not the other of the two (the same check as the Test button).
-      if (isHydra ? !hydraOk : arrAnswerProblem(service, data)) {
+      if (isHydra ? !isHydraCaps(data) : arrAnswerProblem(service, data)) {
         throw new Error('Invalid service response');
       }
     }
@@ -1312,6 +1327,20 @@ async function detectSabPath(baseUrl, apikey) {
   return (await probeSab(baseUrl, apikey)).path;
 }
 
+// SABnzbd answers mode=version for any key or none, so a version proves the address but not the key. server_stats needs the key: a
+// real SABnzbd 5.1.3 answers it 403 ("API Key Incorrect", or "API Key Required" without one) for a wrong key, 200 for the right one.
+const SAB_KEY_REFUSED = 'SABnzbd refused this API key — use the API key from Config → General in SABnzbd';
+async function sabKeyAccepted(baseUrl, sabPath, apikey) {
+  const r = await axios.get(`${baseUrl}${sabPath}`, {
+    params: { mode: 'server_stats', output: 'json', apikey },
+    timeout: 8000,
+    validateStatus: () => true,
+  });
+  if (r.status === 403) return false;
+  if (r.status !== 200) throw Object.assign(new Error(`HTTP ${r.status}`), { response: r });
+  return !(isPlainObject(r.data) && r.data.status === false);
+}
+
 // ── Sonarr and Radarr: is it the app the row is for? ─────────────────────────
 // Both answer /api/v3/system/status in the same shape, each for its own key, so one app's address and key in the other's row answered
 // 200 and tested "Connected", and then every page of that row failed (Sonarr has no /api/v3/movie, Radarr no /api/v3/series). Both
@@ -1370,6 +1399,7 @@ app.post('/api/test/:service', async (req, res) => {
           ? 'That address answered, but not like SABnzbd — check the address and port'
           : 'Could not reach SABnzbd — check URL and API key' });
       }
+      if (!(await sabKeyAccepted(url, found.path, apikey))) return res.status(503).json({ error: SAB_KEY_REFUSED });
       return res.json({ success: true, version: found.version, sabPath: found.path });
     }
 
@@ -1384,11 +1414,14 @@ app.post('/api/test/:service', async (req, res) => {
     }
 
     if (service === 'nzbhydra') {
-      await axios.get(`${url}/api`, {
+      const r = await axios.get(`${url}/api`, {
         params: { t: 'caps', o: 'json', apikey },
         timeout: 10000,
       });
-      return res.json({ success: true });
+      if (isHydraKeyRefused(r.data)) return res.status(503).json({ error: HYDRA_KEY_REFUSED });
+      if (!isHydraCaps(r.data)) return res.status(503).json({ error: 'That address answered, but not like NZBHydra — check the address and port' });
+      const version = hydraVersion(r.data);
+      return res.json({ success: true, ...(version ? { version } : {}) });
     }
 
     res.status(400).json({ error: 'Unknown service' });

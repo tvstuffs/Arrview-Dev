@@ -169,7 +169,9 @@ test('nothing answering is still "could not reach", and a real SABnzbd is found 
   r = await s.json('POST', '/api/test/sabnzbd', { url: root.url, apikey: KEY });
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { success: true, version: '5.1.3', sabPath: '/api' });
-  assert.deepEqual(root.hits, ['/sabnzbd/api', '/api'], 'one probe per path, and no second request for the version');
+  // One probe per path, no second request for the version, then one call that needs the key (1.9A23: SABnzbd answers its
+  // version for any key).
+  assert.deepEqual(root.hits, ['/sabnzbd/api', '/api', '/api'], 'one probe per path, then the key check');
 
   const sub = await serve(t, { '/sabnzbd/api': { status: 200, body: '{"version": "4.2.1"}' } });
   r = await s.json('POST', '/api/test/sabnzbd', { url: sub.url, apikey: KEY });
