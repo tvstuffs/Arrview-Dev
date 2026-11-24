@@ -22,7 +22,7 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
   second.
 - **The Vite dev server does not serve the data files.** `npm run dev` refuses `config.json`, `auth.json` and their
   temporary files, as well as Vite's own defaults.
-- **Tests:** server 362/362 (314 at 2.0), web (vitest) 625/625 (625), e2e 298/298 and 22 skipped in Microsoft Edge
+- **Tests:** server 365/365 (314 at 2.0), web (vitest) 625/625 (625), e2e 298/298 and 22 skipped in Microsoft Edge
   on macOS (298 and 22). Existing assertions changed because malformed webhook events are now refused: two in
   `webhook-activity.test.js`, two in `config-api.test.js`, two request bodies in `auth-gate.test.js`, and one in
   `tests/e2e/webhooks.spec.cjs`.
