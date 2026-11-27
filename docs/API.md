@@ -43,6 +43,21 @@ send `Content-Type: application/json` with a body, otherwise the server answers 
 `{"error":"Invalid JSON"}`. `curl -d` therefore needs `-H 'Content-Type: application/json'`. Requests from a signed-in
 browser also send `X-Requested-With: ArrView`.
 
+**Ids.** An id in a route's path that is passed on to Sonarr or Radarr (`:id`, `:season`) must be 1 to 10 digits, and so
+must `episodeId` and `movieId` on the release searches; anything else gets 400 `{"error":"Invalid id"}` and nothing is
+sent. A query value that is passed on must be given once, as plain text; a repeated or bracketed value gets 400
+`{"error":"Invalid query"}`.
+
+**Commands.** `POST /api/sonarr/command` takes only `SeriesSearch` (`seriesId`), `SeasonSearch` (`seriesId`,
+`seasonNumber`) and `EpisodeSearch` (`episodeIds`, 1 to 10000 ids); `POST /api/radarr/command` only `MoviesSearch`
+(`movieIds`, 1 to 10000 ids). Ids are JSON numbers above 0, and other fields are dropped. `POST /api/sabnzbd/action`
+takes only `{"mode":"pause"}` or `{"mode":"resume"}`, the same with one `nzo_id`, and
+`{"mode":"queue","name":"delete","value":"<nzo id>"}`, where an nzo id is one token of up to 64 letters, digits, `_`
+or `-`, never `all`. Anything else gets 400 `{"error":"That command is not supported"}` and nothing is sent.
+
+**Redirects.** When an app answers with a redirect, ArrView follows it only to the same host name (another port or path
+is fine) and never from https to http; otherwise the request is stopped and the route answers with its usual error.
+
 **Live updates.** `GET /api/events` is a server-sent events stream that tells clients when to refresh (for example
 after a webhook from Sonarr or Radarr). The server sends a five-second retry hint. Removing a session or an app key
 ends its open stream.
@@ -156,6 +171,13 @@ be changed, the answer is an error that says which part was done.
 
 `POST /api/webhooks/sonarr` and `POST /api/webhooks/radarr` receive Sonarr's and Radarr's webhooks. They stay open
 when the password login is on. Each event refreshes the clients that are open (through `/api/events`).
+
+An event must be a JSON object whose `eventType` is 1 to 40 plain letters, and `episodes`, when present, must be a list;
+anything else gets 400 `{"error":"Invalid webhook event"}` and changes nothing. Per app, the first event after a quiet
+second is sent to the clients at once; events in the following second are merged and sent once when it ends. A merged
+Sonarr event joins the `episodeIds`; `seriesId` (Radarr: `movieId`) and the title are kept only when every merged event
+named the same one, and are `null` otherwise. An event carries at most 200 `episodeIds`, and titles lose their control
+characters and are cut to 200 characters.
 
 `GET /api/webhooks/last` is what Settings reads. It answers with the seconds since ArrView started and, for each app,
 the last `event` and the last `test`, each as `{ "eventType": "Download", "ageSeconds": 125 }` or `null`:

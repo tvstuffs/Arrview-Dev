@@ -7,6 +7,90 @@ const crypto = require('crypto');
 const { URL: NodeURL } = require('url');
 
 const app = express();
+
+// ── One request never ends the process ───────────────────────────────────────
+// Express 4 catches a route handler's synchronous throw but not an async handler's rejection, which used to be unhandled and end
+// the process. Every route method is wrapped once, so any handler registered on `app` (here or later) passes a throw or rejection to
+// next(err); the final error handler at the end of the file answers it with a plain JSON 500. app.get(name) stays the settings getter.
+const ROUTES_WRAPPED = Symbol.for('arrview.routesWrapped');
+function safeHandler(fn) {
+  if (typeof fn !== 'function' || fn.length > 3) return fn;
+  return function safeRouteHandler(req, res, next) {
+    try {
+      const out = fn.call(this, req, res, next);
+      if (out && typeof out.then === 'function') out.then(undefined, err => next(err || new Error('Rejected')));
+      return out;
+    } catch (err) {
+      return next(err);
+    }
+  };
+}
+if (!app[ROUTES_WRAPPED]) {
+  app[ROUTES_WRAPPED] = true;
+  for (const method of ['get', 'post', 'put', 'delete', 'patch', 'all']) {
+    const original = app[method];
+    app[method] = function (...args) {
+      if (method === 'get' && args.length === 1) return original.apply(this, args);
+      return original.apply(this, args.map(arg => (Array.isArray(arg) ? arg.map(safeHandler) : safeHandler(arg))));
+    };
+  }
+}
+// The last resort: a rejection nobody handled is logged (its kind only, never a stack or message) and the server keeps running. The
+// test harness runs this file with a process stub that has no `on`, hence the guard.
+if (typeof process.on === 'function') {
+  process.on('unhandledRejection', reason => {
+    console.log(`[server] unhandled rejection (${(reason && (reason.code || reason.name)) || typeof reason})`);
+  });
+}
+
+// ── Redirects: the same host name only, never https to http (D94) ─────────────────────────────
+// Every upstream call goes through the shared axios default export and carries a stored or typed key, which a redirect to another
+// host would hand over. One request interceptor gives every request a beforeRedirect check (calling any beforeRedirect the request
+// already had afterwards): a hop is followed only to the original URL's host name (case-insensitive, IPv6 brackets ignored; port and
+// path may change) and never from https to http. Otherwise it throws before the hop is requested, and an error interceptor turns
+// that into one plain sentence that never names the other address. Calls with maxRedirects: 0 follow nothing and keep it. Installed
+// once per axios module (a marker on it), since the tests evaluate this file many times over the same module. An axios.create()
+// instance would NOT be covered: use the default export for upstream calls. (Some tests hand in a stand-in axios without
+// interceptors; there is nothing to install on it.)
+// The hop is judged by its logical URL (`options.href`, set by follow-redirects from the Location header), never by
+// options.hostname/protocol: axios's own proxy hook runs first and, for a plain-http target behind a forward proxy (config or
+// HTTP_PROXY), rewrites those to the proxy's address. A hop without a readable href is refused.
+const REDIRECT_GUARD = Symbol.for('arrview.redirectGuard');
+const REDIRECT_REFUSED_TEXT = "The service redirected ArrView to another address, so the request was stopped. Use the service's own address in Settings.";
+if (!axios[REDIRECT_GUARD] && axios.interceptors) {
+  const hostOf = value => String(value || '').toLowerCase().replace(/^\[|\]$/g, '');
+  const schemeOf = value => String(value || '').toLowerCase().replace(/:$/, '');
+  // The pure decision: from and to are { protocol, hostname }.
+  const allowed = (from, to) => Boolean(from && to) && hostOf(from.hostname) !== '' &&
+    hostOf(from.hostname) === hostOf(to.hostname) && !(schemeOf(from.protocol) === 'https' && schemeOf(to.protocol) === 'http');
+  const place = text => { try { const u = new NodeURL(text); return { protocol: u.protocol, hostname: u.hostname }; } catch (_) { return null; } };
+  const refusedIn = err => {
+    for (let e = err, depth = 0; e && depth < 5; e = e.cause, depth += 1) if (e.code === 'ARRVIEW_REDIRECT_REFUSED') return true;
+    return false;
+  };
+  axios.interceptors.request.use(config => {
+    let original = null;
+    try { original = place(axios.getUri(config)); } catch (_) {}
+    const prior = config.beforeRedirect;
+    let last = original;
+    config.beforeRedirect = (options, responseDetails, requestDetails) => {
+      const hop = options && typeof options.href === 'string' ? place(options.href) : null;
+      const from = (requestDetails && requestDetails.url && place(requestDetails.url)) || last;
+      if (!hop || !allowed(original, hop) || !allowed(from, hop)) {
+        throw Object.assign(new Error('Redirect refused'), { code: 'ARRVIEW_REDIRECT_REFUSED' });
+      }
+      last = hop;
+      if (typeof prior === 'function') prior(options, responseDetails, requestDetails);
+    };
+    return config;
+  });
+  axios.interceptors.response.use(undefined, err => {
+    if (refusedIn(err)) err.message = REDIRECT_REFUSED_TEXT;
+    return Promise.reject(err);
+  });
+  axios[REDIRECT_GUARD] = { allowed };
+}
+
 const PORT = process.env.PORT || 7777;
 const CONFIG_DIR = process.env.CONFIG_DIR || __dirname;
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -1481,28 +1565,49 @@ app.get('/api/sabnzbd/queue', async (req, res) => {
 });
 
 app.get('/api/sabnzbd/history', async (req, res) => {
-  const limit = req.query.limit === undefined ? 15 : Number(req.query.limit);
+  // Checked as text first: a query value can be an array or an object, and Number() of an object can throw.
+  const raw = req.query.limit;
+  const limit = raw === undefined ? 15 : (typeof raw === 'string' && /^\d{1,4}$/.test(raw) ? Number(raw) : NaN);
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) return res.status(400).json({ error: 'limit must be an integer from 1 to 1000' });
   try { res.json(await sabRequest({ mode: 'history', limit })); }
   catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
+// Only what the web app sends: pause or resume the whole queue, pause, resume or delete one item. One item is one nzo id: a single
+// token of letters, digits, `_` and `-` (real ids are UUIDs; older SABnzbd's `SABnzbd_nzo_...` also fits), never `all` in any case,
+// which SABnzbd's queue delete takes as "everything", and never a comma list. The request sent is rebuilt from those fields only,
+// and the check runs before sabRequest, so a refused action does not start the path detection.
+const COMMAND_REFUSED = { error: 'That command is not supported' };
+const isNzoId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value) && !/^all$/i.test(value);
+function sabActionParams(body) {
+  if (!isPlainObject(body)) return null;
+  const { mode } = body;
+  if (mode === 'pause' || mode === 'resume') {
+    if (!Object.prototype.hasOwnProperty.call(body, 'nzo_id')) return { mode };
+    // Per-item pause/resume uses mode=queue&name=pause/resume&value=<id>
+    return isNzoId(body.nzo_id) ? { mode: 'queue', name: mode, value: body.nzo_id } : null;
+  }
+  if (mode === 'queue' && body.name === 'delete' && isNzoId(body.value)) return { mode: 'queue', name: 'delete', value: body.value };
+  return null;
+}
+
 app.post('/api/sabnzbd/action', async (req, res) => {
-  const { mode, nzo_id, name, value } = req.body;
+  const params = sabActionParams(req.body);
+  if (!params) return res.status(400).json(COMMAND_REFUSED);
   try {
-    let params;
-    if (nzo_id && (mode === 'pause' || mode === 'resume')) {
-      // Per-item pause/resume uses mode=queue&name=pause/resume&value=<id>
-      params = { mode: 'queue', name: mode, value: nzo_id };
-    } else {
-      params = { mode };
-      if (name)  params.name  = name;
-      if (value) params.value = value;
-      if (nzo_id && !value) params.value = nzo_id;
-    }
     res.json(await sabRequest(params));
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
+
+// ── Ids and query values sent upstream ───────────────────────────────────────
+// A path parameter that goes into an upstream URL or query is 1 to 10 digits, checked before any request: an encoded `/` or `?` in
+// it would otherwise reach another endpoint of the app with the stored key. A query value passed on is one string (Express turns
+// `a=1&a=2` into an array and `a[x]=1` into an object), and the ids among them are digits too.
+const UPSTREAM_ID = /^\d{1,10}$/;
+const isUpstreamId = value => typeof value === 'string' && UPSTREAM_ID.test(value);
+const singleOrAbsent = value => value === undefined || typeof value === 'string';
+const invalidId = res => res.status(400).json({ error: 'Invalid id' });
+const invalidQuery = res => res.status(400).json({ error: 'Invalid query' });
 
 // ── Sonarr ────────────────────────────────────────────────────────────────────
 
@@ -1642,6 +1747,7 @@ app.get('/api/sonarr/calendar', async (req, res) => {
 });
 
 app.get('/api/sonarr/series/:id/episodes', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/episode`, {
@@ -1653,10 +1759,33 @@ app.get('/api/sonarr/series/:id/episodes', async (req, res) => {
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
+// The Sonarr and Radarr commands the web app sends, and nothing else: the body sent is rebuilt from `name` and the listed fields, in
+// that order. Ids are JSON numbers (safe integers above 0); a list holds 1 to 10000 of them, so "search every missing movie" keeps
+// working on a large library, and the 100 kB body limit stays the real bound on size.
+const isPositiveId = value => Number.isSafeInteger(value) && value > 0;
+const isIdList = value => Array.isArray(value) && value.length >= 1 && value.length <= 10000 && value.every(isPositiveId);
+function sonarrCommand(body) {
+  if (!isPlainObject(body)) return null;
+  const { name, seriesId, seasonNumber, episodeIds } = body;
+  if (name === 'SeriesSearch' && isPositiveId(seriesId)) return { name, seriesId };
+  if (name === 'SeasonSearch' && isPositiveId(seriesId) && Number.isSafeInteger(seasonNumber) && seasonNumber >= 0) {
+    return { name, seriesId, seasonNumber };
+  }
+  if (name === 'EpisodeSearch' && isIdList(episodeIds)) return { name, episodeIds };
+  return null;
+}
+function radarrCommand(body) {
+  if (!isPlainObject(body)) return null;
+  const { name, movieIds } = body;
+  return name === 'MoviesSearch' && isIdList(movieIds) ? { name, movieIds } : null;
+}
+
 app.post('/api/sonarr/command', async (req, res) => {
+  const command = sonarrCommand(req.body);
+  if (!command) return res.status(400).json(COMMAND_REFUSED);
   try {
     const { baseUrl, headers } = sonarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/command`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/command`, command, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -1665,6 +1794,7 @@ app.post('/api/sonarr/command', async (req, res) => {
 });
 
 app.get('/api/sonarr/command/:id', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/command/${req.params.id}`, { headers, timeout: 10000 });
@@ -1718,6 +1848,8 @@ async function hydraDirectSearch(q) {
 
 app.get('/api/sonarr/release', async (req, res) => {
   const { episodeId, seriesTitle, season, episode } = req.query;
+  if (episodeId !== undefined && !isUpstreamId(episodeId)) return invalidId(res);
+  if (![seriesTitle, season, episode].every(singleOrAbsent)) return invalidQuery(res);
   try {
     // 1. Ask Sonarr (it queries all its configured indexers)
     const { baseUrl, headers } = sonarrHeaders();
@@ -1754,6 +1886,7 @@ app.post('/api/sonarr/release', async (req, res) => {
 
 // Delete an episode file from disk
 app.delete('/api/sonarr/episodefile/:id', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     await axios.delete(`${baseUrl}/api/v3/episodefile/${req.params.id}`, { headers, timeout: 15000 });
@@ -1777,6 +1910,7 @@ app.put('/api/sonarr/episode/monitor', async (req, res) => {
 });
 
 app.get('/api/sonarr/lookup', async (req, res) => {
+  if (!singleOrAbsent(req.query.term)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/series/lookup`, {
@@ -1818,7 +1952,7 @@ app.post('/api/sonarr/series', async (req, res) => {
 
 // Read the current resource so changing monitoring preserves Sonarr metadata.
 app.put('/api/sonarr/series/:id', async (req, res) => {
-  if (!/^\d+$/.test(req.params.id) || typeof req.body.monitored !== 'boolean')
+  if (!isUpstreamId(req.params.id) || typeof req.body.monitored !== 'boolean')
     return res.status(400).json({ error: 'A numeric series id and boolean monitored are required' });
   try {
     const { baseUrl, headers } = sonarrHeaders();
@@ -1835,7 +1969,7 @@ app.put('/api/sonarr/series/:id', async (req, res) => {
 app.put('/api/sonarr/series/:id/season/:season', async (req, res) => {
   const { id, season } = req.params;
   const monitored = req.body.monitored;
-  if (!/^\d+$/.test(id) || !/^\d+$/.test(season) || typeof monitored !== 'boolean')
+  if (!isUpstreamId(id) || !isUpstreamId(season) || typeof monitored !== 'boolean')
     return res.status(400).json({ error: 'A numeric series id, a season number and boolean monitored are required' });
   const seasonNumber = Number(season);
   let flagSet = false;
@@ -1878,7 +2012,7 @@ app.put('/api/sonarr/series/:id/season/:season', async (req, res) => {
 app.put('/api/sonarr/series/:id/seasons', async (req, res) => {
   const { id } = req.params;
   const monitored = req.body.monitored;
-  if (!/^\d+$/.test(id) || typeof monitored !== 'boolean')
+  if (!isUpstreamId(id) || typeof monitored !== 'boolean')
     return res.status(400).json({ error: 'A numeric series id and boolean monitored are required' });
   const hasFrom = Object.prototype.hasOwnProperty.call(req.body, 'fromSeason');
   const from = req.body.fromSeason;
@@ -1924,6 +2058,7 @@ app.put('/api/sonarr/series/:id/seasons', async (req, res) => {
 });
 
 app.delete('/api/sonarr/series/:id', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const deleteFiles = req.query.deleteFiles === 'true';
@@ -2079,9 +2214,11 @@ app.get('/api/radarr/history/recent-imports', async (req, res) => {
 });
 
 app.post('/api/radarr/command', async (req, res) => {
+  const command = radarrCommand(req.body);
+  if (!command) return res.status(400).json(COMMAND_REFUSED);
   try {
     const { baseUrl, headers } = radarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/command`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/command`, command, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2093,6 +2230,8 @@ app.post('/api/radarr/command', async (req, res) => {
 // NZBHydra fallback — mirrors /api/sonarr/release.
 app.get('/api/radarr/release', async (req, res) => {
   const { movieId, title, year } = req.query;
+  if (movieId !== undefined && !isUpstreamId(movieId)) return invalidId(res);
+  if (![title, year].every(singleOrAbsent)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     const radarrRes = await axios.get(`${baseUrl}/api/v3/release`, {
@@ -2125,6 +2264,7 @@ app.post('/api/radarr/release', async (req, res) => {
 
 // Delete a movie file from disk
 app.delete('/api/radarr/moviefile/:id', async (req, res) => {
+  if (!isUpstreamId(req.params.id)) return invalidId(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     await axios.delete(`${baseUrl}/api/v3/moviefile/${req.params.id}`, { headers, timeout: 15000 });
@@ -2139,7 +2279,7 @@ app.delete('/api/radarr/moviefile/:id', async (req, res) => {
 // Radarr spells the exclusion flag addImportExclusion — Sonarr's
 // addImportListExclusion is silently ignored here, so don't copy the series route.
 app.delete('/api/radarr/movie/:id', async (req, res) => {
-  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid movie id' });
+  if (!isUpstreamId(req.params.id)) return res.status(400).json({ error: 'Invalid movie id' });
   try {
     const { baseUrl, headers } = radarrHeaders();
     const deleteFiles = req.query.deleteFiles === 'true';
@@ -2168,6 +2308,7 @@ app.put('/api/radarr/movie/monitor', async (req, res) => {
 });
 
 app.get('/api/radarr/lookup', async (req, res) => {
+  if (!singleOrAbsent(req.query.term)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/movie/lookup`, {
@@ -2212,6 +2353,7 @@ app.get('/api/nzbhydra/search', async (req, res) => {
   const { url, apikey } = config.nzbhydra || {};
   if (!url || !apikey) return res.status(503).json({ error: 'NZBHydra not configured' });
   const { q, cat } = req.query;
+  if (![q, cat].every(singleOrAbsent)) return invalidQuery(res);
   if (!q) return res.status(400).json({ error: 'Missing query parameter q' });
   try {
     const params = { t: 'search', q, o: 'json', apikey };
@@ -2311,6 +2453,86 @@ app.get('/api/webhooks/last', (req, res) => {
   res.json({ uptimeSeconds: age(STARTED_AT), sonarr: service('sonarr'), radarr: service('radarr') });
 });
 
+// ── Webhook limits (D95) ───────────────────────────────────────────────────────────
+// The receivers stay open (no secret, no login), so they are bounded instead. An event is checked before it is answered: a body
+// that is not an object, an event type that is not 1 to 40 plain letters, or an `episodes` that is not a list is a 400 and changes
+// nothing. Per service, the first event after a quiet second reaches the open pages at once and opens a one-second window; events
+// inside it are merged (ids joined in arrival order, at most 200; the series or movie kept only when they all agree, else null; the
+// later type wins) and sent once when it ends, which opens the next one. Titles lose their control characters and are cut to 200.
+// The event log line follows the windows (one a second, the merged one with a count); refusals have their own one-a-second line.
+const WEBHOOK_MAX_IDS = 200;
+const WEBHOOK_WINDOW_MS = 1000;
+const webhookEventValid = body => isPlainObject(body) && typeof body.eventType === 'string' &&
+  /^[A-Za-z]{1,40}$/.test(body.eventType) && (body.episodes === undefined || Array.isArray(body.episodes));
+const webhookTitle = title => (typeof title === 'string' ? title.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').slice(0, 200) : null);
+const WEBHOOK_LABEL = { sonarr: 'Sonarr', radarr: 'Radarr' };
+const webhookWindow = { sonarr: { timer: null, pending: null, count: 0 }, radarr: { timer: null, pending: null, count: 0 } };
+const webhookRefusals = { sonarr: { nextAt: 0, hidden: 0 }, radarr: { nextAt: 0, hidden: 0 } };
+const moreText = n => (n > 0 ? ` (and ${n} more in the last second)` : '');
+
+function refuseWebhook(service, res) {
+  const gate = webhookRefusals[service];
+  const now = Date.now();
+  if (now >= gate.nextAt) {
+    console.log(`[${WEBHOOK_LABEL[service]} webhook] refused a malformed event${moreText(gate.hidden)}`);
+    gate.nextAt = now + WEBHOOK_WINDOW_MS;
+    gate.hidden = 0;
+  } else {
+    gate.hidden += 1;
+  }
+  return res.status(400).json({ error: 'Invalid webhook event' });
+}
+
+function logWebhookEvent(service, data, more) {
+  const line = service === 'sonarr' ? `[Sonarr webhook] ${data.eventType} — series: ${data.seriesTitle}`
+    : `[Radarr webhook] ${data.eventType} — movie: ${data.movieTitle}`;
+  console.log(line + moreText(more));
+}
+
+function mergeWebhook(service, into, data) {
+  if (!into) return { ...data, ...(service === 'sonarr' ? { episodeIds: data.episodeIds.slice() } : {}) };
+  const idKey = service === 'sonarr' ? 'seriesId' : 'movieId';
+  const titleKey = service === 'sonarr' ? 'seriesTitle' : 'movieTitle';
+  const same = into[idKey] === data[idKey] && !into.mixed;
+  const merged = { ...into, eventType: data.eventType, [idKey]: same ? data[idKey] : null, [titleKey]: same ? data[titleKey] : null };
+  if (!same) merged.mixed = true;
+  if (service === 'sonarr') {
+    for (const id of data.episodeIds) {
+      if (merged.episodeIds.length >= WEBHOOK_MAX_IDS) break;
+      if (!merged.episodeIds.includes(id)) merged.episodeIds.push(id);
+    }
+  }
+  return merged;
+}
+
+function openWebhookWindow(service) {
+  const w = webhookWindow[service];
+  w.timer = setTimeout(() => {
+    w.timer = null;
+    if (!w.pending) return;
+    const { mixed, ...data } = w.pending;
+    const count = w.count;
+    w.pending = null;
+    w.count = 0;
+    logWebhookEvent(service, data, count - 1);
+    broadcast(service, data);
+    openWebhookWindow(service);
+  }, WEBHOOK_WINDOW_MS);
+  if (typeof w.timer.unref === 'function') w.timer.unref();
+}
+
+function webhookSend(service, data) {
+  const w = webhookWindow[service];
+  if (w.timer) {
+    w.pending = mergeWebhook(service, w.pending, data);
+    w.count += 1;
+    return;
+  }
+  logWebhookEvent(service, data, 0);
+  broadcast(service, data);
+  openWebhookWindow(service);
+}
+
 // ── Sonarr webhook ────────────────────────────────────────────────────────────
 // In Sonarr: Settings → Connect → + → Webhook
 //   URL:    http://<this-server>/api/webhooks/sonarr
@@ -2322,16 +2544,22 @@ app.get('/api/webhooks/last', (req, res) => {
 // refreshes the pages that are open.
 
 app.post('/api/webhooks/sonarr', (req, res) => {
+  if (!webhookEventValid(req.body)) return refuseWebhook('sonarr', res);
   res.sendStatus(200);
   const { eventType, series, episodes } = req.body;
   noteWebhook('sonarr', eventType);
-  if (!eventType || eventType === 'Test') return;
-  console.log(`[Sonarr webhook] ${eventType} — series: ${series?.title}`);
-  broadcast('sonarr', {
+  if (eventType === 'Test') return;
+  const show = isPlainObject(series) ? series : {};
+  const ids = [];
+  for (const e of episodes ?? []) {
+    if (ids.length >= WEBHOOK_MAX_IDS) break;
+    if (isPlainObject(e) && isPositiveId(e.id) && !ids.includes(e.id)) ids.push(e.id);
+  }
+  webhookSend('sonarr', {
     eventType,
-    seriesId:   series?.id   ?? null,
-    seriesTitle: series?.title ?? null,
-    episodeIds: (episodes ?? []).map(e => e.id),
+    seriesId:   isPositiveId(show.id) ? show.id : null,
+    seriesTitle: webhookTitle(show.title),
+    episodeIds: ids,
   });
 });
 
@@ -2344,15 +2572,16 @@ app.post('/api/webhooks/sonarr', (req, res) => {
 // Settings → Webhooks in the web UI shows this URL and these steps, as for Sonarr.
 
 app.post('/api/webhooks/radarr', (req, res) => {
+  if (!webhookEventValid(req.body)) return refuseWebhook('radarr', res);
   res.sendStatus(200);
   const { eventType, movie } = req.body;
   noteWebhook('radarr', eventType);
-  if (!eventType || eventType === 'Test') return;
-  console.log(`[Radarr webhook] ${eventType} — movie: ${movie?.title}`);
-  broadcast('radarr', {
+  if (eventType === 'Test') return;
+  const film = isPlainObject(movie) ? movie : {};
+  webhookSend('radarr', {
     eventType,
-    movieId:    movie?.id    ?? null,
-    movieTitle: movie?.title ?? null,
+    movieId:    isPositiveId(film.id) ? film.id : null,
+    movieTitle: webhookTitle(film.title),
   });
 });
 
@@ -2687,6 +2916,19 @@ app.get('*', (req, res) => {
   } else {
     res.status(404).send('Run `npm run build` first, or use `npm run dev` for development.');
   }
+});
+
+// ── The final error handler ──────────────────────────────────────────────────
+// Whatever a route threw or rejected with (see safeHandler at the top) ends here as a plain JSON 500, logged with the method, the
+// route pattern and the error's kind: never a stack, the message, the raw URL or the query. An error that carries its own 4xx status
+// (body-parser's 413, say) keeps Express's handling, as before.
+app.use((err, req, res, next) => {
+  const status = err && (err.status || err.statusCode);
+  if (Number.isInteger(status) && status >= 400 && status < 500) return next(err);
+  console.log(`[server] request failed: ${req.method} ${req.route?.path || 'request'} (${(err && (err.code || err.name)) || 'error'})`);
+  if (res.headersSent) return res.end();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(500).json({ error: 'Internal error' });
 });
 
 // ── Login start-up ────────────────────────────────────────────────────────────

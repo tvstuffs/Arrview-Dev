@@ -101,7 +101,7 @@ test('case, slash and encoded variants', async (t) => {
   assert.equal((await fetch(s.base + '/api/webhooks/sonarr')).status, 401);
   assert.equal((await fetch(s.base + '/API/Health/')).status, 200);
   assert.equal((await fetch(s.base + '/api/ARRVIEW/identify')).status, 200);
-  assert.equal((await fetch(s.base + '/Api/Webhooks/Sonarr/', { method: 'POST', headers: JSON_HEADERS, body: '{}' })).status, 200);
+  assert.equal((await fetch(s.base + '/Api/Webhooks/Sonarr/', { method: 'POST', headers: JSON_HEADERS, body: '{"eventType":"Test"}' })).status, 200);
   const slashes = await fetch(s.base + '//api/config');
   assert.ok(!(await slashes.text()).includes('envManaged'));
   assert.equal((await fetch(s.base + '/assets/x.js')).status, 404);
@@ -135,7 +135,7 @@ test('X-Requested-With rule', async (t) => {
   }
   assert.equal((await fetch(s.base + '/api/config', { headers: { Cookie: cookie } })).status, 200);
   assert.notEqual((await send('/api/config', { 'X-Api-Key': key })).status, 403);
-  assert.equal((await send('/api/webhooks/sonarr', { Cookie: cookie })).status, 200);
+  assert.equal((await send('/api/webhooks/sonarr', { Cookie: cookie }, 'POST', '{"eventType":"Test"}')).status, 200);
   assert.equal((await send('/api/auth/logout', { Cookie: cookie })).status, 403);
   assert.equal((await send('/api/auth/logout', { Cookie: cookie, 'X-Requested-With': 'ArrView' })).status, 200);
   assert.notEqual((await send('/api/config', { 'X-Api-Key': key, Cookie: cookie })).status, 403);

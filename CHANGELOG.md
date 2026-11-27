@@ -1,5 +1,32 @@
 # ArrView server development changelog
 
+## Unreleased
+
+Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays `2.0`.
+
+- **One request can no longer end the server.** The SABnzbd history route checks its `limit` as text before using it,
+  every route's unexpected error is answered with a plain `500 {"error":"Internal error"}` and one log line, and a
+  rejection nobody handled is logged instead of stopping the process.
+- **Only numbers in the ids passed on to Sonarr and Radarr.** Every id that goes into an upstream address is 1 to 10
+  digits, or the request is refused with 400 `Invalid id` before anything is sent; query values passed on must be
+  single values (400 `Invalid query`).
+- **Only the commands the web app sends.** The Sonarr and Radarr command routes and the SABnzbd action route pass on
+  only the searches and queue actions the web app uses, rebuilt from their own fields, with one SABnzbd item at a time;
+  anything else is refused with 400 and never reaches the app.
+- **Redirects stay on the same host name.** When an app answers with a redirect, ArrView follows it only to the same
+  host name and never from https to http, so a stored key is never sent to another address; the Test and the pages say
+  the service redirected to another address.
+- **Webhooks stay open, and are bounded.** A malformed event is now refused with 400 (before, it was answered 200 and
+  ignored); each app refreshes the open pages at most once a second, with the events of that second merged; an event
+  carries at most 200 episode ids; titles lose their control characters; and the webhook log line is limited to one a
+  second.
+- **The Vite dev server does not serve the data files.** `npm run dev` refuses `config.json`, `auth.json` and their
+  temporary files, as well as Vite's own defaults.
+- **Tests:** server 365/365 (314 at 2.0), web (vitest) 625/625 (625), e2e 298/298 and 22 skipped in Microsoft Edge
+  on macOS (298 and 22). Existing assertions changed because malformed webhook events are now refused: two in
+  `webhook-activity.test.js`, two in `config-api.test.js`, two request bodies in `auth-gate.test.js`, and one in
+  `tests/e2e/webhooks.spec.cjs`.
+
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
 - **Version 2.0.** `APP_VERSION` is `2.0`. It builds on 1.9A24, which had already gone out as `latest` under its own

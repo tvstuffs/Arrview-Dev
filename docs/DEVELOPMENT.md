@@ -24,7 +24,8 @@ npm start
 
 `PORT` sets the server's port (`PORT=8888 npm start`). Outside Docker the data folder is the folder that holds
 `server.js` unless `CONFIG_DIR` is set; `config.json`, `auth.json` and `data/` are git-ignored. In development, Vite
-passes `/api` requests to the server on port 7777.
+passes `/api` requests to the server on port 7777, and the Vite dev server refuses to serve the data files
+(`config.json`, `auth.json` and their temporary files) along with Vite's own defaults (`.env` files, certificates, `.git`).
 
 ## Project structure
 

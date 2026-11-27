@@ -102,8 +102,8 @@ test('Settings lists what Sonarr and Radarr last delivered, and keeps a Test mes
   await expect(line(page, 'Radarr')).toContainText('Movie delete, less than a minute ago.')
   await expect(line(page, 'Sonarr')).not.toContainText('Movie delete')
 
-  // Webhook calls are not authenticated: an event type that is not plain letters is answered and never shown.
-  await post(sonarr, { eventType: '<b>x</b>' })
+  // Webhook calls are not authenticated: an event type that is not plain letters is refused (400, D95) and never shown.
+  expect((await request.post(sonarr, { data: { eventType: '<b>x</b>' } })).status()).toBe(400)
   await post(sonarr, { eventType: 'Rename', series: { id: 1, title: 'Fixture Show' } })
   await comesBackIntoView(page)
   await expect(line(page, 'Sonarr')).toContainText('Rename, less than a minute ago.')
