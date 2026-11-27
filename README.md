@@ -322,7 +322,7 @@ choice is kept in that browser.
 - The SABnzbd queue with live progress, speed and time left, and the artwork of the show or movie from Sonarr or
   Radarr.
 - Pause, resume and delete single items, or the whole queue.
-- Recent history, with more on request.
+- Recent history, naming each finished episode as the queue does ("S2 E6 · Cold Harbor"), with more on request.
 - While something downloads, the speed shows in the header of every page.
 
 ### TV Shows (Sonarr)

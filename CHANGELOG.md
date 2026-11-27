@@ -2,9 +2,23 @@
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
-- **Version 2.0.** Only the label changes: `APP_VERSION` is `2.0`. The code is 1.9A24's, which had already gone out as
-  `latest` under its own label (release commit `11641d8`). No route, capability, config key, file format, dependency,
-  `package.json` or Dockerfile change.
+- **Version 2.0.** `APP_VERSION` is `2.0`. It builds on 1.9A24, which had already gone out as `latest` under its own
+  label (release commit `11641d8`), with the documentation below and one change in the web app: Recent History names
+  the episode. No route, capability, config key, file format, dependency, `package.json` or Dockerfile change.
+- **Downloads: Recent History names the episode** (the maintainer, 2026-11-27: "the coming up includes the episode name").
+  - A finished episode reads "S2 E6 · <episode title>", as the queue and Coming up do. With nothing downloading, the
+    hero names it the way the queue's hero does: "Season 2, Episode 6 · <episode title>".
+  - The title comes from the show's episode list in Sonarr, through the route the show pages use
+    (`GET /api/sonarr/series/:id/episodes`). The page fetches each show's list once, while a row on screen or the hero
+    needs it, two at a time, and only when Sonarr is set up; rows further down are fetched after Load more shows them.
+    Only the season, the number and the title of each episode are kept.
+  - Until the list arrives, or when it cannot be read, a row reads "S2 E6" as before; a list that could not be read
+    is tried again after two minutes, and a list that lacks an episode a row needs (a page left open while a season is
+    announced) is read again after ten.
+  - A release of several episodes (`S01E01E02`, `S01E01-E02`, `S01E01-02`) reads "S1 · Episodes 1–2", as the queue
+    does; it read "S1 E1" before, and no single title would be right for it.
+  - Season packs, movies and items ArrView cannot match read as before. Classic is unchanged: its history shows the
+    release name.
 - **The README is rewritten for the people who run ArrView.** It now covers:
   - what ArrView is, with screenshots, and what is new since 1.05, with a note on upgrading from it;
   - a quick start with Compose and with `docker run`, and the first run;
@@ -28,7 +42,8 @@
     layout's.
   - The "what's new" list leaves out webhook receiving and arm64 images, because 1.05 already had both.
   - The rollback warning names 1.05 too, because 1.05 has no login either.
-- **Screenshots** in `docs/screenshots/`: eight JPEGs, 1.7 MB in total.
+- **Screenshots** in `docs/screenshots/`: eight JPEGs, 1.7 MB in total. `downloads.jpg` was taken again after the
+  history change, so its Recent History names the episodes.
   - The library is a demo, not anyone's. Real Sonarr 4.0.20.3014 and Radarr 6.4.4.10685 supplied the metadata for 18
     well-known shows and 18 movies; the download state (files, queue, history) is staged.
   - They were taken in Edge, at 1280 × 800 at 2x and at 390 × 844 at 3x.
@@ -37,8 +52,23 @@
     rebuilds `dev` or `latest`. Tag pushes always publish, because GitHub does not apply path filters to tags.
   - `test.yml` still runs on every push.
   - `.dockerignore` leaves out `docs/`.
-- **Tests:** server 314/314 (310 at 1.9A24), web (vitest) 625/625, e2e 298/298 and 22 skipped in Microsoft Edge on macOS
-  (CI repeats them in real Chromium).
+- **Tests:** server 314/314 (310 at 1.9A24), web (vitest) 636/636 (625 before the history change), e2e 298 passed and
+  22 skipped in Microsoft Edge on macOS (one test changed, none added; CI repeats them in real Chromium).
+  - New for the history change:
+    - `tests/web/downloads.test.js`, 3 tests: one episode named once its list has it, in the row and the hero, and
+      "S2 E6" until then, or for an episode the list lacks or an empty title; a release of several episodes; season
+      packs, movies and unmatched items unchanged.
+    - `tests/web/series-episodes.test.jsx`, 5 tests of the hook: one request per show; two at a time; nothing without
+      Sonarr or for a malformed row; a retry after two minutes, not before; a fresh read after ten minutes for a list
+      that lacks an episode, and none for a complete list.
+    - `tests/web/modern-downloads.test.jsx`, 3 tests: the rows and the hero named, one request per show, none for a
+      show not on screen until Load more; "S1 E4" kept when the list cannot be read, with one request; no request
+      without Sonarr (a control: it passes on the old code too).
+  - Changed for the history change: the idle-hero test (`modern-downloads.test.jsx`) expected "S2 E5" and now expects
+    "Season 2, Episode 5 · Fixture episode"; the season-pack match in `downloads.test.js` gains `lastNumber: null`;
+    the e2e idle test expected "S1 E1" and now checks the hero and the history row with the episode title.
+  - **Failing first** for the history change, on `4bc9d46` with the new tests: 7 web tests failed and the hook's test
+    file could not load (no hook); the control passed; the e2e idle test failed on the old build.
   - New: `tests/docs.test.js`, 4 tests:
     - every environment variable the server reads (12 found) has a row in the README's reference, with a default, a
       meaning and an example;
@@ -59,6 +89,12 @@
   - The README and both docs pages were rendered with GitHub's Markdown renderer, and every image loaded.
 - **Not verified:**
   - GitHub's own page for the repository, until it is pushed;
+  - the history titles against a real SABnzbd history and Sonarr together: the rows were checked with real Sonarr
+    metadata behind a stand-in SABnzbd (the demo library behind the screenshots, in Edge at 1280 × 800 and 390 × 844: the rows read
+    "S2 E10 · Cold Harbor", "S2 E12 · Jedha, Kyber, Erso" and "S5 E8 · The Original Beef of Chicagoland", the idle hero
+    "Season 2, Episode 10 · Cold Harbor", with one request per show on screen, three wide and two on the phone, and
+    nothing scrolling sideways);
+  - daily and anime releases, which ArrView does not match (unchanged);
   - the `docker run` examples as written;
   - the iPhone app against 2.0 on a device (its calls were checked against the routes in the source).
 - **Human test plan** (after the release is published):
@@ -67,7 +103,10 @@
      - the contents links jump to their sections;
      - the tables render, and the links to `docs/API.md` and `docs/DEVELOPMENT.md` open.
   2. Update your container and check that Settings ends with "ArrView v2.0".
-  3. Optional: on a spare machine, follow Quick start from the README as a new user would, and say where it is unclear.
+  3. Downloads → Recent History: a finished episode reads "S2 E6 · <episode title>", like the queue and Coming up.
+     With nothing downloading, the top card reads "Season 2, Episode 6 · <episode title>". Movies, season packs and
+     releases ArrView does not recognise read as before; on a phone, a long title wraps and nothing scrolls sideways.
+  4. Optional: on a spare machine, follow Quick start from the README as a new user would, and say where it is unclear.
 
 ## 1.9A24 (unreleased) — Shows: "Monitor latest season only" for a continuing show
 
