@@ -17,6 +17,8 @@ Server hardening 2 (factory job 013, decisions D97 to D99, 2026-11-27), inside 2
   ArrView search returned in the last 24 hours; links are kept in memory, so after a restart the user searches again.
 - **Search terms are bounded.** The search text, season, episode, year and category values passed on to NZBHydra, Sonarr
   and Radarr have length and character limits, and anything outside them is refused with 400 `Invalid query`.
+- **Tests:** server 404 (365 in the 2.0 entry, plus 39 new), web 636 (unchanged), Edge e2e 298 passed and 22 skipped
+  (unchanged). The baseline is the 2.0 entry's counts, not a measured run.
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
