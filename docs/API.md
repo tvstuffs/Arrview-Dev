@@ -55,6 +55,25 @@ takes only `{"mode":"pause"}` or `{"mode":"resume"}`, the same with one `nzo_id`
 `{"mode":"queue","name":"delete","value":"<nzo id>"}`, where an nzo id is one token of up to 64 letters, digits, `_`
 or `-`, never `all`. Anything else gets 400 `{"error":"That command is not supported"}` and nothing is sent.
 
+**Forwarded bodies.** The release grabs (`POST /api/sonarr/release`, `POST /api/radarr/release`) send only `guid`,
+`indexerId` and the app's ids (`seriesId` and `episodeId`, or `movieId`), and the monitor routes
+(`PUT /api/sonarr/episode/monitor`, `PUT /api/radarr/movie/monitor`) send only the id list (1 to 10000 ids) and the
+boolean `monitored`, and the adds (`POST /api/sonarr/series`, `POST /api/radarr/movie`) send only the add fields (the
+lookup id, `title`, `qualityProfileId`, `rootFolderPath`, `monitored`, `addOptions` and the optional season, type,
+language, availability and tag settings); other fields are dropped, and so is an optional setting or app id whose value
+is outside its rule (the app then applies its own default), while a missing or bad required field gets 400
+`{"error":"Invalid release"}`, `{"error":"Invalid monitor request"}` or `{"error":"Invalid add request"}` with nothing
+sent.
+
+**Download links.** `POST /api/sabnzbd/addurl` accepts only a link that this server returned from an NZBHydra search (the
+NZB search or a release search's fallback) in the last 24 hours, and forgets those links when it restarts; any other
+link gets 400 with a sentence asking the user to search again, and nothing is sent to SABnzbd.
+
+**Search terms.** The text searches passed on (`q` on `GET /api/nzbhydra/search`, `seriesTitle` and `title` on the release
+searches, `term` on the lookups) are 1 to 300 characters with no control characters, `season` and `episode` are 1 to 4
+digits, `year` is empty or 4 digits, and `cat` is up to 20 numbers separated by commas; anything else gets 400
+`{"error":"Invalid query"}` and nothing is sent.
+
 **Redirects.** When an app answers with a redirect, ArrView follows it only to the same host name (another port or path
 is fine) and never from https to http; otherwise the request is stopped and the route answers with its usual error.
 

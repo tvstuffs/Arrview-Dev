@@ -1780,6 +1780,90 @@ function radarrCommand(body) {
   return name === 'MoviesSearch' && isIdList(movieIds) ? { name, movieIds } : null;
 }
 
+// Bodies forwarded to Sonarr and Radarr are rebuilt from the listed fields; anything else the caller sent is dropped. Text is
+// 1 to `max` characters with no C0, DEL or C1 control character. A required field outside its rule refuses the request; an
+// optional field outside its rule is dropped and the app applies its own default (D102). Null counts as absent.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
+const isCleanText = (value, max) => typeof value === 'string' && value.length >= 1 && value.length <= max && !CONTROL_CHARS.test(value);
+const isAbsent = value => value === undefined || value === null;
+// Copies the optional fields that are present and pass their rule into `out`; the others are left out.
+function copyOptional(body, out, rules) {
+  for (const [field, valid] of Object.entries(rules)) {
+    const value = body[field];
+    if (!isAbsent(value) && valid(value)) out[field] = value;
+  }
+  return out;
+}
+
+// A release grab needs only the pair the app looks the release up by (guid, indexerId) and the app's own ids.
+function releaseGrab(body, idFields) {
+  if (!isPlainObject(body) || !isCleanText(body.guid, 2000) || !isPositiveId(body.indexerId)) return null;
+  const out = { guid: body.guid, indexerId: body.indexerId };
+  return copyOptional(body, out, Object.fromEntries(idFields.map(field => [field, isPositiveId])));
+}
+const invalidRelease = res => res.status(400).json({ error: 'Invalid release' });
+
+// A monitor change is exactly the id list (1 to 10000 ids) and the boolean flag.
+function monitorChange(body, idField) {
+  if (!isPlainObject(body) || !isIdList(body[idField]) || typeof body.monitored !== 'boolean') return null;
+  return { [idField]: body[idField], monitored: body.monitored };
+}
+const invalidMonitor = res => res.status(400).json({ error: 'Invalid monitor request' });
+
+// An add carries the fields an add needs; the rest of the lookup object (images, overview, statistics, path and so on) is
+// dropped, because the apps fill it from their own metadata. The apps check the root folder themselves.
+const isTagList = value => Array.isArray(value) && value.length <= 100 && value.every(isPositiveId);
+const isSeason = season => isPlainObject(season) && Number.isSafeInteger(season.seasonNumber) && season.seasonNumber >= 0
+  && season.seasonNumber <= 9999 && typeof season.monitored === 'boolean';
+// The valid seasons, rebuilt to {seasonNumber, monitored}; undefined (the field is dropped) when none is left or the list is
+// not an array of at most 500 entries.
+function validSeasons(value) {
+  if (!Array.isArray(value) || value.length > 500) return undefined;
+  const seasons = value.filter(isSeason).map(({ seasonNumber, monitored }) => ({ seasonNumber, monitored }));
+  return seasons.length ? seasons : undefined;
+}
+const oneOf = (...values) => value => values.includes(value);
+const isBoolean = value => typeof value === 'boolean';
+function addCommon(body, idField) {
+  if (!isPlainObject(body) || !isPositiveId(body[idField]) || !isPositiveId(body.qualityProfileId)
+    || !isCleanText(body.rootFolderPath, 4096) || !isBoolean(body.monitored) || !isPlainObject(body.addOptions)) return null;
+  return { [idField]: body[idField], qualityProfileId: body.qualityProfileId, rootFolderPath: body.rootFolderPath,
+    monitored: body.monitored };
+}
+function seriesAdd(body) {
+  const out = addCommon(body, 'tvdbId');
+  if (!out || !isCleanText(body.title, 500)) return null;
+  const { monitor, searchForMissingEpisodes, searchForCutoffUnmetEpisodes } = body.addOptions;
+  if (monitor !== 'all' || !isBoolean(searchForMissingEpisodes)) return null;
+  out.title = body.title;
+  out.addOptions = { monitor, searchForMissingEpisodes };
+  copyOptional(body.addOptions, out.addOptions, { searchForCutoffUnmetEpisodes: isBoolean });
+  copyOptional(body, out, {
+    seasonFolder: isBoolean, seriesType: oneOf('standard', 'daily', 'anime'),
+    languageProfileId: isPositiveId, monitorNewItems: oneOf('all', 'none'), tags: isTagList,
+  });
+  const seasons = validSeasons(body.seasons);
+  if (seasons) out.seasons = seasons;
+  return out;
+}
+function movieAdd(body) {
+  const out = addCommon(body, 'tmdbId');
+  if (!out || !isBoolean(body.addOptions.searchForMovie)) return null;
+  out.addOptions = { searchForMovie: body.addOptions.searchForMovie };
+  return copyOptional(body, out, {
+    title: value => isCleanText(value, 500), minimumAvailability: oneOf('announced', 'inCinemas', 'released'), tags: isTagList,
+  });
+}
+const invalidAdd = res => res.status(400).json({ error: 'Invalid add request' });
+
+// Search terms passed on to NZBHydra, Sonarr and Radarr (already known to be single strings or absent): text is 1 to 300
+// characters with no control character, season and episode 1 to 4 digits, year empty or 4 digits, cat at most 20 numbers.
+const termOrAbsent = value => value === undefined || isCleanText(value, 300);
+const matchesOrAbsent = pattern => value => value === undefined || pattern.test(value);
+const seasonOrAbsent = matchesOrAbsent(/^\d{1,4}$/);
+const yearOrAbsent = matchesOrAbsent(/^(\d{4})?$/);
+const catOrAbsent = matchesOrAbsent(/^\d{1,10}(,\d{1,10}){0,19}$/);
+
 app.post('/api/sonarr/command', async (req, res) => {
   const command = sonarrCommand(req.body);
   if (!command) return res.status(400).json(COMMAND_REFUSED);
@@ -1802,6 +1886,30 @@ app.get('/api/sonarr/command/:id', async (req, res) => {
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
+// The NZB links this server handed out. POST /api/sabnzbd/addurl sends SABnzbd only a link that an NZBHydra search here
+// returned in the last 24 hours (the exact string): SABnzbd fetches the link from its own place on the network, so it must not
+// take any address a caller picks. The store is in memory, per evaluation of this file, at most 5000 links with the oldest
+// dropped first. A restart forgets the links, by design: the user searches again.
+const NZB_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+const NZB_LINK_MAX = 5000;
+const NZB_URL_MAX = 4096;
+const nzbLinks = new Map();
+function rememberNzbLink(link) {
+  if (typeof link !== 'string' || link.length > NZB_URL_MAX || CONTROL_CHARS.test(link)) return;
+  let protocol;
+  try { protocol = new NodeURL(link).protocol; } catch (_) { return; }
+  if (protocol !== 'http:' && protocol !== 'https:') return;
+  nzbLinks.delete(link);
+  nzbLinks.set(link, Date.now());
+  while (nzbLinks.size > NZB_LINK_MAX) nzbLinks.delete(nzbLinks.keys().next().value);
+}
+function isRememberedNzbLink(link) {
+  if (typeof link !== 'string' || link.length > NZB_URL_MAX || !nzbLinks.has(link)) return false;
+  if (Date.now() - nzbLinks.get(link) < NZB_LINK_TTL_MS) return true;
+  nzbLinks.delete(link);
+  return false;
+}
+
 // Interactive release search for a specific episode.
 // Tries Sonarr first; if no results, falls back to a direct NZBHydra search.
 // Direct NZBHydra search returning release-shaped objects — the shared
@@ -1818,7 +1926,7 @@ async function hydraDirectSearch(q) {
   const rawItems = hydraRes.data?.channel?.item || [];
   const items = (Array.isArray(rawItems) ? rawItems : [rawItems]);
 
-  return items.map(item => {
+  const results = items.map(item => {
     const attrs = {};
     const rawAttrs = item['newznab:attr'] || item['attr'] || [];
     (Array.isArray(rawAttrs) ? rawAttrs : [rawAttrs]).forEach(a => {
@@ -1844,12 +1952,15 @@ async function hydraDirectSearch(q) {
       _nzbUrl:    encUrl,
     };
   }).filter(r => r._nzbUrl);
+  for (const r of results) rememberNzbLink(r._nzbUrl);
+  return results;
 }
 
 app.get('/api/sonarr/release', async (req, res) => {
   const { episodeId, seriesTitle, season, episode } = req.query;
   if (episodeId !== undefined && !isUpstreamId(episodeId)) return invalidId(res);
   if (![seriesTitle, season, episode].every(singleOrAbsent)) return invalidQuery(res);
+  if (!termOrAbsent(seriesTitle) || !seasonOrAbsent(season) || !seasonOrAbsent(episode)) return invalidQuery(res);
   try {
     // 1. Ask Sonarr (it queries all its configured indexers)
     const { baseUrl, headers } = sonarrHeaders();
@@ -1874,9 +1985,11 @@ app.get('/api/sonarr/release', async (req, res) => {
 
 // Grab a specific release
 app.post('/api/sonarr/release', async (req, res) => {
+  const grab = releaseGrab(req.body, ['seriesId', 'episodeId']);
+  if (!grab) return invalidRelease(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/release`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/release`, grab, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -1899,9 +2012,11 @@ app.delete('/api/sonarr/episodefile/:id', async (req, res) => {
 
 // Update episode monitored status
 app.put('/api/sonarr/episode/monitor', async (req, res) => {
+  const change = monitorChange(req.body, 'episodeIds');
+  if (!change) return invalidMonitor(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
-    const r = await axios.put(`${baseUrl}/api/v3/episode/monitor`, req.body, {
+    const r = await axios.put(`${baseUrl}/api/v3/episode/monitor`, change, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -1910,7 +2025,7 @@ app.put('/api/sonarr/episode/monitor', async (req, res) => {
 });
 
 app.get('/api/sonarr/lookup', async (req, res) => {
-  if (!singleOrAbsent(req.query.term)) return invalidQuery(res);
+  if (!singleOrAbsent(req.query.term) || !termOrAbsent(req.query.term)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/series/lookup`, {
@@ -1937,9 +2052,11 @@ app.get('/api/sonarr/rootfolders', async (req, res) => {
 });
 
 app.post('/api/sonarr/series', async (req, res) => {
+  const add = seriesAdd(req.body);
+  if (!add) return invalidAdd(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/series`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/series`, add, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2232,6 +2349,7 @@ app.get('/api/radarr/release', async (req, res) => {
   const { movieId, title, year } = req.query;
   if (movieId !== undefined && !isUpstreamId(movieId)) return invalidId(res);
   if (![title, year].every(singleOrAbsent)) return invalidQuery(res);
+  if (!termOrAbsent(title) || !yearOrAbsent(year)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     const radarrRes = await axios.get(`${baseUrl}/api/v3/release`, {
@@ -2252,9 +2370,11 @@ app.get('/api/radarr/release', async (req, res) => {
 
 // Grab a specific movie release
 app.post('/api/radarr/release', async (req, res) => {
+  const grab = releaseGrab(req.body, ['movieId']);
+  if (!grab) return invalidRelease(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/release`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/release`, grab, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2297,9 +2417,11 @@ app.delete('/api/radarr/movie/:id', async (req, res) => {
 
 // Update movie monitored status (bulk, via Radarr's movie editor)
 app.put('/api/radarr/movie/monitor', async (req, res) => {
+  const change = monitorChange(req.body, 'movieIds');
+  if (!change) return invalidMonitor(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
-    const r = await axios.put(`${baseUrl}/api/v3/movie/editor`, req.body, {
+    const r = await axios.put(`${baseUrl}/api/v3/movie/editor`, change, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2308,7 +2430,7 @@ app.put('/api/radarr/movie/monitor', async (req, res) => {
 });
 
 app.get('/api/radarr/lookup', async (req, res) => {
-  if (!singleOrAbsent(req.query.term)) return invalidQuery(res);
+  if (!singleOrAbsent(req.query.term) || !termOrAbsent(req.query.term)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/movie/lookup`, {
@@ -2335,9 +2457,11 @@ app.get('/api/radarr/rootfolders', async (req, res) => {
 });
 
 app.post('/api/radarr/movie', async (req, res) => {
+  const add = movieAdd(req.body);
+  if (!add) return invalidAdd(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/movie`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/movie`, add, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2355,6 +2479,7 @@ app.get('/api/nzbhydra/search', async (req, res) => {
   const { q, cat } = req.query;
   if (![q, cat].every(singleOrAbsent)) return invalidQuery(res);
   if (!q) return res.status(400).json({ error: 'Missing query parameter q' });
+  if (!termOrAbsent(q) || !catOrAbsent(cat)) return invalidQuery(res);
   try {
     const params = { t: 'search', q, o: 'json', apikey };
     if (cat) params.cat = cat;
@@ -2380,16 +2505,23 @@ app.get('/api/nzbhydra/search', async (req, res) => {
         grabs:    attrs.grabs || 0,
       };
     }).filter(r => r.link);
+    for (const r of results) rememberNzbLink(r.link);
     res.json(results);
   } catch (e) { res.status(503).json({ error: e.message }); }
 });
 
 app.post('/api/sabnzbd/addurl', async (req, res) => {
-  const { url: nzbUrl, name } = req.body;
-  if (!nzbUrl) return res.status(400).json({ error: 'Missing url' });
+  const body = isPlainObject(req.body) ? req.body : {};
+  const { url: nzbUrl, name } = body;
+  if (nzbUrl === undefined || nzbUrl === '') return res.status(400).json({ error: 'Missing url' });
+  if (!isRememberedNzbLink(nzbUrl)) {
+    return res.status(400).json({ error: 'That download link did not come from an ArrView search. Search again and send it from the results.' });
+  }
+  if (!isAbsent(name) && (typeof name !== 'string' || name.length > 300)) return res.status(400).json({ error: 'Invalid name' });
+  const nzbname = typeof name === 'string' ? name.replace(new RegExp(CONTROL_CHARS.source, 'g'), '') : '';
   try {
     const params = { mode: 'addurl', name: nzbUrl };
-    if (name) params.nzbname = name;
+    if (nzbname) params.nzbname = nzbname;
     res.json(await sabRequest(params));
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });

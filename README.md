@@ -371,7 +371,8 @@ and physical release dates; a cinema date alone is not listed. It needs Sonarr o
 
 ### Search (NZBHydra)
 
-Search NZBHydra, or a Newznab indexer saved in its place, and send a result to SABnzbd.
+Search NZBHydra, or a Newznab indexer saved in its place, and send a result to SABnzbd. Only results from an ArrView
+search can be sent, and after ArrView restarts you search again before sending.
 
 ### Settings
 

@@ -1,5 +1,30 @@
 # ArrView server development changelog
 
+## Unreleased
+
+Server hardening 2 (factory job 013, decisions D97 to D99 and D102, 2026-11-27), inside 2.0:
+
+- **Production dependencies refreshed.** `npm audit fix --omit=dev` moved axios, body-parser, express, follow-redirects,
+  form-data, proxy-addr, qs and shell-quote to fixed releases in `package-lock.json` only (no `package.json` change, no
+  major version), and `npm audit --omit=dev` now reports no known vulnerability.
+- **Release grabs carry only what the grab needs.** The Sonarr and Radarr grab routes send the release's `guid`, its
+  `indexerId` and the app's own ids, drop every other field and any app id that is not an id (D102), and refuse a grab
+  without a valid `guid` and `indexerId` with 400 `Invalid release`.
+- **Monitor routes carry only ids and the flag.** The episode and movie monitor routes send only the id list and the
+  `monitored` flag, drop every other field, and refuse anything else with 400 `Invalid monitor request`.
+- **Adds carry the fields an add needs.** Adding a show or a movie sends only the add fields, leaves the rest of the
+  lookup answer for the app to fill from its own metadata, drops an optional setting whose value is outside its rule
+  (D102; for seasons, only the invalid entries), and refuses an add missing a valid required field with 400
+  `Invalid add request`. A movie added from ArrView now gets Radarr's default minimum availability, Released, instead
+  of the lookup's placeholder.
+- **SABnzbd add-by-URL takes only links ArrView handed out.** Sending a result to SABnzbd works only for a link an
+  ArrView search returned in the last 24 hours; links are kept in memory, so after a restart the user searches again.
+- **Search terms are bounded.** The search text, season, episode, year and category values passed on to NZBHydra, Sonarr
+  and Radarr have length and character limits, and anything outside them is refused with 400 `Invalid query`.
+- **Tests:** server 407 (365 in the 2.0 entry, plus 42 new), web 636 (unchanged), Edge e2e 298 passed and 22 skipped
+  (unchanged; the e2e lookup fixture now carries `minimumAvailability: 'tba'` and `languageProfileId: 0`). The baseline
+  is the 2.0 entry's counts, not a measured run.
+
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
 - **Version 2.0.** `APP_VERSION` is `2.0`. It builds on 1.9A24, which had already gone out as `latest` under its own
