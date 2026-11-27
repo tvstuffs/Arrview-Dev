@@ -1,5 +1,13 @@
 # ArrView server development changelog
 
+## Unreleased
+
+Server hardening 2 (factory job 013, decisions D97 to D99, 2026-11-27), inside 2.0:
+
+- **Production dependencies refreshed.** `npm audit fix --omit=dev` moved axios, body-parser, express, follow-redirects,
+  form-data, proxy-addr, qs and shell-quote to fixed releases in `package-lock.json` only (no `package.json` change, no
+  major version), and `npm audit --omit=dev` now reports no known vulnerability.
+
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
 - **Version 2.0.** `APP_VERSION` is `2.0`. It builds on 1.9A24, which had already gone out as `latest` under its own
