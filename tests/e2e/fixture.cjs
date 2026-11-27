@@ -125,11 +125,16 @@ const upstream = http.createServer((req, res) => {
   if (url.pathname.endsWith('/queue')) return res.end(JSON.stringify(arrQueue(url.searchParams)))
   // All four fake services share this upstream and path; the server asks Sonarr with includeSeries and Radarr without.
   if (url.pathname.endsWith('/calendar')) return res.end(JSON.stringify(url.searchParams.has('includeSeries') ? sonarrCalendar() : radarrCalendar()))
-  if (url.pathname.endsWith('/lookup')) return res.end(JSON.stringify([
-    { title: 'A long fixture lookup result with descriptive text', tvdbId: 201, tmdbId: 201, year: 2024, overview: 'Fixture overview', seasons: [], network: 'Fixture Network', studio: 'Fixture Studio', genres: ['Drama', 'Mystery', 'Thriller', 'Comedy'], images: [{ coverType: 'poster', remoteUrl: ART }] },
-    { title: 'Poster-less fixture result', tvdbId: 202, tmdbId: 202, year: 2022, overview: 'A result without artwork.', seasons: [] },
-    { title: 'Fixture result already in the library', tvdbId: 203, tmdbId: 203, id: 77, year: 2021, overview: 'Already added.', seasons: [], images: [{ coverType: 'poster', remoteUrl: ART }] },
-  ]))
+  // Real lookups carry values ArrView drops on the way to the add (job 013 rework, D102): Radarr's placeholder
+  // minimumAvailability 'tba', and a languageProfileId of 0 from some Sonarr versions.
+  if (url.pathname.endsWith('/lookup')) {
+    const extra = url.pathname.endsWith('/movie/lookup') ? { minimumAvailability: 'tba' } : { languageProfileId: 0 }
+    return res.end(JSON.stringify([
+      { title: 'A long fixture lookup result with descriptive text', tvdbId: 201, tmdbId: 201, year: 2024, overview: 'Fixture overview', seasons: [], network: 'Fixture Network', studio: 'Fixture Studio', genres: ['Drama', 'Mystery', 'Thriller', 'Comedy'], images: [{ coverType: 'poster', remoteUrl: ART }] },
+      { title: 'Poster-less fixture result', tvdbId: 202, tmdbId: 202, year: 2022, overview: 'A result without artwork.', seasons: [] },
+      { title: 'Fixture result already in the library', tvdbId: 203, tmdbId: 203, id: 77, year: 2021, overview: 'Already added.', seasons: [], images: [{ coverType: 'poster', remoteUrl: ART }] },
+    ].map(result => ({ ...result, ...extra }))))
+  }
   // Profile 2 is the one the fixture library uses, so the default differs from the first profile listed.
   // Sonarr and Radarr send every single quality with an empty `items` array, so the fixture does too.
   const allowedLeaf = (id, name, resolution, allowed = true) => ({ quality: { id, name, resolution }, items: [], allowed })

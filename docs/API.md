@@ -60,7 +60,8 @@ or `-`, never `all`. Anything else gets 400 `{"error":"That command is not suppo
 (`PUT /api/sonarr/episode/monitor`, `PUT /api/radarr/movie/monitor`) send only the id list (1 to 10000 ids) and the
 boolean `monitored`, and the adds (`POST /api/sonarr/series`, `POST /api/radarr/movie`) send only the add fields (the
 lookup id, `title`, `qualityProfileId`, `rootFolderPath`, `monitored`, `addOptions` and the optional season, type,
-language, availability and tag settings); other fields are dropped, and a bad request gets 400
+language, availability and tag settings); other fields are dropped, and so is an optional setting or app id whose value
+is outside its rule (the app then applies its own default), while a missing or bad required field gets 400
 `{"error":"Invalid release"}`, `{"error":"Invalid monitor request"}` or `{"error":"Invalid add request"}` with nothing
 sent.
 

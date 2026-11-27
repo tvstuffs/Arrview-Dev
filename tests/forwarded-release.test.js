@@ -4,7 +4,8 @@ const { startServer } = require('./helpers/server-harness');
 const { standIn } = require('./helpers/stand-in');
 
 // Job 013, fix 2: the two release grabs send a body rebuilt from guid, indexerId and the app's own ids; everything else is
-// dropped, and a bad request is a 400 with nothing sent upstream (cases G1-G6, G-null).
+// dropped, and a bad guid or indexerId is a 400 with nothing sent upstream (cases G1-G6, G-null). Rework 1 (D102): an app id
+// that is not an id is dropped, not refused (G5, G-zero).
 
 const KEY = 'fixture-only-key-1';
 const INVALID = { error: 'Invalid release' };
@@ -82,11 +83,19 @@ test('G4 (013): an indexerId that is not a whole number of 1 or more is refused;
   assert.deepEqual(JSON.parse(up.hits[0].body), { guid: GUID, indexerId: 1 });
 });
 
-test('G5 (013): an app id of the wrong type is refused', async t => {
+test('G5 (013 r2): an app id of the wrong type is dropped and the grab goes through', async t => {
   const { s, up } = await setup(t);
-  await refused(s, up, 'sonarr', { ...sonarrRelease(), seriesId: 'x' }, 'sonarr seriesId');
-  await refused(s, up, 'sonarr', { ...sonarrRelease(), episodeId: 0 }, 'sonarr episodeId');
-  await refused(s, up, 'radarr', { ...radarrRelease(), movieId: 'x' }, 'radarr movieId');
+  for (const [service, body] of [
+    ['sonarr', { ...sonarrRelease(), seriesId: 'x' }], ['sonarr', { ...sonarrRelease(), episodeId: 0 }],
+    ['radarr', { ...radarrRelease(), movieId: 'x' }], ['radarr', { ...radarrRelease(), movieId: 1.5 }],
+  ]) {
+    const r = await s.json('POST', `/api/${service}/release`, body);
+    assert.equal(r.status, 200, service);
+  }
+  assert.deepEqual(up.hits.map(h => JSON.parse(h.body)), [
+    { guid: GUID, indexerId: 3, episodeId: 12 }, { guid: GUID, indexerId: 3, seriesId: 4 },
+    { guid: GUID, indexerId: 3 }, { guid: GUID, indexerId: 3 },
+  ]);
 });
 
 test('G6 (013): the upstream 404 still reaches the client as before (control)', async t => {
@@ -98,6 +107,14 @@ test('G6 (013): the upstream 404 still reaches the client as before (control)', 
     assert.deepEqual(await r.json(), { error: 'Request failed with status code 404' });
   }
   assert.equal(up.hits.length, 2);
+});
+
+test('G-zero (013 r2): a Sonarr release with seriesId 0 and episodeId 0 reaches Sonarr as guid and indexerId', async t => {
+  const { s, up } = await setup(t);
+  const r = await s.json('POST', '/api/sonarr/release', { ...sonarrRelease(), seriesId: 0, episodeId: 0 });
+  assert.equal(r.status, 200);
+  assert.equal(up.hits.length, 1);
+  assert.deepEqual(JSON.parse(up.hits[0].body), { guid: GUID, indexerId: 3 });
 });
 
 test('G-null (013): null app ids count as absent and are dropped with the extra fields', async t => {

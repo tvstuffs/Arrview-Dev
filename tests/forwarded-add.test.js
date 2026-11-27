@@ -4,7 +4,8 @@ const { startServer } = require('./helpers/server-harness');
 const { standIn } = require('./helpers/stand-in');
 
 // Job 013, fix 4: the two adds send a body rebuilt from the listed add fields; the rest of the lookup object is dropped, and
-// a missing or invalid field is a 400 with nothing sent upstream (cases A1-A8, A-bounds).
+// a missing or invalid required field is a 400 with nothing sent upstream (cases A1-A8, A-bounds). Rework 1 (D102): an
+// optional field outside its rule is dropped, not refused, and the app applies its own default.
 
 const KEY = 'fixture-only-key-1';
 const INVALID = { error: 'Invalid add request' };
@@ -37,11 +38,26 @@ const movieBody = (extra = {}) => ({
   addOptions: { searchForMovie: false }, ...extra,
 });
 
+// Real lookup objects (Radarr 6.4.4, Sonarr 4.0.20), trimmed to the catalogue fields; posted the way handleAdd builds the body.
+const realMovie = require('./fixtures/lookup-radarr.json');
+const realShow = require('./fixtures/lookup-sonarr.json');
+
 async function refused(s, up, path, body, label) {
   const r = await s.json('POST', path, body);
   assert.equal(r.status, 400, label);
   assert.deepEqual(await r.json(), INVALID, label);
   assert.equal(up.hits.length, 0, label);
+}
+
+// The add goes through, and the upstream body (the latest hit) does not carry `field`; returns that body.
+async function droppedField(s, up, path, body, field, label) {
+  const before = up.hits.length;
+  const r = await s.json('POST', path, body);
+  assert.equal(r.status, 200, label);
+  assert.equal(up.hits.length, before + 1, label);
+  const sent = JSON.parse(up.hits[before].body);
+  assert.equal(field in sent, false, label);
+  return sent;
 }
 
 test('A1 (013): the web app\'s Sonarr add reaches Sonarr with only the add fields', async t => {
@@ -88,10 +104,21 @@ test('A4 (013): a Sonarr add with addOptions.monitor other than all is refused',
     showBody({ addOptions: { monitor: 'all', searchForMissingEpisodes: 'false' } }), 'search flag string');
 });
 
-test('A5 (013): a season with a string seasonNumber is refused', async t => {
+test('A5 (013 r2): an invalid season is dropped, the valid ones are kept, and no valid season drops the field', async t => {
   const { s, up } = await setup(t);
-  await refused(s, up, '/api/sonarr/series', showBody({ seasons: [{ seasonNumber: '1', monitored: true }] }), 'string season');
-  await refused(s, up, '/api/sonarr/series', showBody({ seasons: [{ seasonNumber: 10000, monitored: true }] }), 'season 10000');
+  await droppedField(s, up, '/api/sonarr/series', showBody({ seasons: [{ seasonNumber: '1', monitored: true }] }), 'seasons',
+    'string season');
+  await droppedField(s, up, '/api/sonarr/series', showBody({ seasons: [{ seasonNumber: 10000, monitored: true }] }), 'seasons',
+    'season 10000');
+  await droppedField(s, up, '/api/sonarr/series', showBody({ seasons: 'all' }), 'seasons', 'not a list');
+  await droppedField(s, up, '/api/sonarr/series', showBody({ seasons: [] }), 'seasons', 'empty list');
+  const r = await s.json('POST', '/api/sonarr/series', showBody({ seasons: [
+    { seasonNumber: 1, monitored: true }, { seasonNumber: '2', monitored: true }, null, { seasonNumber: 3, monitored: 'yes' },
+    { seasonNumber: 4, monitored: false, statistics: {} },
+  ] }));
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(up.hits.at(-1).body).seasons,
+    [{ seasonNumber: 1, monitored: true }, { seasonNumber: 4, monitored: false }]);
 });
 
 test('A6 (013): a quality profile id given as text is refused on both routes', async t => {
@@ -100,9 +127,11 @@ test('A6 (013): a quality profile id given as text is refused on both routes', a
   await refused(s, up, '/api/radarr/movie', movieBody({ qualityProfileId: '1' }), 'radarr');
 });
 
-test('A7 (013): an unknown series type is refused', async t => {
+test('A7 (013 r2): an unknown series type is dropped and the add goes through', async t => {
   const { s, up } = await setup(t);
-  await refused(s, up, '/api/sonarr/series', showBody({ seriesType: 'weird' }), 'seriesType');
+  const sent = await droppedField(s, up, '/api/sonarr/series', showBody({ seriesType: 'weird' }), 'seriesType', 'seriesType');
+  assert.equal(sent.tvdbId, 371980);
+  assert.equal(sent.title, 'Some Show');
 });
 
 test('A8 (013): Sonarr\'s own validation message still reaches the client (control)', async t => {
@@ -114,21 +143,60 @@ test('A8 (013): Sonarr\'s own validation message still reaches the client (contr
   assert.equal(up.hits.length, 1);
 });
 
-test('A-bounds (013): the length, list and value limits of the add fields', async t => {
+test('A-bounds (013 r2): the limits of the add fields; required ones refuse, optional ones are dropped', async t => {
   const { s, up } = await setup(t);
   await refused(s, up, '/api/sonarr/series', showBody({ title: 't'.repeat(501) }), 'title 501');
-  await refused(s, up, '/api/radarr/movie', movieBody({ title: 't'.repeat(501) }), 'radarr title 501');
   await refused(s, up, '/api/sonarr/series', showBody({ rootFolderPath: '/tv\n' }), 'root newline');
-  await refused(s, up, '/api/sonarr/series', showBody({ tags: Array.from({ length: 101 }, (_, i) => i + 1) }), 'tags 101');
-  await refused(s, up, '/api/sonarr/series',
-    showBody({ seasons: Array.from({ length: 501 }, (_, i) => ({ seasonNumber: i, monitored: true })) }), 'seasons 501');
-  await refused(s, up, '/api/radarr/movie', movieBody({ minimumAvailability: 'tba' }), 'tba');
-  await refused(s, up, '/api/sonarr/series', showBody({ languageProfileId: 0 }), 'languageProfileId 0');
-  await refused(s, up, '/api/sonarr/series', showBody({ monitorNewItems: 'some' }), 'monitorNewItems');
+  const SHOWS = '/api/sonarr/series';
+  const MOVIES = '/api/radarr/movie';
+  await droppedField(s, up, MOVIES, movieBody({ title: 't'.repeat(501) }), 'title', 'radarr title 501');
+  await droppedField(s, up, SHOWS, showBody({ tags: Array.from({ length: 101 }, (_, i) => i + 1) }), 'tags', 'tags 101');
+  await droppedField(s, up, MOVIES, movieBody({ tags: [0] }), 'tags', 'radarr tag 0');
+  await droppedField(s, up, SHOWS,
+    showBody({ seasons: Array.from({ length: 501 }, (_, i) => ({ seasonNumber: i, monitored: true })) }), 'seasons', 'seasons 501');
+  await droppedField(s, up, MOVIES, movieBody({ minimumAvailability: 'tba' }), 'minimumAvailability', 'tba');
+  await droppedField(s, up, SHOWS, showBody({ languageProfileId: 0 }), 'languageProfileId', 'languageProfileId 0');
+  await droppedField(s, up, SHOWS, showBody({ monitorNewItems: 'some' }), 'monitorNewItems', 'monitorNewItems');
+  await droppedField(s, up, SHOWS, showBody({ seasonFolder: 'yes' }), 'seasonFolder', 'seasonFolder');
+  const cutoff = await droppedField(s, up, SHOWS,
+    showBody({ addOptions: { monitor: 'all', searchForMissingEpisodes: false, searchForCutoffUnmetEpisodes: 'yes' } }), 'nothing',
+    'cutoff flag');
+  assert.deepEqual(cutoff.addOptions, { monitor: 'all', searchForMissingEpisodes: false });
+  const before = up.hits.length;
   const r = await s.json('POST', '/api/sonarr/series', showBody({ title: 't'.repeat(500), seasons: null, languageProfileId: 1 }));
   assert.equal(r.status, 200);
-  const sent = JSON.parse(up.hits[0].body);
+  const sent = JSON.parse(up.hits[before].body);
   assert.equal(sent.title.length, 500);
   assert.equal(sent.languageProfileId, 1);
   assert.equal('seasons' in sent, false);
+});
+
+test('A-real-radarr (013 r2): a real Radarr lookup with minimumAvailability tba is added without that field', async t => {
+  const { s, up } = await setup(t);
+  const r = await s.json('POST', '/api/radarr/movie', {
+    ...realMovie, id: undefined, qualityProfileId: 4, rootFolderPath: '/movies', monitored: true,
+    addOptions: { searchForMovie: true },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(up.hits.length, 1);
+  assert.deepEqual(JSON.parse(up.hits[0].body), {
+    tmdbId: 693134, qualityProfileId: 4, rootFolderPath: '/movies', monitored: true, addOptions: { searchForMovie: true },
+    title: 'Dune: Part Two', tags: [],
+  });
+});
+
+test('A-real-sonarr (013 r2): a real Sonarr lookup is added with its valid fields', async t => {
+  const { s, up } = await setup(t);
+  const r = await s.json('POST', '/api/sonarr/series', {
+    ...realShow, id: undefined, qualityProfileId: 4, rootFolderPath: '/tv', monitored: true, seasonFolder: true,
+    addOptions: { searchForMissingEpisodes: true, monitor: 'all' },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(up.hits.length, 1);
+  assert.deepEqual(JSON.parse(up.hits[0].body), {
+    tvdbId: 371980, title: 'Severance', qualityProfileId: 4, rootFolderPath: '/tv', monitored: true,
+    addOptions: { monitor: 'all', searchForMissingEpisodes: true }, seasonFolder: true, seriesType: 'standard',
+    languageProfileId: 1, monitorNewItems: 'all', tags: [],
+    seasons: [{ seasonNumber: 0, monitored: false }, { seasonNumber: 1, monitored: true }, { seasonNumber: 2, monitored: true }],
+  });
 });

@@ -1781,27 +1781,25 @@ function radarrCommand(body) {
 }
 
 // Bodies forwarded to Sonarr and Radarr are rebuilt from the listed fields; anything else the caller sent is dropped. Text is
-// 1 to `max` characters with no C0, DEL or C1 control character. An optional field that is null counts as absent.
+// 1 to `max` characters with no C0, DEL or C1 control character. A required field outside its rule refuses the request; an
+// optional field outside its rule is dropped and the app applies its own default (D102). Null counts as absent.
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 const isCleanText = (value, max) => typeof value === 'string' && value.length >= 1 && value.length <= max && !CONTROL_CHARS.test(value);
 const isAbsent = value => value === undefined || value === null;
-// Copies the optional fields that are present into `out`; false when one of them is present and fails its rule.
+// Copies the optional fields that are present and pass their rule into `out`; the others are left out.
 function copyOptional(body, out, rules) {
   for (const [field, valid] of Object.entries(rules)) {
     const value = body[field];
-    if (isAbsent(value)) continue;
-    if (!valid(value)) return false;
-    out[field] = value;
+    if (!isAbsent(value) && valid(value)) out[field] = value;
   }
-  return true;
+  return out;
 }
 
 // A release grab needs only the pair the app looks the release up by (guid, indexerId) and the app's own ids.
 function releaseGrab(body, idFields) {
   if (!isPlainObject(body) || !isCleanText(body.guid, 2000) || !isPositiveId(body.indexerId)) return null;
   const out = { guid: body.guid, indexerId: body.indexerId };
-  const rules = Object.fromEntries(idFields.map(field => [field, isPositiveId]));
-  return copyOptional(body, out, rules) ? out : null;
+  return copyOptional(body, out, Object.fromEntries(idFields.map(field => [field, isPositiveId])));
 }
 const invalidRelease = res => res.status(400).json({ error: 'Invalid release' });
 
@@ -1815,9 +1813,15 @@ const invalidMonitor = res => res.status(400).json({ error: 'Invalid monitor req
 // An add carries the fields an add needs; the rest of the lookup object (images, overview, statistics, path and so on) is
 // dropped, because the apps fill it from their own metadata. The apps check the root folder themselves.
 const isTagList = value => Array.isArray(value) && value.length <= 100 && value.every(isPositiveId);
-const isSeasonList = value => Array.isArray(value) && value.length <= 500 && value.every(season => isPlainObject(season)
-  && Number.isSafeInteger(season.seasonNumber) && season.seasonNumber >= 0 && season.seasonNumber <= 9999
-  && typeof season.monitored === 'boolean');
+const isSeason = season => isPlainObject(season) && Number.isSafeInteger(season.seasonNumber) && season.seasonNumber >= 0
+  && season.seasonNumber <= 9999 && typeof season.monitored === 'boolean';
+// The valid seasons, rebuilt to {seasonNumber, monitored}; undefined (the field is dropped) when none is left or the list is
+// not an array of at most 500 entries.
+function validSeasons(value) {
+  if (!Array.isArray(value) || value.length > 500) return undefined;
+  const seasons = value.filter(isSeason).map(({ seasonNumber, monitored }) => ({ seasonNumber, monitored }));
+  return seasons.length ? seasons : undefined;
+}
 const oneOf = (...values) => value => values.includes(value);
 const isBoolean = value => typeof value === 'boolean';
 function addCommon(body, idField) {
@@ -1833,23 +1837,22 @@ function seriesAdd(body) {
   if (monitor !== 'all' || !isBoolean(searchForMissingEpisodes)) return null;
   out.title = body.title;
   out.addOptions = { monitor, searchForMissingEpisodes };
-  if (!copyOptional(body.addOptions, out.addOptions, { searchForCutoffUnmetEpisodes: isBoolean })) return null;
-  const ok = copyOptional(body, out, {
-    seasonFolder: isBoolean, seasons: isSeasonList, seriesType: oneOf('standard', 'daily', 'anime'),
+  copyOptional(body.addOptions, out.addOptions, { searchForCutoffUnmetEpisodes: isBoolean });
+  copyOptional(body, out, {
+    seasonFolder: isBoolean, seriesType: oneOf('standard', 'daily', 'anime'),
     languageProfileId: isPositiveId, monitorNewItems: oneOf('all', 'none'), tags: isTagList,
   });
-  if (!ok) return null;
-  if (out.seasons) out.seasons = out.seasons.map(({ seasonNumber, monitored }) => ({ seasonNumber, monitored }));
+  const seasons = validSeasons(body.seasons);
+  if (seasons) out.seasons = seasons;
   return out;
 }
 function movieAdd(body) {
   const out = addCommon(body, 'tmdbId');
   if (!out || !isBoolean(body.addOptions.searchForMovie)) return null;
   out.addOptions = { searchForMovie: body.addOptions.searchForMovie };
-  const ok = copyOptional(body, out, {
+  return copyOptional(body, out, {
     title: value => isCleanText(value, 500), minimumAvailability: oneOf('announced', 'inCinemas', 'released'), tags: isTagList,
   });
-  return ok ? out : null;
 }
 const invalidAdd = res => res.status(400).json({ error: 'Invalid add request' });
 

@@ -1,0 +1,20 @@
+{
+  "tvdbId": 371980,
+  "title": "Severance",
+  "year": 2022,
+  "status": "continuing",
+  "seriesType": "standard",
+  "languageProfileId": 1,
+  "monitorNewItems": "all",
+  "monitored": true,
+  "seasonFolder": false,
+  "qualityProfileId": 0,
+  "rootFolderPath": null,
+  "tags": [],
+  "titleSlug": "severance",
+  "seasons": [
+    { "seasonNumber": 0, "monitored": false },
+    { "seasonNumber": 1, "monitored": true },
+    { "seasonNumber": 2, "monitored": true }
+  ]
+}
