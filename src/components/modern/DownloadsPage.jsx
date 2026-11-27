@@ -7,12 +7,13 @@ import { useScreen } from './ScreenContext.js'
 import { DownloadBar } from './DownloadStatus.jsx'
 import { useLibraryOnce } from './LibraryProvider.jsx'
 import useUpcoming from '../../hooks/useUpcoming'
+import useSeriesEpisodes from '../../hooks/useSeriesEpisodes'
 import { useDownloads, useDownloadNeeds, useDownloadHistory, useNow } from '../../hooks/useDownloads.jsx'
 import { checkedFetch } from '../../actions'
 import { apiFetch } from '../../api'
 import { artUrl } from '../../media'
 import { dayDate, entryLabel, groupByDay, timeText } from '../../upcoming'
-import { buildHistoryItems, formatLeft, formatSize, idleLead, kindLabel, relativeTime, rowStatus } from '../../downloads'
+import { buildHistoryItems, episodeLookup, formatLeft, formatSize, idleLead, kindLabel, relativeTime, rowStatus, withEpisodeTitles } from '../../downloads'
 
 const NEEDS = { sab: true, page: true, sonarr: 'always', radarr: 'always' }
 // Recent History shows five rows (three on phones, whose rows are taller) so Coming up stays in view; Load more
@@ -183,6 +184,12 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
   const [removing, setRemoving] = useState(null)
   const library = useLibraryOnce({ series: dl.configured.sonarr, movies: dl.configured.radarr })
   const history = useDownloadHistory({ slots: dl.slots, limit, enabled: dl.configured.sab })
+  const hints = { sonarr: dl.arr.sonarr === 'ok', radarr: dl.arr.radarr === 'ok' }
+  const matchedHistory = buildHistoryItems(history.slots || [], library, hints)
+  // The episode titles the rows on screen and the idle hero name, read from each show's episode list in Sonarr.
+  const shownLead = (dl.items || []).length === 0 ? idleLead(matchedHistory) : null
+  const episodeLists = useSeriesEpisodes([...matchedHistory.slice(0, shown), shownLead].map(episodeLookup).filter(Boolean),
+    { enabled: Boolean(dl.configured.sonarr), now })
 
   async function post(mode, nzoId) {
     try {
@@ -217,7 +224,7 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
 
   const { items, active, queue } = dl
   const idle = items.length === 0
-  const historyItems = buildHistoryItems(history.slots || [], library, { sonarr: dl.arr.sonarr === 'ok', radarr: dl.arr.radarr === 'ok' })
+  const historyItems = withEpisodeTitles(matchedHistory, episodeLists)
   const historyLoaded = history.slots !== null || history.error !== null
   const lead = idle ? idleLead(historyItems) : null
   const rest = items.filter(item => item !== active)
@@ -237,7 +244,7 @@ export default function DownloadsPage({ config, phone, onToast, canSearch = fals
     {lead && <HeroShell art={lead.art} category={lead.category}>
       <p className="m-dl-eyebrow m-dl-done"><Icon name="check" />{downloadedAt ? `Downloaded ${downloadedAt}` : 'Downloaded'}</p>
       <h2 className="m-dl-title"><a href={href(lead)}>{lead.title}</a></h2>
-      <Subtitle text={lead.subtitle} className="m-dl-sub" />
+      <Subtitle text={lead.heroSubtitle || lead.subtitle} className="m-dl-sub" />
       {(lead.quality || lead.size) && <p className="m-dl-quality">{[lead.quality, lead.size].filter(Boolean).join(' · ')}</p>}
     </HeroShell>}
     <div className="m-dl-cols">

@@ -2,6 +2,7 @@ import { describe, test, expect, afterEach } from 'vitest'
 import {
   normalise, categoryInfo, tidyName, parseRelease, qualityLine, statusKind, buildQueueItems, buildHistoryItems, matchHistory, relativeTime,
   formatSize, formatSpeed, formatLeft, percentOf, episodeSummary, hintFor, leadItem, pillItem, rowStatus, liveStatus, idleLead,
+  episodeLookup, withEpisodeTitles,
 } from '../../src/downloads'
 
 const SHOW_RELEASE = 'Fixture.Show.Name.S02E05.2160p.WEB-DL.DV.HDR.Atmos.x265-GRP'
@@ -91,7 +92,7 @@ describe('history matching (criterion 3)', () => {
     expect(matchHistory('Other.Show.S01E01-GRP', { series: null, movies })).toBeNull()
   })
   test('season packs: S03 and S01-S03 with no episode number match the series', () => {
-    expect(matchHistory('Other.Show.S03.1080p.WEB-DL.DDP5.1-GRP', libs)).toEqual({ kind: 'tv', series: series[3], season: 3, number: null, lastSeason: null })
+    expect(matchHistory('Other.Show.S03.1080p.WEB-DL.DDP5.1-GRP', libs)).toEqual({ kind: 'tv', series: series[3], season: 3, number: null, lastNumber: null, lastSeason: null })
     expect(matchHistory('other.show.s02.720p.hdtv-grp', libs)).toMatchObject({ series: { id: 4 }, season: 2, number: null })
     expect(matchHistory('Other.Show.S01-S03.1080p.BluRay-GRP', libs)).toMatchObject({ series: { id: 4 }, season: 1, number: null, lastSeason: 3 })
     expect(matchHistory('Fixture.Show.2015.S04.2160p.WEB-GRP', libs)).toMatchObject({ series: { id: 2 }, season: 4, number: null })
@@ -307,5 +308,50 @@ describe('status kinds and lead selection (criterion 8)', () => {
     expect(liveStatus(paused)).toMatchObject({ label: 'Paused', tileText: 'Paused · 12%', detail: '12%', tone: 'attn' })
     const [queued] = buildQueueItems([slot('a', { status: 'Queued', percentage: '0' })], {})
     expect(liveStatus(queued)).toMatchObject({ tileText: 'Queued', detail: null, tone: 'muted' })
+  })
+})
+
+// ---- 2.0: Recent History names the episode, as the queue and Coming up do ----
+describe('history episode titles (2.0)', () => {
+  const series = [{ id: 4, title: 'Other Show', year: 2019 }]
+  const libs = { series, movies: [{ id: 10, title: 'Fixture Film', year: 2023 }] }
+  const done = (id, name, extra = {}) => ({ nzo_id: id, name, status: 'Completed', bytes: 1, completed: 10, category: 'tv', ...extra })
+  const lists = new Map([[4, [null, { seasonNumber: 2, episodeNumber: 6, title: '  The Sixth  ' }, { seasonNumber: 2, episodeNumber: 7, title: '' },
+    { seasonNumber: 1, episodeNumber: 1, title: 'Pilot' }]]])
+
+  test('one episode reads "S2 E6 · <title>" once its show\'s list has it, and the hero says "Season 2, Episode 6 · <title>"', () => {
+    const slots = [done('a', 'Other.Show.S02E06.1080p.WEB-GRP'), done('b', 'Other.Show.S02E07.1080p.WEB-GRP'), done('c', 'Other.Show.S02E08.1080p.WEB-GRP')]
+    const items = buildHistoryItems(slots, { ...libs, episodes: lists }, { sonarr: true, radarr: true })
+    expect(items.map(item => [item.subtitle, item.heroSubtitle])).toEqual([
+      ['S2 E6 · The Sixth', 'Season 2, Episode 6 · The Sixth'], ['S2 E7', 'Season 2, Episode 7'], ['S2 E8', 'Season 2, Episode 8']])
+    // Until the list arrives the row keeps "S2 E6"; the lookup says which episode to name.
+    const bare = buildHistoryItems(slots, libs, { sonarr: true, radarr: true })
+    expect(bare.map(item => item.subtitle)).toEqual(['S2 E6', 'S2 E7', 'S2 E8'])
+    expect(bare.map(episodeLookup)).toEqual([{ seriesId: 4, season: 2, number: 6 }, { seriesId: 4, season: 2, number: 7 }, { seriesId: 4, season: 2, number: 8 }])
+    // Filling the titles into items already built gives the same words, without matching the names again.
+    expect(withEpisodeTitles(bare, lists).map(item => [item.subtitle, item.heroSubtitle])).toEqual(items.map(item => [item.subtitle, item.heroSubtitle]))
+    expect(withEpisodeTitles(bare, new Map())).toBe(bare)
+    expect(withEpisodeTitles(bare, new Map([[5, []]])).map(item => item.subtitle)).toEqual(['S2 E6', 'S2 E7', 'S2 E8'])
+  })
+
+  test('a release of several episodes reads "S1 · Episodes 1–2", as the queue does, and names no single episode', () => {
+    for (const name of ['Other.Show.S01E01E02.720p-GRP', 'Other.Show.S01E01-E02.720p-GRP', 'other.show.s01e01-02.720p-grp']) {
+      expect(matchHistory(name, libs)).toMatchObject({ kind: 'tv', series: { id: 4 }, season: 1, number: 1, lastNumber: 2 })
+      const [item] = buildHistoryItems([done('m', name)], { ...libs, episodes: lists }, { sonarr: true })
+      expect([item.subtitle, item.heroSubtitle, episodeLookup(item)]).toEqual(['S1 · Episodes 1–2', 'Season 1, Episodes 1–2', null])
+    }
+    // One episode followed by the group name, or by a number that is not a second episode, stays one episode.
+    expect(matchHistory('Other.Show.S01E03-GRP', libs)).toMatchObject({ number: 3, lastNumber: null })
+    expect(matchHistory('Other.Show.S01E03-1080p.WEB-GRP', libs)).toMatchObject({ number: 3, lastNumber: null })
+    expect(matchHistory('Other.Show.S01E03E02.720p-GRP', libs)).toMatchObject({ number: 3, lastNumber: null })
+  })
+
+  test('season packs, movies and unmatched items keep their words and ask for no episode', () => {
+    const slots = [done('p', 'Other.Show.S03.1080p.WEB-DL-GRP'), done('f', 'Fixture.Film.2023.1080p-GRP', { category: 'movies' }),
+      done('u', 'Missing.Show.S01E02.720p-GRP')]
+    const items = buildHistoryItems(slots, { ...libs, episodes: lists }, { sonarr: true, radarr: true })
+    expect(items.map(item => [item.subtitle, item.heroSubtitle, episodeLookup(item)])).toEqual([
+      ['Season 3', 'Season 3', null], ['2023 · Movie', '2023 · Movie', null], ['TV · S1 E2', 'TV · S1 E2', null]])
+    expect(withEpisodeTitles(items, lists)).toEqual(items)
   })
 })

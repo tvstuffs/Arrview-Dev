@@ -334,6 +334,64 @@ test('a finished season pack is matched in Recent History and leads the idle pag
   expect(within(hero).getByText('Season 3')).toBeInTheDocument()
 })
 
+// ---- 2.0: Recent History names the episode, as the queue and Coming up do ----
+const SECOND_SHOW = { id: 8, title: 'Second Show', year: 2021, images: [img('poster', 'https://img.invalid/second-poster.jpg')] }
+test('Recent History and the idle hero name the episode from its show\'s list in Sonarr: one request per show, only for rows on screen (2.0)', async () => {
+  fixClock()
+  const done = (id, name, minutes, category = 'tv') => ({ nzo_id: id, name, status: 'Completed', bytes: 1, completed: secondsAgo(minutes * MIN), category })
+  const fn = world({
+    history: [
+      done('h1', 'Fixture.Show.S01E04.720p.HDTV-GRP', 1), done('h2', 'Fixture.Show.S02E05.1080p.WEB-GRP', 2), done('h3', 'Fixture.Film.2023.1080p-GRP', 3, 'movies'),
+      done('h4', 'Fixture.Show.S01E01E02.720p-GRP', 4), done('h5', 'Fixture.Show.S03.1080p-GRP', 5), done('h6', 'Second.Show.S01E01.1080p-GRP', 6),
+    ],
+    data: { series: [SHOW, SECOND_SHOW] },
+    overrides: {
+      '/api/sonarr/series/7/episodes': () => reply([{ id: 74, seasonNumber: 1, episodeNumber: 4, title: 'Four of One' }, { id: 70, seasonNumber: 2, episodeNumber: 5, title: 'Fixture episode' }]),
+      '/api/sonarr/series/8/episodes': () => reply([{ id: 81, seasonNumber: 1, episodeNumber: 1, title: 'Opening' }]),
+    },
+  })
+  page()
+  const section = (await screen.findByRole('heading', { level: 2, name: 'Recent History' })).closest('section')
+  await waitFor(() => expect(within(section).getByText('S1 E4 · Four of One')).toBeInTheDocument())
+  const rows = [...section.querySelectorAll('li.m-dl-row')]
+  expect(rows).toHaveLength(5)
+  expect(within(rows[1]).getByText('S2 E5 · Fixture episode')).toBeInTheDocument()
+  expect(within(rows[2]).getByText('2023 · Movie')).toBeInTheDocument()
+  expect(within(rows[3]).getByText('S1 · Episodes 1–2')).toBeInTheDocument()
+  expect(within(rows[4]).getByText('Season 3')).toBeInTheDocument()
+  // With nothing downloading, the hero names the newest finished episode the way the queue's hero does.
+  expect(within(document.querySelector('.m-dl-hero')).getByText('Season 1, Episode 4 · Four of One')).toBeInTheDocument()
+  // Two rows of one show make one request; the show of the sixth row, not on screen, is not fetched until it is.
+  expect(requests(fn, '/api/sonarr/series/7/episodes')).toBe(1)
+  expect(requests(fn, '/api/sonarr/series/8/episodes')).toBe(0)
+  fireEvent.click(within(section).getByRole('button', { name: 'Load more' }))
+  await waitFor(() => expect(within(section).getByText('S1 E1 · Opening')).toBeInTheDocument())
+  expect(requests(fn, '/api/sonarr/series/8/episodes')).toBe(1)
+  expect(requests(fn, '/api/sonarr/series/7/episodes')).toBe(1)
+})
+test('a row keeps "S1 E4" when its show\'s episode list cannot be read, and the page asks once (2.0)', async () => {
+  fixClock()
+  const fn = world({
+    history: [{ nzo_id: 'h1', name: 'Fixture.Show.S01E04.720p.HDTV-GRP', status: 'Completed', bytes: 1, completed: secondsAgo(MIN), category: 'tv' }],
+    overrides: { '/api/sonarr/series/7/episodes': () => reply({ error: 'Sonarr is down' }, false) },
+  })
+  page()
+  const section = (await screen.findByRole('heading', { level: 2, name: 'Recent History' })).closest('section')
+  await waitFor(() => expect(requests(fn, '/api/sonarr/series/7/episodes')).toBe(1))
+  await act(async () => { await new Promise(done => setTimeout(done, 50)) })
+  expect(within(section).getByText('S1 E4')).toBeInTheDocument()
+  expect(within(document.querySelector('.m-dl-hero')).getByText('Season 1, Episode 4')).toBeInTheDocument()
+  expect(requests(fn, '/api/sonarr/series/7/episodes')).toBe(1)
+})
+test('without Sonarr in Settings, Recent History asks for no episode list (2.0)', async () => {
+  fixClock()
+  const fn = world({ history: [{ nzo_id: 'h1', name: 'Fixture.Film.2023.1080p-GRP', status: 'Completed', bytes: 1, completed: secondsAgo(MIN), category: 'movies' }] })
+  page({ cfg: only(config, 'sabnzbd', 'radarr') })
+  await screen.findByRole('heading', { level: 2, name: 'Recent History' })
+  await act(async () => { await new Promise(done => setTimeout(done, 50)) })
+  expect(fn.calls.some(call => /\/api\/sonarr\/series\/\d+\/episodes/.test(call.url))).toBe(false)
+})
+
 // ---- Idle (criterion 20) ----
 const calendarEpisode = (id, seriesId, title, hours) => ({ id, seriesId, seasonNumber: 1, episodeNumber: 1, title: 'E', airDateUtc: new Date(NOW + hours * 3600000).toISOString(), hasFile: false, series: { id: seriesId, title, images: [img('poster', 'https://img.invalid/cal.jpg')] } })
 test('idle with a matched, completed item: hero with the check, Downloaded time, subtitle and quality plus size (criterion 20)', async () => {
@@ -343,7 +401,7 @@ test('idle with a matched, completed item: hero with the check, Downloaded time,
     { nzo_id: 'failed', name: 'Fixture.Show.S02E09.1080p-GRP', status: 'Failed', bytes: 1, completed: secondsAgo(2 * MIN), category: 'tv' },
     { nzo_id: 'lead', name: 'Fixture.Show.S02E05.2160p.WEB-DL.DV.HDR.Atmos.x265-GRP', status: 'Completed', bytes: 1073741824, completed: secondsAgo(25 * MIN), category: 'tv' },
     { nzo_id: 'older', name: 'Fixture.Show.S02E04.1080p-GRP', status: 'Completed', bytes: 1, completed: secondsAgo(2 * DAYMS), category: 'tv' },
-  ] })
+  ], overrides: { '/api/sonarr/series/7/episodes': () => reply([{ id: 70, seasonNumber: 2, episodeNumber: 5, title: 'Fixture episode' }]) } })
   const { container } = page({ cfg: only(config, 'sabnzbd', 'sonarr') })
   const title = await screen.findByRole('heading', { level: 2, name: 'Fixture Show' })
   const hero = container.querySelector('.m-dl-hero')
@@ -351,7 +409,7 @@ test('idle with a matched, completed item: hero with the check, Downloaded time,
   expect(hero.querySelector('.m-dl-done svg')).not.toBeNull()
   expect(within(hero).getByText('Downloaded 25 min ago')).toBeInTheDocument()
   expect(within(title).getByRole('link')).toHaveAttribute('href', '#/shows/7')
-  expect(within(hero).getByText('S2 E5')).toBeInTheDocument()
+  expect(await within(hero).findByText('Season 2, Episode 5 · Fixture episode')).toBeInTheDocument()
   expect(within(hero).getByText('4K · Dolby Vision · HDR · Atmos · 1.0 GB')).toBeInTheDocument()
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
   expect(screen.getByText('Nothing is downloading. When Sonarr or Radarr grabs an episode or movie, it appears here.')).toBeInTheDocument()

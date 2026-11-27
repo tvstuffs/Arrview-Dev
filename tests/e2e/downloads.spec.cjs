@@ -146,7 +146,10 @@ test('idle: the last finished download leads, the empty note and Coming up (thre
   const hero = page.locator('.m-dl-hero')
   await expect(hero.getByText('Downloaded 25 min ago')).toBeVisible()
   await expect(hero.getByRole('heading', { level: 2, name: SHOW })).toBeVisible()
-  await expect(hero.getByText('S1 E1')).toBeVisible()
+  // 2.0: the hero and the history row name the episode from the show's episode list, as the queue and Coming up do.
+  await expect(hero.getByText('Season 1, Episode 1 · Downloaded episode with a long descriptive title')).toBeVisible()
+  const historyRow = page.locator('li.m-dl-row.is-history', { has: page.getByRole('link', { name: SHOW }) }).first()
+  await expect(historyRow.getByText('S1 E1 · Downloaded episode with a long descriptive title')).toBeVisible()
   await expect(page.getByText('Nothing is downloading. When Sonarr or Radarr grabs an episode or movie, it appears here.')).toBeVisible()
   await expect(page.getByRole('button', { name: /Pause All|Resume All/ })).toHaveCount(0)
   const coming = page.locator('.m-dl-coming')

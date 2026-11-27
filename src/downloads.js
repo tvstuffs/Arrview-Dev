@@ -266,7 +266,8 @@ export function buildQueueItems(slots, arr = {}) {
 
 // ---- History ----------------------------------------------------------------------------------
 
-const TV_SHAPE = /^(.+?)[._ -]+S(\d{1,2})E(\d{1,3})/i
+// One episode (S02E06), or a run of them in one release (S01E01E02, S01E01-E02, S01E01-02).
+const TV_SHAPE = /^(.+?)[._ -]+S(\d{1,2})E(\d{1,3})(?:-?E(\d{1,3})|-(\d{1,3})(?=[._ -]|$))?/i
 // Season packs: the title, then S03 or S01-S03 with no episode number.
 const PACK_SHAPE = /^(.+?)[._ -]+S(\d{1,2})(?:-S?(\d{1,2}))?(?=[._ -]|$)/i
 const TRAILING_YEAR = /^(.+?)[._ -]+\(?((?:19|20)\d\d)\)?$/
@@ -288,8 +289,9 @@ function findSeries(titlePart, series) {
   return found.length === 1 ? found[0] : null
 }
 
-// D5: { kind: 'tv', series, season, number, lastSeason } | { kind: 'movie', movie } | null. A season pack has a
-// null number (and lastSeason for a run of seasons). A list that is null is not loaded.
+// D5: { kind: 'tv', series, season, number, lastNumber, lastSeason } | { kind: 'movie', movie } | null. A season pack has a
+// null number (and lastSeason for a run of seasons); a release of several episodes has lastNumber. A list that is null is
+// not loaded.
 export function matchHistory(name, { series = null, movies = null } = {}) {
   const raw = String(name ?? '')
   const tv = TV_SHAPE.exec(raw)
@@ -298,9 +300,13 @@ export function matchHistory(name, { series = null, movies = null } = {}) {
     if (!Array.isArray(series)) return null
     const show = findSeries((tv || pack)[1], series)
     if (!show) return null
-    if (tv) return { kind: 'tv', series: show, season: Number(tv[2]), number: Number(tv[3]), lastSeason: null }
+    if (tv) {
+      const number = Number(tv[3]), end = tv[4] ?? tv[5]
+      const lastNumber = end === undefined || Number(end) <= number ? null : Number(end)
+      return { kind: 'tv', series: show, season: Number(tv[2]), number, lastNumber, lastSeason: null }
+    }
     const first = Number(pack[2]), last = pack[3] === undefined ? first : Number(pack[3])
-    return { kind: 'tv', series: show, season: first, number: null, lastSeason: last > first ? last : null }
+    return { kind: 'tv', series: show, season: first, number: null, lastNumber: null, lastSeason: last > first ? last : null }
   }
   const film = MOVIE_SHAPE.exec(raw)
   if (film) {
@@ -312,7 +318,27 @@ export function matchHistory(name, { series = null, movies = null } = {}) {
   return null
 }
 
-// libraries: { series, movies } (null = not loaded); hints: { sonarr, radarr } = service answered.
+// The subtitles of a matched TV history item, in the queue's words: one episode reads "S2 E6 · <title>" ("Season 2, Episode 6 ·
+// <title>" in the hero) once its show's episode list has it, and "S2 E6" until then; several episodes read "S1 · Episodes
+// 1–2", and a season pack "Season 3". `list` is the show's episodes from Sonarr, or undefined while not loaded.
+function tvSubtitles(match, list) {
+  if (match.number === null) {
+    const text = match.lastSeason !== null ? `Seasons ${match.season}–${match.lastSeason}` : `Season ${match.season}`
+    return { row: text, hero: text }
+  }
+  if (match.lastNumber !== null) {
+    return { row: `S${match.season} · Episodes ${match.number}–${match.lastNumber}`, hero: `Season ${match.season}, Episodes ${match.number}–${match.lastNumber}` }
+  }
+  const found = Array.isArray(list) ? list.find(ep => ep?.seasonNumber === match.season && ep?.episodeNumber === match.number) : null
+  const title = typeof found?.title === 'string' ? found.title.trim() : ''
+  return episodeSummary([{ seasonNumber: match.season, episodeNumber: match.number, title }])
+}
+
+// A matched TV history item that names one episode: { seriesId, season, number }, the episode whose title it shows.
+export const episodeLookup = item => (item?.kind === 'tv' && item.lookup ? item.lookup : null)
+
+// libraries: { series, movies, episodes } (null = not loaded; episodes is a Map of a show's id to its episode list, for the
+// titles); hints: { sonarr, radarr } = service answered.
 export function buildHistoryItems(slots, libraries = {}, hints = {}) {
   const ok = { sonarr: Boolean(hints.sonarr) && Array.isArray(libraries.series), radarr: Boolean(hints.radarr) && Array.isArray(libraries.movies) }
   return (slots || []).map((slot, index) => {
@@ -323,18 +349,33 @@ export function buildHistoryItems(slots, libraries = {}, hints = {}) {
     const base = { key: slot.nzo_id || `h${index}`, slot, release, status: slot.status, completed: Number(slot.completed) || 0,
       size: formatSize(mb), quality: qualityLine({ release }) }
     if (match?.kind === 'tv') {
-      const subtitle = match.number !== null ? `S${match.season} E${match.number}`
-        : match.lastSeason !== null ? `Seasons ${match.season}–${match.lastSeason}` : `Season ${match.season}`
+      const subtitles = tvSubtitles(match, libraries.episodes?.get?.(match.series.id))
+      const lookup = match.number !== null && match.lastNumber === null ? { seriesId: match.series.id, season: match.season, number: match.number } : null
       return { ...base, kind: 'tv', matched: true, media: match.series, mediaId: match.series.id, title: match.series.title,
-        subtitle, hint: null, category: categoryInfo('tv'), art: arts(match.series) }
+        subtitle: subtitles.row, heroSubtitle: subtitles.hero, lookup, hint: null, category: categoryInfo('tv'), art: arts(match.series) }
     }
     if (match?.kind === 'movie') {
+      const subtitle = [match.movie.year, 'Movie'].filter(Boolean).join(' · ')
       return { ...base, kind: 'movie', matched: true, media: match.movie, mediaId: match.movie.id, title: match.movie.title,
-        subtitle: [match.movie.year, 'Movie'].filter(Boolean).join(' · '), hint: null, category: categoryInfo('movies'), art: arts(match.movie) }
+        subtitle, heroSubtitle: subtitle, lookup: null, hint: null, category: categoryInfo('movies'), art: arts(match.movie) }
     }
+    const subtitle = unmatchedSubtitle(release, category)
     return { ...base, kind: 'unmatched', matched: false, media: null, mediaId: null, title: tidyName(release),
-      subtitle: unmatchedSubtitle(release, category), hint: hintFor(release, category, ok), category: categoryInfo(category),
+      subtitle, heroSubtitle: subtitle, lookup: null, hint: hintFor(release, category, ok), category: categoryInfo(category),
       art: { fanart: null, poster: null, thumb: null } }
+  })
+}
+
+// The history items with their episode titles filled in from the shows' episode lists (a Map of a show's id to its list),
+// without matching the release names again.
+export function withEpisodeTitles(items, lists) {
+  if (!lists?.size) return items
+  return items.map(item => {
+    const lookup = episodeLookup(item)
+    const list = lookup ? lists.get(lookup.seriesId) : undefined
+    if (!list) return item
+    const subtitles = tvSubtitles({ season: lookup.season, number: lookup.number, lastNumber: null, lastSeason: null }, list)
+    return { ...item, subtitle: subtitles.row, heroSubtitle: subtitles.hero }
   })
 }
 
