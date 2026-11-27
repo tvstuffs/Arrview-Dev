@@ -1875,6 +1875,30 @@ app.get('/api/sonarr/command/:id', async (req, res) => {
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });
 
+// The NZB links this server handed out. POST /api/sabnzbd/addurl sends SABnzbd only a link that an NZBHydra search here
+// returned in the last 24 hours (the exact string): SABnzbd fetches the link from its own place on the network, so it must not
+// take any address a caller picks. The store is in memory, per evaluation of this file, at most 5000 links with the oldest
+// dropped first. A restart forgets the links, by design: the user searches again.
+const NZB_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+const NZB_LINK_MAX = 5000;
+const NZB_URL_MAX = 4096;
+const nzbLinks = new Map();
+function rememberNzbLink(link) {
+  if (typeof link !== 'string' || link.length > NZB_URL_MAX || CONTROL_CHARS.test(link)) return;
+  let protocol;
+  try { protocol = new NodeURL(link).protocol; } catch (_) { return; }
+  if (protocol !== 'http:' && protocol !== 'https:') return;
+  nzbLinks.delete(link);
+  nzbLinks.set(link, Date.now());
+  while (nzbLinks.size > NZB_LINK_MAX) nzbLinks.delete(nzbLinks.keys().next().value);
+}
+function isRememberedNzbLink(link) {
+  if (typeof link !== 'string' || link.length > NZB_URL_MAX || !nzbLinks.has(link)) return false;
+  if (Date.now() - nzbLinks.get(link) < NZB_LINK_TTL_MS) return true;
+  nzbLinks.delete(link);
+  return false;
+}
+
 // Interactive release search for a specific episode.
 // Tries Sonarr first; if no results, falls back to a direct NZBHydra search.
 // Direct NZBHydra search returning release-shaped objects — the shared
@@ -1891,7 +1915,7 @@ async function hydraDirectSearch(q) {
   const rawItems = hydraRes.data?.channel?.item || [];
   const items = (Array.isArray(rawItems) ? rawItems : [rawItems]);
 
-  return items.map(item => {
+  const results = items.map(item => {
     const attrs = {};
     const rawAttrs = item['newznab:attr'] || item['attr'] || [];
     (Array.isArray(rawAttrs) ? rawAttrs : [rawAttrs]).forEach(a => {
@@ -1917,6 +1941,8 @@ async function hydraDirectSearch(q) {
       _nzbUrl:    encUrl,
     };
   }).filter(r => r._nzbUrl);
+  for (const r of results) rememberNzbLink(r._nzbUrl);
+  return results;
 }
 
 app.get('/api/sonarr/release', async (req, res) => {
@@ -2465,16 +2491,23 @@ app.get('/api/nzbhydra/search', async (req, res) => {
         grabs:    attrs.grabs || 0,
       };
     }).filter(r => r.link);
+    for (const r of results) rememberNzbLink(r.link);
     res.json(results);
   } catch (e) { res.status(503).json({ error: e.message }); }
 });
 
 app.post('/api/sabnzbd/addurl', async (req, res) => {
-  const { url: nzbUrl, name } = req.body;
-  if (!nzbUrl) return res.status(400).json({ error: 'Missing url' });
+  const body = isPlainObject(req.body) ? req.body : {};
+  const { url: nzbUrl, name } = body;
+  if (nzbUrl === undefined || nzbUrl === '') return res.status(400).json({ error: 'Missing url' });
+  if (!isRememberedNzbLink(nzbUrl)) {
+    return res.status(400).json({ error: 'That download link did not come from an ArrView search. Search again and send it from the results.' });
+  }
+  if (!isAbsent(name) && (typeof name !== 'string' || name.length > 300)) return res.status(400).json({ error: 'Invalid name' });
+  const nzbname = typeof name === 'string' ? name.replace(new RegExp(CONTROL_CHARS.source, 'g'), '') : '';
   try {
     const params = { mode: 'addurl', name: nzbUrl };
-    if (name) params.nzbname = name;
+    if (nzbname) params.nzbname = nzbname;
     res.json(await sabRequest(params));
   } catch (e) { res.status(e.response?.status || 503).json({ error: e.message }); }
 });

@@ -64,6 +64,10 @@ language, availability and tag settings); other fields are dropped, and a bad re
 `{"error":"Invalid release"}`, `{"error":"Invalid monitor request"}` or `{"error":"Invalid add request"}` with nothing
 sent.
 
+**Download links.** `POST /api/sabnzbd/addurl` accepts only a link that this server returned from an NZBHydra search (the
+NZB search or a release search's fallback) in the last 24 hours, and forgets those links when it restarts; any other
+link gets 400 with a sentence asking the user to search again, and nothing is sent to SABnzbd.
+
 **Redirects.** When an app answers with a redirect, ArrView follows it only to the same host name (another port or path
 is fine) and never from https to http; otherwise the request is stopped and the route answers with its usual error.
 
