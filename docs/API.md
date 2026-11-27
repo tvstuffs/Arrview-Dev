@@ -68,6 +68,11 @@ sent.
 NZB search or a release search's fallback) in the last 24 hours, and forgets those links when it restarts; any other
 link gets 400 with a sentence asking the user to search again, and nothing is sent to SABnzbd.
 
+**Search terms.** The text searches passed on (`q` on `GET /api/nzbhydra/search`, `seriesTitle` and `title` on the release
+searches, `term` on the lookups) are 1 to 300 characters with no control characters, `season` and `episode` are 1 to 4
+digits, `year` is empty or 4 digits, and `cat` is up to 20 numbers separated by commas; anything else gets 400
+`{"error":"Invalid query"}` and nothing is sent.
+
 **Redirects.** When an app answers with a redirect, ArrView follows it only to the same host name (another port or path
 is fine) and never from https to http; otherwise the request is stopped and the route answers with its usual error.
 

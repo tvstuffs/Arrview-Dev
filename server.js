@@ -1853,6 +1853,14 @@ function movieAdd(body) {
 }
 const invalidAdd = res => res.status(400).json({ error: 'Invalid add request' });
 
+// Search terms passed on to NZBHydra, Sonarr and Radarr (already known to be single strings or absent): text is 1 to 300
+// characters with no control character, season and episode 1 to 4 digits, year empty or 4 digits, cat at most 20 numbers.
+const termOrAbsent = value => value === undefined || isCleanText(value, 300);
+const matchesOrAbsent = pattern => value => value === undefined || pattern.test(value);
+const seasonOrAbsent = matchesOrAbsent(/^\d{1,4}$/);
+const yearOrAbsent = matchesOrAbsent(/^(\d{4})?$/);
+const catOrAbsent = matchesOrAbsent(/^\d{1,10}(,\d{1,10}){0,19}$/);
+
 app.post('/api/sonarr/command', async (req, res) => {
   const command = sonarrCommand(req.body);
   if (!command) return res.status(400).json(COMMAND_REFUSED);
@@ -1949,6 +1957,7 @@ app.get('/api/sonarr/release', async (req, res) => {
   const { episodeId, seriesTitle, season, episode } = req.query;
   if (episodeId !== undefined && !isUpstreamId(episodeId)) return invalidId(res);
   if (![seriesTitle, season, episode].every(singleOrAbsent)) return invalidQuery(res);
+  if (!termOrAbsent(seriesTitle) || !seasonOrAbsent(season) || !seasonOrAbsent(episode)) return invalidQuery(res);
   try {
     // 1. Ask Sonarr (it queries all its configured indexers)
     const { baseUrl, headers } = sonarrHeaders();
@@ -2013,7 +2022,7 @@ app.put('/api/sonarr/episode/monitor', async (req, res) => {
 });
 
 app.get('/api/sonarr/lookup', async (req, res) => {
-  if (!singleOrAbsent(req.query.term)) return invalidQuery(res);
+  if (!singleOrAbsent(req.query.term) || !termOrAbsent(req.query.term)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/series/lookup`, {
@@ -2337,6 +2346,7 @@ app.get('/api/radarr/release', async (req, res) => {
   const { movieId, title, year } = req.query;
   if (movieId !== undefined && !isUpstreamId(movieId)) return invalidId(res);
   if (![title, year].every(singleOrAbsent)) return invalidQuery(res);
+  if (!termOrAbsent(title) || !yearOrAbsent(year)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     const radarrRes = await axios.get(`${baseUrl}/api/v3/release`, {
@@ -2417,7 +2427,7 @@ app.put('/api/radarr/movie/monitor', async (req, res) => {
 });
 
 app.get('/api/radarr/lookup', async (req, res) => {
-  if (!singleOrAbsent(req.query.term)) return invalidQuery(res);
+  if (!singleOrAbsent(req.query.term) || !termOrAbsent(req.query.term)) return invalidQuery(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
     const r = await axios.get(`${baseUrl}/api/v3/movie/lookup`, {
@@ -2466,6 +2476,7 @@ app.get('/api/nzbhydra/search', async (req, res) => {
   const { q, cat } = req.query;
   if (![q, cat].every(singleOrAbsent)) return invalidQuery(res);
   if (!q) return res.status(400).json({ error: 'Missing query parameter q' });
+  if (!termOrAbsent(q) || !catOrAbsent(cat)) return invalidQuery(res);
   try {
     const params = { t: 'search', q, o: 'json', apikey };
     if (cat) params.cat = cat;
