@@ -1,36 +1,12 @@
 # ArrView server development changelog
 
-## Unreleased
-
-Server hardening 2 (factory job 013, decisions D97 to D99 and D102, 2026-11-27), inside 2.0:
-
-- **Production dependencies refreshed.** `npm audit fix --omit=dev` moved axios, body-parser, express, follow-redirects,
-  form-data, proxy-addr, qs and shell-quote to fixed releases in `package-lock.json` only (no `package.json` change, no
-  major version), and `npm audit --omit=dev` now reports no known vulnerability.
-- **Release grabs carry only what the grab needs.** The Sonarr and Radarr grab routes send the release's `guid`, its
-  `indexerId` and the app's own ids, drop every other field and any app id that is not an id (D102), and refuse a grab
-  without a valid `guid` and `indexerId` with 400 `Invalid release`.
-- **Monitor routes carry only ids and the flag.** The episode and movie monitor routes send only the id list and the
-  `monitored` flag, drop every other field, and refuse anything else with 400 `Invalid monitor request`.
-- **Adds carry the fields an add needs.** Adding a show or a movie sends only the add fields, leaves the rest of the
-  lookup answer for the app to fill from its own metadata, drops an optional setting whose value is outside its rule
-  (D102; for seasons, only the invalid entries), and refuses an add missing a valid required field with 400
-  `Invalid add request`. A movie added from ArrView now gets Radarr's default minimum availability, Released, instead
-  of the lookup's placeholder.
-- **SABnzbd add-by-URL takes only links ArrView handed out.** Sending a result to SABnzbd works only for a link an
-  ArrView search returned in the last 24 hours; links are kept in memory, so after a restart the user searches again.
-- **Search terms are bounded.** The search text, season, episode, year and category values passed on to NZBHydra, Sonarr
-  and Radarr have length and character limits, and anything outside them is refused with 400 `Invalid query`.
-- **Tests:** server 407 (365 in the 2.0 entry, plus 42 new), web 636 (unchanged), Edge e2e 298 passed and 22 skipped
-  (unchanged; the e2e lookup fixture now carries `minimumAvailability: 'tba'` and `languageProfileId: 0`). The baseline
-  is the 2.0 entry's counts, not a measured run.
-
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
 - **Version 2.0.** `APP_VERSION` is `2.0`. It builds on 1.9A24, which had already gone out as `latest` under its own
   label (release commit `11641d8`), with the documentation below, one change in the web app (Recent History names the
-  episode) and the server hardening below. No new route, capability, config key or file format, and no dependency,
-  `package.json` or Dockerfile change; requests the web app never sends are now refused with 400.
+  episode) and two rounds of server hardening below. No new route, capability, config key or file format, and no
+  `package.json` or Dockerfile change; the production dependencies were refreshed in `package-lock.json` only, within
+  their major versions. Requests the web app never sends are now refused with 400.
 - **Downloads: Recent History names the episode** (the maintainer, 2026-11-27: "the coming up includes the episode name").
   - A finished episode reads "S2 E6 · <episode title>", as the queue and Coming up do. With nothing downloading, the
     hero names it the way the queue's hero does: "Season 2, Episode 6 · <episode title>".
@@ -68,6 +44,27 @@ Server hardening 2 (factory job 013, decisions D97 to D99 and D102, 2026-11-27),
     on macOS (298 and 22). Existing assertions changed because malformed webhook events are now refused: two in
     `webhook-activity.test.js`, two in `config-api.test.js`, two request bodies in `auth-gate.test.js`, and one in
     `tests/e2e/webhooks.spec.cjs`.
+- **Server hardening, second round** (factory job 013, decisions D98, D99 and D102, 2026-11-27):
+  - **Production dependencies refreshed.** `npm audit fix --omit=dev` moved axios, body-parser, express, follow-redirects,
+    form-data, proxy-addr, qs and shell-quote to fixed releases in `package-lock.json` only (no `package.json` change, no
+    major version), and `npm audit --omit=dev` now reports no known vulnerability.
+  - **Release grabs carry only what the grab needs.** The Sonarr and Radarr grab routes send the release's `guid`, its
+    `indexerId` and the app's own ids, drop every other field and any app id that is not an id (D102), and refuse a grab
+    without a valid `guid` and `indexerId` with 400 `Invalid release`.
+  - **Monitor routes carry only ids and the flag.** The episode and movie monitor routes send only the id list and the
+    `monitored` flag, drop every other field, and refuse anything else with 400 `Invalid monitor request`.
+  - **Adds carry the fields an add needs.** Adding a show or a movie sends only the add fields, leaves the rest of the
+    lookup answer for the app to fill from its own metadata, drops an optional setting whose value is outside its rule
+    (D102; for seasons, only the invalid entries), and refuses an add missing a valid required field with 400
+    `Invalid add request`. A movie added from ArrView now gets Radarr's default minimum availability, Released, instead
+    of the lookup's placeholder.
+  - **SABnzbd add-by-URL takes only links ArrView handed out.** Sending a result to SABnzbd works only for a link an
+    ArrView search returned in the last 24 hours; links are kept in memory, so after a restart the user searches again.
+  - **Search terms are bounded.** The search text, season, episode, year and category values passed on to NZBHydra, Sonarr
+    and Radarr have length and character limits, and anything outside them is refused with 400 `Invalid query`.
+  - **Tests:** server 407 (365 in the 2.0 entry, plus 42 new), web 636 (unchanged), Edge e2e 298 passed and 22 skipped
+    (unchanged; the e2e lookup fixture now carries `minimumAvailability: 'tba'` and `languageProfileId: 0`). The baseline
+    is the 2.0 entry's counts, not a measured run.
 - **The README is rewritten for the people who run ArrView.** It now covers:
   - what ArrView is, with screenshots, and what is new since 1.05, with a note on upgrading from it;
   - a quick start with Compose and with `docker run`, and the first run;
@@ -101,10 +98,10 @@ Server hardening 2 (factory job 013, decisions D97 to D99 and D102, 2026-11-27),
     rebuilds `dev` or `latest`. Tag pushes always publish, because GitHub does not apply path filters to tags.
   - `test.yml` still runs on every push.
   - `.dockerignore` leaves out `docs/`.
-- **Tests:** server 365/365 (314 before the server hardening, 310 at 1.9A24), web (vitest) 636/636 (625 before the
-  history change), e2e 298 passed and 22 skipped in Microsoft Edge on macOS (CI repeats them in real Chromium).
-  The server hardening's own tests are listed in its group above; checked on the merged tree (`15f0591`) with the
-  same counts.
+- **Tests:** server 407/407 (365 before the second hardening round, 314 before the first, 310 at 1.9A24), web (vitest)
+  636/636 (625 before the history change), e2e 298 passed and 22 skipped in Microsoft Edge on macOS (CI repeats them in
+  real Chromium). Each hardening round's own tests are listed in its group above; the second round's were also run on
+  a fresh install of its lockfile, with the same counts.
   - New for the history change:
     - `tests/web/downloads.test.js`, 3 tests: one episode named once its list has it, in the row and the hero, and
       "S2 E6" until then, or for an episode the list lacks or an empty title; a release of several episodes; season
@@ -133,6 +130,15 @@ Server hardening 2 (factory job 013, decisions D97 to D99 and D102, 2026-11-27),
     - the screenshots test failed (none shown);
     - the link and anchor tests passed on both READMEs, and failed when one link and one anchor were broken on purpose.
 - **Checked:**
+  - The second hardening round against real Sonarr 4.0.20.3014, Radarr 6.4.4.10685 and SABnzbd 5.1.3 in containers on
+    loopback, with a stand-in indexer, driving ArrView with the web app's own request bodies:
+    - adding two shows and two movies from real lookup answers works, and Radarr stores the movies' minimum
+      availability as Released (the round's first build refused every movie add, which is what its rework fixed);
+    - both monitor routes change the flag in the app;
+    - a grab of a real release object reaches SABnzbd, and Sonarr's and Radarr's own queues tie it to the right
+      episode and movie;
+    - a searched download link is sent to SABnzbd, and a link that no search returned is refused;
+    - `npm audit --omit=dev` reports no known vulnerability on a fresh install.
   - Both Compose examples pass `docker-compose config`.
   - The complete example was run as written on the published image, in a container on loopback with throwaway
     secret files. All four apps were set from Docker, the login was on from the password file, the proxy entry was
@@ -146,6 +152,8 @@ Server hardening 2 (factory job 013, decisions D97 to D99 and D102, 2026-11-27),
     "Season 2, Episode 10 · Cold Harbor", with one request per show on screen, three wide and two on the phone, and
     nothing scrolling sideways);
   - daily and anime releases, which ArrView does not match (unchanged);
+  - for the second hardening round: Sonarr 3 or other Radarr versions, whose lookup answers may carry other values; a
+    daily show's lookup; a real NZBHydra (a stand-in indexer and a stand-in SABnzbd served the direct-send check);
   - for the server hardening: real Grab, Download, Upgrade, Rename and EpisodeFileDelete webhook bodies (Test,
     SeriesAdd, SeriesDelete, MovieAdded and MovieDelete were sent by real Sonarr 4 and Radarr 6); a redirect over a
     real https hop or a real forward proxy; SABnzbd versions other than 5.1.3; the iPhone and iPad app in ArrView
@@ -172,7 +180,16 @@ Server hardening 2 (factory job 013, decisions D97 to D99 and D102, 2026-11-27),
      e. A release search and a grab, for an episode and a movie, and an NZB search, work as before.
      f. Press Test on ArrView's webhook in Sonarr: Settings shows the test message received, and nothing refreshes.
         After a real import, the open page refreshes once, and Sonarr's and Radarr's logs show no 400 from ArrView.
-  5. Optional: on a spare machine, follow Quick start from the README as a new user would, and say where it is unclear.
+  5. The second hardening round, on your own apps:
+     a. Add a movie and a show from ArrView: both are added, and the movie's minimum availability in Radarr reads
+        Released.
+     b. Grab a release for an episode and for a movie: each appears in SABnzbd, and in Sonarr's or Radarr's activity
+        against the right episode or movie.
+     c. Send an NZB search result to SABnzbd: it is queued. After restarting the container, sending a result from a
+        page opened before the restart says "That download link did not come from an ArrView search", and works
+        after searching again.
+     d. Delete an episode's file with unmonitoring, and turn a movie's monitoring off and on: Sonarr and Radarr follow.
+  6. Optional: on a spare machine, follow Quick start from the README as a new user would, and say where it is unclear.
 
 ## 1.9A24 (unreleased) — Shows: "Monitor latest season only" for a continuing show
 
