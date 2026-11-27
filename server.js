@@ -1812,6 +1812,47 @@ function monitorChange(body, idField) {
 }
 const invalidMonitor = res => res.status(400).json({ error: 'Invalid monitor request' });
 
+// An add carries the fields an add needs; the rest of the lookup object (images, overview, statistics, path and so on) is
+// dropped, because the apps fill it from their own metadata. The apps check the root folder themselves.
+const isTagList = value => Array.isArray(value) && value.length <= 100 && value.every(isPositiveId);
+const isSeasonList = value => Array.isArray(value) && value.length <= 500 && value.every(season => isPlainObject(season)
+  && Number.isSafeInteger(season.seasonNumber) && season.seasonNumber >= 0 && season.seasonNumber <= 9999
+  && typeof season.monitored === 'boolean');
+const oneOf = (...values) => value => values.includes(value);
+const isBoolean = value => typeof value === 'boolean';
+function addCommon(body, idField) {
+  if (!isPlainObject(body) || !isPositiveId(body[idField]) || !isPositiveId(body.qualityProfileId)
+    || !isCleanText(body.rootFolderPath, 4096) || !isBoolean(body.monitored) || !isPlainObject(body.addOptions)) return null;
+  return { [idField]: body[idField], qualityProfileId: body.qualityProfileId, rootFolderPath: body.rootFolderPath,
+    monitored: body.monitored };
+}
+function seriesAdd(body) {
+  const out = addCommon(body, 'tvdbId');
+  if (!out || !isCleanText(body.title, 500)) return null;
+  const { monitor, searchForMissingEpisodes, searchForCutoffUnmetEpisodes } = body.addOptions;
+  if (monitor !== 'all' || !isBoolean(searchForMissingEpisodes)) return null;
+  out.title = body.title;
+  out.addOptions = { monitor, searchForMissingEpisodes };
+  if (!copyOptional(body.addOptions, out.addOptions, { searchForCutoffUnmetEpisodes: isBoolean })) return null;
+  const ok = copyOptional(body, out, {
+    seasonFolder: isBoolean, seasons: isSeasonList, seriesType: oneOf('standard', 'daily', 'anime'),
+    languageProfileId: isPositiveId, monitorNewItems: oneOf('all', 'none'), tags: isTagList,
+  });
+  if (!ok) return null;
+  if (out.seasons) out.seasons = out.seasons.map(({ seasonNumber, monitored }) => ({ seasonNumber, monitored }));
+  return out;
+}
+function movieAdd(body) {
+  const out = addCommon(body, 'tmdbId');
+  if (!out || !isBoolean(body.addOptions.searchForMovie)) return null;
+  out.addOptions = { searchForMovie: body.addOptions.searchForMovie };
+  const ok = copyOptional(body, out, {
+    title: value => isCleanText(value, 500), minimumAvailability: oneOf('announced', 'inCinemas', 'released'), tags: isTagList,
+  });
+  return ok ? out : null;
+}
+const invalidAdd = res => res.status(400).json({ error: 'Invalid add request' });
+
 app.post('/api/sonarr/command', async (req, res) => {
   const command = sonarrCommand(req.body);
   if (!command) return res.status(400).json(COMMAND_REFUSED);
@@ -1973,9 +2014,11 @@ app.get('/api/sonarr/rootfolders', async (req, res) => {
 });
 
 app.post('/api/sonarr/series', async (req, res) => {
+  const add = seriesAdd(req.body);
+  if (!add) return invalidAdd(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/series`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/series`, add, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2375,9 +2418,11 @@ app.get('/api/radarr/rootfolders', async (req, res) => {
 });
 
 app.post('/api/radarr/movie', async (req, res) => {
+  const add = movieAdd(req.body);
+  if (!add) return invalidAdd(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/movie`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/movie`, add, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });

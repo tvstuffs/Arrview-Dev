@@ -11,6 +11,8 @@ Server hardening 2 (factory job 013, decisions D97 to D99, 2026-11-27), inside 2
   `indexerId` and the app's own ids, drop every other field, and refuse a malformed grab with 400 `Invalid release`.
 - **Monitor routes carry only ids and the flag.** The episode and movie monitor routes send only the id list and the
   `monitored` flag, drop every other field, and refuse anything else with 400 `Invalid monitor request`.
+- **Adds carry the fields an add needs.** Adding a show or a movie sends only the add fields, leaves the rest of the
+  lookup answer for the app to fill from its own metadata, and refuses a malformed add with 400 `Invalid add request`.
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 

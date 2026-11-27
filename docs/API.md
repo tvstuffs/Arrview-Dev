@@ -58,8 +58,11 @@ or `-`, never `all`. Anything else gets 400 `{"error":"That command is not suppo
 **Forwarded bodies.** The release grabs (`POST /api/sonarr/release`, `POST /api/radarr/release`) send only `guid`,
 `indexerId` and the app's ids (`seriesId` and `episodeId`, or `movieId`), and the monitor routes
 (`PUT /api/sonarr/episode/monitor`, `PUT /api/radarr/movie/monitor`) send only the id list (1 to 10000 ids) and the
-boolean `monitored`; other fields are dropped, and a bad request gets 400 `{"error":"Invalid release"}` or
-`{"error":"Invalid monitor request"}` with nothing sent.
+boolean `monitored`, and the adds (`POST /api/sonarr/series`, `POST /api/radarr/movie`) send only the add fields (the
+lookup id, `title`, `qualityProfileId`, `rootFolderPath`, `monitored`, `addOptions` and the optional season, type,
+language, availability and tag settings); other fields are dropped, and a bad request gets 400
+`{"error":"Invalid release"}`, `{"error":"Invalid monitor request"}` or `{"error":"Invalid add request"}` with nothing
+sent.
 
 **Redirects.** When an app answers with a redirect, ArrView follows it only to the same host name (another port or path
 is fine) and never from https to http; otherwise the request is stopped and the route answers with its usual error.
