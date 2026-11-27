@@ -1,37 +1,11 @@
 # ArrView server development changelog
 
-## Unreleased
-
-Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays `2.0`.
-
-- **One request can no longer end the server.** The SABnzbd history route checks its `limit` as text before using it,
-  every route's unexpected error is answered with a plain `500 {"error":"Internal error"}` and one log line, and a
-  rejection nobody handled is logged instead of stopping the process.
-- **Only numbers in the ids passed on to Sonarr and Radarr.** Every id that goes into an upstream address is 1 to 10
-  digits, or the request is refused with 400 `Invalid id` before anything is sent; query values passed on must be
-  single values (400 `Invalid query`).
-- **Only the commands the web app sends.** The Sonarr and Radarr command routes and the SABnzbd action route pass on
-  only the searches and queue actions the web app uses, rebuilt from their own fields, with one SABnzbd item at a time;
-  anything else is refused with 400 and never reaches the app.
-- **Redirects stay on the same host name.** When an app answers with a redirect, ArrView follows it only to the same
-  host name and never from https to http, so a stored key is never sent to another address; the Test and the pages say
-  the service redirected to another address.
-- **Webhooks stay open, and are bounded.** A malformed event is now refused with 400 (before, it was answered 200 and
-  ignored); each app refreshes the open pages at most once a second, with the events of that second merged; an event
-  carries at most 200 episode ids; titles lose their control characters; and the webhook log line is limited to one a
-  second.
-- **The Vite dev server does not serve the data files.** `npm run dev` refuses `config.json`, `auth.json` and their
-  temporary files, as well as Vite's own defaults.
-- **Tests:** server 365/365 (314 at 2.0), web (vitest) 625/625 (625), e2e 298/298 and 22 skipped in Microsoft Edge
-  on macOS (298 and 22). Existing assertions changed because malformed webhook events are now refused: two in
-  `webhook-activity.test.js`, two in `config-api.test.js`, two request bodies in `auth-gate.test.js`, and one in
-  `tests/e2e/webhooks.spec.cjs`.
-
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 
 - **Version 2.0.** `APP_VERSION` is `2.0`. It builds on 1.9A24, which had already gone out as `latest` under its own
-  label (release commit `11641d8`), with the documentation below and one change in the web app: Recent History names
-  the episode. No route, capability, config key, file format, dependency, `package.json` or Dockerfile change.
+  label (release commit `11641d8`), with the documentation below, one change in the web app (Recent History names the
+  episode) and the server hardening below. No new route, capability, config key or file format, and no dependency,
+  `package.json` or Dockerfile change; requests the web app never sends are now refused with 400.
 - **Downloads: Recent History names the episode** (the maintainer, 2026-11-27: "the coming up includes the episode name").
   - A finished episode reads "S2 E6 · <episode title>", as the queue and Coming up do. With nothing downloading, the
     hero names it the way the queue's hero does: "Season 2, Episode 6 · <episode title>".
@@ -46,6 +20,29 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
     does; it read "S1 E1" before, and no single title would be right for it.
   - Season packs, movies and items ArrView cannot match read as before. Classic is unchanged: its history shows the
     release name.
+- **Server hardening from two outside code reviews** (factory job 012, decisions D93 to D97, 2026-11-24 and 2026-11-27):
+  - **One request can no longer end the server.** The SABnzbd history route checks its `limit` as text before using it,
+    every route's unexpected error is answered with a plain `500 {"error":"Internal error"}` and one log line, and a
+    rejection nobody handled is logged instead of stopping the process.
+  - **Only numbers in the ids passed on to Sonarr and Radarr.** Every id that goes into an upstream address is 1 to 10
+    digits, or the request is refused with 400 `Invalid id` before anything is sent; query values passed on must be
+    single values (400 `Invalid query`).
+  - **Only the commands the web app sends.** The Sonarr and Radarr command routes and the SABnzbd action route pass on
+    only the searches and queue actions the web app uses, rebuilt from their own fields, with one SABnzbd item at a time;
+    anything else is refused with 400 and never reaches the app.
+  - **Redirects stay on the same host name.** When an app answers with a redirect, ArrView follows it only to the same
+    host name and never from https to http, so a stored key is never sent to another address; the Test and the pages say
+    the service redirected to another address.
+  - **Webhooks stay open, and are bounded.** A malformed event is now refused with 400 (before, it was answered 200 and
+    ignored); each app refreshes the open pages at most once a second, with the events of that second merged; an event
+    carries at most 200 episode ids; titles lose their control characters; and the webhook log line is limited to one a
+    second.
+  - **The Vite dev server does not serve the data files.** `npm run dev` refuses `config.json`, `auth.json` and their
+    temporary files, as well as Vite's own defaults.
+  - **Tests:** server 365/365 (314 at 2.0), web (vitest) 625/625 (625), e2e 298/298 and 22 skipped in Microsoft Edge
+    on macOS (298 and 22). Existing assertions changed because malformed webhook events are now refused: two in
+    `webhook-activity.test.js`, two in `config-api.test.js`, two request bodies in `auth-gate.test.js`, and one in
+    `tests/e2e/webhooks.spec.cjs`.
 - **The README is rewritten for the people who run ArrView.** It now covers:
   - what ArrView is, with screenshots, and what is new since 1.05, with a note on upgrading from it;
   - a quick start with Compose and with `docker run`, and the first run;
@@ -79,8 +76,10 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
     rebuilds `dev` or `latest`. Tag pushes always publish, because GitHub does not apply path filters to tags.
   - `test.yml` still runs on every push.
   - `.dockerignore` leaves out `docs/`.
-- **Tests:** server 314/314 (310 at 1.9A24), web (vitest) 636/636 (625 before the history change), e2e 298 passed and
-  22 skipped in Microsoft Edge on macOS (one test changed, none added; CI repeats them in real Chromium).
+- **Tests:** server 365/365 (314 before the server hardening, 310 at 1.9A24), web (vitest) 636/636 (625 before the
+  history change), e2e 298 passed and 22 skipped in Microsoft Edge on macOS (CI repeats them in real Chromium).
+  The server hardening's own tests are listed in its group above; checked on the merged tree (`15f0591`) with the
+  same counts.
   - New for the history change:
     - `tests/web/downloads.test.js`, 3 tests: one episode named once its list has it, in the row and the hero, and
       "S2 E6" until then, or for an episode the list lacks or an empty title; a release of several episodes; season
@@ -122,6 +121,11 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
     "Season 2, Episode 10 · Cold Harbor", with one request per show on screen, three wide and two on the phone, and
     nothing scrolling sideways);
   - daily and anime releases, which ArrView does not match (unchanged);
+  - for the server hardening: real Grab, Download, Upgrade, Rename and EpisodeFileDelete webhook bodies (Test,
+    SeriesAdd, SeriesDelete, MovieAdded and MovieDelete were sent by real Sonarr 4 and Radarr 6); a redirect over a
+    real https hop or a real forward proxy; SABnzbd versions other than 5.1.3; the iPhone and iPad app in ArrView
+    server mode, which may send a command or queue action the server now refuses (the apps are fitted to 2.0
+    afterwards, by decision);
   - the `docker run` examples as written;
   - the iPhone app against 2.0 on a device (its calls were checked against the routes in the source).
 - **Human test plan** (after the release is published):
@@ -133,7 +137,17 @@ Server hardening from two outside code reviews (2026-11-24). `APP_VERSION` stays
   3. Downloads → Recent History: a finished episode reads "S2 E6 · <episode title>", like the queue and Coming up.
      With nothing downloading, the top card reads "Season 2, Episode 6 · <episode title>". Movies, season packs and
      releases ArrView does not recognise read as before; on a phone, a long title wraps and nothing scrolls sideways.
-  4. Optional: on a spare machine, follow Quick start from the README as a new user would, and say where it is unclear.
+  4. The server hardening, on your own apps (login off, then on, for a to c):
+     a. Settings: Test on all four apps, with the stored key and with a typed one: each says Connected. Behind a
+        reverse proxy that redirects http to https or `/sonarr` to `/sonarr/` on the same host name: still Connected.
+     b. Shows, a show with seasons, Movies and a movie load, with no 400 in the browser's network tab.
+     c. Series, season, one-episode and movie searches start in Sonarr or Radarr, and "Download All Missing" works
+        on your largest library.
+     d. Downloads: Pause All, Resume All, and pausing, resuming and removing one queued item all work.
+     e. A release search and a grab, for an episode and a movie, and an NZB search, work as before.
+     f. Press Test on ArrView's webhook in Sonarr: Settings shows the test message received, and nothing refreshes.
+        After a real import, the open page refreshes once, and Sonarr's and Radarr's logs show no 400 from ArrView.
+  5. Optional: on a spare machine, follow Quick start from the README as a new user would, and say where it is unclear.
 
 ## 1.9A24 (unreleased) — Shows: "Monitor latest season only" for a continuing show
 
