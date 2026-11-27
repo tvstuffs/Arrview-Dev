@@ -1780,6 +1780,31 @@ function radarrCommand(body) {
   return name === 'MoviesSearch' && isIdList(movieIds) ? { name, movieIds } : null;
 }
 
+// Bodies forwarded to Sonarr and Radarr are rebuilt from the listed fields; anything else the caller sent is dropped. Text is
+// 1 to `max` characters with no C0, DEL or C1 control character. An optional field that is null counts as absent.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
+const isCleanText = (value, max) => typeof value === 'string' && value.length >= 1 && value.length <= max && !CONTROL_CHARS.test(value);
+const isAbsent = value => value === undefined || value === null;
+// Copies the optional fields that are present into `out`; false when one of them is present and fails its rule.
+function copyOptional(body, out, rules) {
+  for (const [field, valid] of Object.entries(rules)) {
+    const value = body[field];
+    if (isAbsent(value)) continue;
+    if (!valid(value)) return false;
+    out[field] = value;
+  }
+  return true;
+}
+
+// A release grab needs only the pair the app looks the release up by (guid, indexerId) and the app's own ids.
+function releaseGrab(body, idFields) {
+  if (!isPlainObject(body) || !isCleanText(body.guid, 2000) || !isPositiveId(body.indexerId)) return null;
+  const out = { guid: body.guid, indexerId: body.indexerId };
+  const rules = Object.fromEntries(idFields.map(field => [field, isPositiveId]));
+  return copyOptional(body, out, rules) ? out : null;
+}
+const invalidRelease = res => res.status(400).json({ error: 'Invalid release' });
+
 app.post('/api/sonarr/command', async (req, res) => {
   const command = sonarrCommand(req.body);
   if (!command) return res.status(400).json(COMMAND_REFUSED);
@@ -1874,9 +1899,11 @@ app.get('/api/sonarr/release', async (req, res) => {
 
 // Grab a specific release
 app.post('/api/sonarr/release', async (req, res) => {
+  const grab = releaseGrab(req.body, ['seriesId', 'episodeId']);
+  if (!grab) return invalidRelease(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/release`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/release`, grab, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2252,9 +2279,11 @@ app.get('/api/radarr/release', async (req, res) => {
 
 // Grab a specific movie release
 app.post('/api/radarr/release', async (req, res) => {
+  const grab = releaseGrab(req.body, ['movieId']);
+  if (!grab) return invalidRelease(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
-    const r = await axios.post(`${baseUrl}/api/v3/release`, req.body, {
+    const r = await axios.post(`${baseUrl}/api/v3/release`, grab, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
