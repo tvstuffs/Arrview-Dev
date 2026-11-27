@@ -9,6 +9,8 @@ Server hardening 2 (factory job 013, decisions D97 to D99, 2026-11-27), inside 2
   major version), and `npm audit --omit=dev` now reports no known vulnerability.
 - **Release grabs carry only what the grab needs.** The Sonarr and Radarr grab routes send the release's `guid`, its
   `indexerId` and the app's own ids, drop every other field, and refuse a malformed grab with 400 `Invalid release`.
+- **Monitor routes carry only ids and the flag.** The episode and movie monitor routes send only the id list and the
+  `monitored` flag, drop every other field, and refuse anything else with 400 `Invalid monitor request`.
 
 ## 2.0 — The public release: version 2.0, and the documentation rewritten for the people who run ArrView
 

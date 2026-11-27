@@ -1805,6 +1805,13 @@ function releaseGrab(body, idFields) {
 }
 const invalidRelease = res => res.status(400).json({ error: 'Invalid release' });
 
+// A monitor change is exactly the id list (1 to 10000 ids) and the boolean flag.
+function monitorChange(body, idField) {
+  if (!isPlainObject(body) || !isIdList(body[idField]) || typeof body.monitored !== 'boolean') return null;
+  return { [idField]: body[idField], monitored: body.monitored };
+}
+const invalidMonitor = res => res.status(400).json({ error: 'Invalid monitor request' });
+
 app.post('/api/sonarr/command', async (req, res) => {
   const command = sonarrCommand(req.body);
   if (!command) return res.status(400).json(COMMAND_REFUSED);
@@ -1926,9 +1933,11 @@ app.delete('/api/sonarr/episodefile/:id', async (req, res) => {
 
 // Update episode monitored status
 app.put('/api/sonarr/episode/monitor', async (req, res) => {
+  const change = monitorChange(req.body, 'episodeIds');
+  if (!change) return invalidMonitor(res);
   try {
     const { baseUrl, headers } = sonarrHeaders();
-    const r = await axios.put(`${baseUrl}/api/v3/episode/monitor`, req.body, {
+    const r = await axios.put(`${baseUrl}/api/v3/episode/monitor`, change, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -2326,9 +2335,11 @@ app.delete('/api/radarr/movie/:id', async (req, res) => {
 
 // Update movie monitored status (bulk, via Radarr's movie editor)
 app.put('/api/radarr/movie/monitor', async (req, res) => {
+  const change = monitorChange(req.body, 'movieIds');
+  if (!change) return invalidMonitor(res);
   try {
     const { baseUrl, headers } = radarrHeaders();
-    const r = await axios.put(`${baseUrl}/api/v3/movie/editor`, req.body, {
+    const r = await axios.put(`${baseUrl}/api/v3/movie/editor`, change, {
       headers: { ...headers, 'Content-Type': 'application/json' },
       timeout: 15000,
     });
